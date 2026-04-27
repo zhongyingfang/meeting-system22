@@ -1861,7 +1861,7 @@ app.get('/api/venues/:id/seating', requireAuth, (req, res) => {
     const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
     const attendeeMap = {};
     venueAttendees.forEach(a => {
-      const key = `${a.row}_${a.seat}`;
+      const key = `${a.row}_${String(a.seat)}`;
       attendeeMap[key] = a;
     });
 
@@ -1877,7 +1877,7 @@ app.get('/api/venues/:id/seating', requireAuth, (req, res) => {
         if (row.seatGroups) {
           row.seatGroups.forEach(group => {
             group.forEach(seatNum => {
-              const key = `${row.label}_${seatNum}`;
+              const key = `${row.label}_${String(seatNum)}`;
               seating.seatOccupancy[key] = attendeeMap[key] || null;
             });
           });
@@ -1950,11 +1950,11 @@ app.post('/api/venues/:id/assign-seat', requireAuth, (req, res) => {
     const attendee = data.attendees.find(a => a.id === attendeeId);
     if (!attendee) return res.status(404).json({ error: '参会者不存在' });
 
-    // 检查目标座位是否被占用
+    // 检查目标座位是否被占用（统一转为字符串比较，避免数字/字符串类型不匹配）
     const existing = data.attendees.find(
       a => a.venueId === venue.id &&
-           a.row === row &&
-           a.seat === seat
+           String(a.row) === String(row) &&
+           String(a.seat) === String(seat)
     );
 
     if (existing) {

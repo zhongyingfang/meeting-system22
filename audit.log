@@ -16,3 +16,8 @@
 {"timestamp":"2026-04-27T05:45:21.364Z","type":"audit","action":"ASSIGN_SEAT","ip":"::1","venueId":"venue-0","attendeeId":"att-1777268107292-4bopyj1pa","name":"张三","row":"一楼第8排","seat":"3"}
 {"timestamp":"2026-04-27T09:05:45.984Z","type":"audit","action":"IMPORT_ATTENDEES","ip":"::1","venueId":"venue-0","mode":"append","imported":2,"duplicates":0,"conflicts":0}
 {"timestamp":"2026-04-27T09:06:12.286Z","type":"audit","action":"DELETE_ATTENDEES","ip":"::1","name":null,"venueId":"venue-0","deletedCount":8,"scope":"venue"}
+{"timestamp":"2026-04-27T09:22:11.849Z","type":"audit","action":"DELETE_ATTENDEES","ip":"::1","name":null,"venueId":"venue-0","deletedCount":3,"scope":"venue"}
+{"timestamp":"2026-04-27T09:22:25.041Z","type":"audit","action":"IMPORT_NAMES","ip":"::1","importedCount":3,"duplicateCount":0}
+{"timestamp":"2026-04-27T09:22:31.237Z","type":"audit","action":"ASSIGN_SEAT","ip":"::1","venueId":"venue-0","attendeeId":"att-1777281745006-g6za98gsz","name":"刘小妹","row":"一楼第1排","seat":"1"}
+{"timestamp":"2026-04-27T09:22:34.243Z","type":"audit","action":"ASSIGN_SEAT","ip":"::1","venueId":"venue-0","attendeeId":"att-1777281745006-d1ut38nd2","name":"王小山","row":"一楼第3排","seat":"36"}
+{"timestamp":"2026-04-27T09:22:37.131Z","type":"audit","action":"ASSIGN_SEAT","ip":"::1","venueId":"venue-0","attendeeId":"att-1777281745006-b1ibbqcwa","name":"张小二","row":"一楼第3排","seat":"27"}

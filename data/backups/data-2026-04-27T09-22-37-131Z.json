@@ -3303,57 +3303,27 @@
       "venueId": "venue-2"
     },
     {
-      "id": "att-1777268107292-4bopyj1pa",
-      "name": "张三",
-      "company": "",
-      "title": "",
-      "venueId": "",
-      "row": "",
-      "seat": "",
-      "source": "manual"
-    },
-    {
-      "id": "att-1777268107292-gqamaafqv",
-      "name": "李四，发财公司",
-      "company": "",
-      "title": "",
-      "venueId": "",
-      "row": "",
-      "seat": "",
-      "source": "manual"
-    },
-    {
-      "id": "att-1777268107292-0mpvajpve",
-      "name": "王二麻子",
-      "company": "",
-      "title": "",
-      "venueId": "",
-      "row": "",
-      "seat": "",
-      "source": "manual"
-    },
-    {
-      "id": "att-1777268672756-to8lwagbm",
+      "id": "att-1777281745006-g6za98gsz",
       "name": "刘小妹",
       "company": "人社局",
       "title": "科长",
-      "venueId": "",
-      "row": "",
-      "seat": "",
-      "source": "manual"
-    },
-    {
-      "id": "att-1777268672756-ilo0en787",
-      "name": "王小山",
-      "company": "人社局",
-      "title": "副科长",
       "venueId": "venue-0",
       "row": "一楼第1排",
       "seat": "1",
       "source": "manual"
     },
     {
-      "id": "att-1777268672756-3kzqtalls",
+      "id": "att-1777281745006-d1ut38nd2",
+      "name": "王小山",
+      "company": "人社局",
+      "title": "副科长",
+      "venueId": "venue-0",
+      "row": "一楼第3排",
+      "seat": "36",
+      "source": "manual"
+    },
+    {
+      "id": "att-1777281745006-b1ibbqcwa",
       "name": "张小二",
       "company": "工信局",
       "title": "副局长",

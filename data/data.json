@@ -3303,33 +3303,33 @@
       "venueId": "venue-2"
     },
     {
-      "id": "att-1777281171253-ffu9vl2uk",
+      "id": "att-1777281745006-g6za98gsz",
       "name": "刘小妹",
       "company": "人社局",
       "title": "科长",
       "venueId": "venue-0",
-      "row": "一楼第16排",
-      "seat": 10,
+      "row": "一楼第1排",
+      "seat": "1",
       "source": "manual"
     },
     {
-      "id": "att-1777281171253-s5rpf9k30",
+      "id": "att-1777281745006-d1ut38nd2",
       "name": "王小山",
       "company": "人社局",
       "title": "副科长",
       "venueId": "venue-0",
-      "row": "一楼第20排",
-      "seat": 8,
+      "row": "一楼第3排",
+      "seat": "36",
       "source": "manual"
     },
     {
-      "id": "att-1777281171253-44milee5w",
+      "id": "att-1777281745006-b1ibbqcwa",
       "name": "张小二",
       "company": "工信局",
       "title": "副局长",
       "venueId": "venue-0",
-      "row": "一楼第6排",
-      "seat": 14,
+      "row": "一楼第3排",
+      "seat": "27",
       "source": "manual"
     }
   ]

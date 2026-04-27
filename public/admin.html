@@ -1525,36 +1525,31 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
 
 // 渲染待安排参会者列表
 function renderUnassignedList() {
-  var allAttendees = currentDragSeating.attendees || [];
-  var assignedKeys = new Set();
-  Object.values(currentDragSeating.seatOccupancy || {}).forEach(function(a) {
-    if (a) assignedKeys.add(a.id);
-  });
-
-  var dataRes = null;
-  try {
-    fetch('/api/data').then(function(res) { return res.json(); }).then(function(data) {
-      var unassigned = (data.attendees || []).filter(function(a) {
-        return !a.venueId || !a.row || !a.seat;
-      });
-
-      document.getElementById('unassignedCount').textContent = unassigned.length;
-      var html = '';
-      if (unassigned.length === 0) {
-        html = '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px">所有参会者已安排座位</div>';
-      } else {
-        unassigned.forEach(function(a) {
-          html += '<div class="draggable-attendee" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:#fff;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s">';
-          html += '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
-          html += '<div style="flex:1;min-width:0">';
-          html += '<div style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
-          html += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.company || '无单位') + '</div>';
-          html += '</div></div>';
-        });
-      }
-      document.getElementById('unassignedList').innerHTML = html;
+  document.getElementById('unassignedCount').textContent = '...';
+  authFetch('/api/data').then(function(res) { return res.json(); }).then(function(data) {
+    var unassigned = (data.attendees || []).filter(function(a) {
+      return !a.venueId || !a.row || !a.seat;
     });
-  } catch (e) {}
+
+    document.getElementById('unassignedCount').textContent = unassigned.length;
+    var html = '';
+    if (unassigned.length === 0) {
+      html = '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px">所有参会者已安排座位</div>';
+    } else {
+      unassigned.forEach(function(a) {
+        html += '<div class="draggable-attendee" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:#fff;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s">';
+        html += '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
+        html += '<div style="flex:1;min-width:0">';
+        html += '<div style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
+        html += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.company || '') + '</div>';
+        html += '</div></div>';
+      });
+    }
+    document.getElementById('unassignedList').innerHTML = html;
+  }).catch(function(e) {
+    console.error('加载待安排列表失败:', e);
+    document.getElementById('unassignedList').innerHTML = '<div style="text-align:center;color:var(--danger);padding:16px;font-size:12px">加载失败</div>';
+  });
 }
 
 // 处理拖拽开始
