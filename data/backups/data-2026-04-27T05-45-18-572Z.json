@@ -3307,9 +3307,9 @@
       "name": "张三",
       "company": "",
       "title": "",
-      "venueId": "venue-0",
-      "row": "一楼第8排",
-      "seat": "3",
+      "venueId": "",
+      "row": "",
+      "seat": "",
       "source": "manual"
     },
     {
@@ -3317,9 +3317,9 @@
       "name": "李四，发财公司",
       "company": "",
       "title": "",
-      "venueId": "venue-0",
-      "row": "一楼第5排",
-      "seat": "23",
+      "venueId": "",
+      "row": "",
+      "seat": "",
       "source": "manual"
     },
     {
