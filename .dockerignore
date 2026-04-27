@@ -1,0 +1,16 @@
+node_modules
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+.DS_Store
+logs
+*.log
+output/*
+!output/.gitkeep
+data/*
+!data/data.json
+README.md
+*.md
+.env

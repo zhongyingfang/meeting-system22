@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title id="pageTitle">座位查询</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #1a56db; --primary-light: #3b82f6; --primary-dark: #1e40af;
+    --accent: #f59e0b; --bg: #f0f4ff; --card-bg: #fff;
+    --text: #1e293b; --text2: #64748b; --border: #e2e8f0; --success: #10b981;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+
+  .header {
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--primary-light) 100%);
+    color: #fff; padding: 28px 20px 24px; text-align: center; position: relative; overflow: hidden;
+  }
+  .header::before {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 60%);
+    animation: spin 20s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .header h1 { font-size: 22px; font-weight: 700; letter-spacing: 2px; position: relative; z-index: 1; }
+  .header p { font-size: 13px; opacity: .85; margin-top: 6px; position: relative; z-index: 1; }
+
+  .search-section { padding: 20px; max-width: 520px; margin: 0 auto; }
+  .search-box {
+    background: var(--card-bg); border-radius: 16px; padding: 24px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.08); margin-top: -20px; position: relative; z-index: 2;
+  }
+  .search-box label { font-size: 15px; font-weight: 600; display: block; margin-bottom: 12px; }
+  .input-wrapper { position: relative; }
+  .input-wrapper input {
+    width: 100%; padding: 14px 50px 14px 16px; border: 2px solid var(--border);
+    border-radius: 12px; font-size: 16px; outline: none; transition: border-color .2s; background: #f8fafc;
+  }
+  .input-wrapper input:focus { border-color: var(--primary); background: #fff; }
+  .search-btn {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    width: 40px; height: 40px; border: none; background: var(--primary); color: #fff;
+    border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .search-btn:hover { background: var(--primary-dark); }
+  .search-btn svg { width: 20px; height: 20px; }
+
+  #resultArea { padding: 0 20px 20px; max-width: 800px; margin: 0 auto; }
+
+  .result-card {
+    background: var(--card-bg); border-radius: 16px; padding: 20px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.08); margin-top: 16px; animation: slideUp .3s ease;
+  }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+  .result-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .result-icon {
+    width: 48px; height: 48px; background: linear-gradient(135deg, var(--success), #059669);
+    border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .result-icon svg { width: 24px; height: 24px; color: #fff; }
+  .result-info h3 { font-size: 18px; font-weight: 700; }
+  .result-info p { font-size: 13px; color: var(--text2); margin-top: 2px; }
+
+  .seat-detail { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .seat-detail-item { background: #f1f5f9; border-radius: 10px; padding: 12px 8px; text-align: center; }
+  .seat-detail-item .label { font-size: 11px; color: var(--text2); margin-bottom: 2px; }
+  .seat-detail-item .value { font-size: 18px; font-weight: 700; color: var(--primary); }
+  .venue-badge {
+    background: linear-gradient(135deg, var(--primary), var(--primary-light));
+    color: #fff; border-radius: 8px; padding: 8px 12px; margin-bottom: 16px;
+    font-size: 13px; font-weight: 600; text-align: center;
+  }
+
+  /* 座位图 - 全貌自适应 */
+  .seat-map-wrap { margin-top: 16px; }
+  .seat-map-title {
+    font-size: 14px; font-weight: 600; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stage {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    color: #fff; text-align: center; padding: 8px; border-radius: 6px 6px 24px 24px;
+    font-size: 12px; font-weight: 600; letter-spacing: 4px; margin-bottom: 10px;
+  }
+  .seat-map { padding-bottom: 8px; }
+  .seat-row { display: flex; align-items: center; justify-content: center; margin-bottom: 2px; }
+  .row-label { font-size: 9px; color: var(--text2); text-align: right; flex-shrink: 0; font-weight: 600; padding-right: 3px; white-space: nowrap; }
+  .seat {
+    border-radius: 2px 2px 4px 4px; background: #dde3ed;
+    display: flex; align-items: center; justify-content: center;
+    color: transparent; flex-shrink: 0; position: relative; transition: all .3s;
+  }
+  .seat.highlight {
+    background: var(--accent); color: #fff; font-weight: 700;
+    transform: scale(1.6); z-index: 5;
+    box-shadow: 0 0 0 2px rgba(245,158,11,.4), 0 2px 8px rgba(245,158,11,.5);
+    animation: pulse 1.5s ease infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 2px rgba(245,158,11,.4), 0 2px 8px rgba(245,158,11,.5); }
+    50% { box-shadow: 0 0 0 4px rgba(245,158,11,.2), 0 2px 12px rgba(245,158,11,.6); }
+  }
+  .seat-aisle { flex-shrink: 0; }
+  .legend { display: flex; gap: 16px; justify-content: center; margin-top: 10px; font-size: 11px; color: var(--text2); }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+
+  /* U型会场布局 */
+  .u-shape-body { display: flex; align-items: stretch; justify-content: center; gap: 8px; }
+  .u-shape-arm { display: flex; flex-direction: row; align-items: stretch; gap: 2px; }
+  .u-shape-col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .u-shape-col-label { font-size: 9px; color: var(--text2); font-weight: 600; margin-bottom: 2px; white-space: nowrap; }
+  .u-shape-center { display: flex; align-items: center; justify-content: center; }
+  .u-shape-bottom { display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 2px; }
+  .u-shape-bottom-label { font-size: 9px; color: var(--text2); font-weight: 600; margin-right: 4px; white-space: nowrap; }
+
+  /* 重名提示 */
+  .dup-notice {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: #92400e;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dup-notice svg { width: 18px; height: 18px; flex-shrink: 0; color: #f59e0b; }
+
+  .multi-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; background: var(--card-bg); border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06); margin-bottom: 10px;
+    cursor: pointer; transition: all .2s; border: 2px solid transparent; animation: slideUp .3s ease;
+  }
+  .multi-item:hover, .multi-item.active { border-color: var(--primary); transform: translateX(4px); }
+  .multi-item .left { display: flex; align-items: center; gap: 12px; }
+  .multi-item .avatar {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700;
+  }
+  .multi-item .name { font-weight: 600; font-size: 15px; }
+  .multi-item .sub { font-size: 12px; color: var(--text2); }
+  .multi-item .badge { background: #f1f5f9; border-radius: 8px; padding: 6px 10px; font-weight: 700; color: var(--primary); font-size: 12px; text-align: center; line-height: 1.3; }
+
+  .no-result { text-align: center; padding: 32px 20px; color: var(--text2); }
+  .no-result svg { width: 48px; height: 48px; color: #cbd5e1; margin-bottom: 12px; }
+  .tip { text-align: center; padding: 40px 20px; color: var(--text2); font-size: 13px; line-height: 1.8; }
+  .tip svg { width: 64px; height: 64px; color: #cbd5e1; margin-bottom: 12px; }
+  .footer { text-align: center; padding: 20px; color: var(--text2); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 id="siteTitle">数据创新发展大会</h1>
+  <p id="siteSubtitle">座位查询系统</p>
+</div>
+
+<div class="search-section">
+  <div class="search-box">
+    <label>请输入您的姓名查询座位</label>
+    <div class="input-wrapper">
+      <input type="text" id="nameInput" placeholder="请输入姓名..." autocomplete="off" autofocus>
+      <button class="search-btn" onclick="doSearch()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="resultArea">
+  <div class="tip">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+    </svg>
+    <p>输入您的姓名<br>即可快速定位您的座位</p>
+  </div>
+</div>
+
+<div class="footer">数据创新发展大会 座位查询系统</div>
+
+<script>
+// 加载系统标题
+async function loadSiteConfig() {
+  try {
+    var res = await fetch('/api/site-config');
+    var data = await res.json();
+    document.getElementById('siteTitle').textContent = data.siteTitle;
+    document.getElementById('siteSubtitle').textContent = data.siteSubtitle;
+    document.title = data.siteTitle + ' - ' + data.siteSubtitle;
+  } catch (e) {}
+}
+loadSiteConfig();
+
+var nameInput = document.getElementById('nameInput');
+var resultArea = document.getElementById('resultArea');
+var currentResults = null;
+var TIP_HTML = '<div class="tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><p>输入您的姓名<br>即可快速定位您的座位</p></div>';
+
+// 防抖定时器：只在用户停止输入后才记录查询统计
+var searchDebounceTimer = null;
+var lastSearchedName = '';
+
+nameInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    clearTimeout(searchDebounceTimer);
+    doSearch();
+  }
+});
+
+nameInput.addEventListener('input', function() {
+  var name = this.value.trim();
+  if (name.length < 1) {
+    clearTimeout(searchDebounceTimer);
+    resultArea.innerHTML = TIP_HTML;
+    return;
+  }
+  
+  // 实时显示搜索结果（不记录统计）
+  performSearch(name, false);
+  
+  // 防抖：用户停止输入 800ms 后才记录到查询统计
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(function() {
+    performSearch(name, true);
+  }, 800);
+});
+
+// 执行搜索，trackStats 控制是否记录到查询统计
+async function performSearch(name, trackStats) {
+  if (!name) return;
+  try {
+    var url = '/api/search?name=' + encodeURIComponent(name);
+    if (trackStats) url += '&track=1';
+    var res = await fetch(url);
+    var data = await res.json();
+    currentResults = data.results;
+    if (data.results.length === 0) showNoResult(name);
+    else if (data.results.length === 1) showResult(data.results[0], false);
+    else showMulti(data.results);
+  } catch(e) { resultArea.innerHTML = '<div class="no-result"><p>查询失败，请重试</p></div>'; }
+}
+
+async function doSearch() {
+  var name = nameInput.value.trim();
+  if (!name) return;
+  // 直接搜索，不记录统计（由防抖处理）
+  await performSearch(name, false);
+}
+
+function showNoResult(name) {
+  resultArea.innerHTML = '<div class="result-card"><div class="no-result">' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+    '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>' +
+    '<p>未找到「' + esc(name) + '」的座位信息</p>' +
+    '<p style="margin-top:8px;font-size:12px;color:#94a3b8">请确认姓名是否正确，或联系工作人员</p></div></div>';
+}
+
+function showResult(person, hasDup) {
+  resultArea.innerHTML = renderPersonCard(person, hasDup);
+}
+
+function showMulti(results) {
+  // 检测是否有同名（完全相同的姓名出现多次）
+  var nameCount = {};
+  results.forEach(function(p) { nameCount[p.name] = (nameCount[p.name] || 0) + 1; });
+  var hasDup = Object.values(nameCount).some(function(c) { return c > 1; });
+
+  var html = '<div style="margin-top:16px">';
+  if (hasDup) {
+    html += '<div class="dup-notice">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>' +
+      '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+      '存在同名参会者，请根据<strong>会场</strong>和<strong>单位</strong>信息确认您的座位</div>';
+  }
+  results.forEach(function(p, i) {
+    var info = esc(p.venueName);
+    if (p.company) info += ' | ' + esc(p.company);
+    if (p.title) info += ' ' + esc(p.title);
+    html += '<div class="multi-item" onclick="selectPerson(' + i + ')" id="p-' + i + '">' +
+      '<div class="left"><div class="avatar">' + esc(p.name.charAt(0)) + '</div>' +
+      '<div><div class="name">' + esc(p.name) + '</div>' +
+      '<div class="sub">' + info + '</div></div></div>' +
+      '<div class="badge">' + esc(p.row) + '<br>' + p.seat + '座</div></div>';
+  });
+  html += '</div><div id="selectedMap"></div>';
+  resultArea.innerHTML = html;
+}
+
+function selectPerson(i) {
+  var p = currentResults[i];
+  document.querySelectorAll('.multi-item').forEach(function(el, j) { el.classList.toggle('active', j === i); });
+  document.getElementById('selectedMap').innerHTML = renderPersonCard(p, false);
+}
+
+function renderPersonCard(p, hasDup) {
+  var dupHtml = '';
+  if (hasDup) {
+    dupHtml = '<div class="dup-notice">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>' +
+      '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+      '存在同名参会者，请根据<strong>会场</strong>和<strong>单位</strong>信息确认您的座位</div>';
+  }
+  return '<div class="result-card">' + dupHtml +
+    '<div class="result-header"><div class="result-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>' +
+    '<div class="result-info"><h3>' + esc(p.name) + '</h3><p>' + esc(p.company || '') + ' ' + esc(p.title || '') + '</p></div></div>' +
+    '<div class="venue-badge">' + esc(p.venueName) + '</div>' +
+    '<div class="seat-detail">' +
+    '<div class="seat-detail-item"><div class="label">会场</div><div class="value" style="font-size:13px">' + esc(p.venueName) + '</div></div>' +
+    '<div class="seat-detail-item"><div class="label">排</div><div class="value">' + esc(p.row) + '</div></div>' +
+    '<div class="seat-detail-item"><div class="label">座位号</div><div class="value">' + p.seat + ' 号</div></div></div>' +
+    (p.venue ? renderSeatMap(p.venue, p) : '') + '</div>';
+}
+
+function renderSeatMap(venue, person) {
+  var pRow = (person.row || '').replace(/\s+/g, '');
+  var pSeat = parseInt(person.seat);
+
+  // U型会场专用渲染
+  if (venue.layout === 'u-shape') {
+    return renderUShapeSeatMap(venue, pRow, pSeat);
+  }
+
+  // 判断是否为标准模式（与后端 /api/generate-preview 逻辑一致）
+  var isStandardMode = venue.layout === 'standard' || venue.mode === 'standard';
+
+  // 根据窗口宽度确定自适应参数
+  var containerWidth = Math.min(window.innerWidth - 40, 760);
+  var labelWidth = 48;
+  var availWidth = containerWidth - labelWidth - 16;
+  var gap = 2;
+  var aisleWidth = 6;
+
+  if (isStandardMode) {
+    // 标准模式：按座位数分组行，只在每组首行显示座位号（与后端一致）
+    var maxRowSeats = 0;
+    venue.rows.forEach(function(row) {
+      if (row.seatGroups) {
+        var count = row.seatGroups.reduce(function(s, g) { return s + g.length; }, 0);
+        if (count > maxRowSeats) maxRowSeats = count;
+      }
+    });
+
+    // 将座位数相同的行分组
+    var rowGroups = [];
+    venue.rows.forEach(function(row) {
+      if (row.seatGroups) {
+        var seatCount = row.seatGroups.reduce(function(s, g) { return s + g.filter(function(x) { return x !== null && x !== undefined; }).length; }, 0);
+        var totalSlots = row.seatGroups.reduce(function(s, g) { return s + g.length; }, 0);
+        var prev = rowGroups[rowGroups.length - 1];
+        if (prev && prev.seatCount === seatCount && prev.totalSlots === totalSlots) {
+          prev.rows.push(row);
+        } else {
+          rowGroups.push({ seatCount: seatCount, totalSlots: totalSlots, rows: [row] });
+        }
+      }
+    });
+
+    // 计算座位尺寸
+    var seatSize = Math.floor((availWidth - (maxRowSeats - 1) * gap) / maxRowSeats);
+    seatSize = Math.max(8, Math.min(20, seatSize));
+    var fontSize = Math.max(5, Math.min(8, seatSize - 4));
+
+    var sizeStyle = 'width:' + seatSize + 'px;height:' + seatSize + 'px;font-size:' + fontSize + 'px;';
+    var gapStyle = 'gap:' + gap + 'px;';
+    var labelStyle = 'width:' + labelWidth + 'px;font-size:' + Math.max(8, Math.min(10, seatSize - 2)) + 'px;';
+    var rowMargin = Math.max(1, Math.min(3, Math.floor(seatSize / 6)));
+
+    var html = '<div class="seat-map-wrap"><div class="seat-map-title">' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
+      '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+      '座位分布图 - 全貌</div>' +
+      '<div class="stage">' + esc(venue.stageName || '舞台') + '</div><div class="seat-map">';
+
+    rowGroups.forEach(function(group) {
+      group.rows.forEach(function(row, ri) {
+        var rowLabel = (row.label || '').replace(/\s+/g, '');
+        var isFirstRowInGroup = ri === 0;
+        var isTargetRow = (rowLabel === pRow);
+
+        html += '<div class="seat-row" style="' + gapStyle + 'margin-bottom:' + rowMargin + 'px">' +
+          '<span class="row-label" style="' + labelStyle + '">' + esc(row.label) + '</span>';
+
+        if (row.seatGroups) {
+          var allSeats = row.seatGroups.flat();
+          allSeats.forEach(function(seatNum) {
+            if (seatNum === null || seatNum === undefined) {
+              html += '<div style="' + sizeStyle + '"></div>';
+              return;
+            }
+            var isHit = isTargetRow && parseInt(seatNum) === pSeat;
+            // 标准模式：只在每组首行显示座位号
+            var showNum = isFirstRowInGroup;
+            html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="' + sizeStyle + '" title="' + esc(row.label) + seatNum + '座">' + (showNum ? seatNum : '') + '</div>';
+          });
+        }
+
+        html += '</div>';
+
+        // 横向过道
+        if (row.hasAisleAfter) {
+          html += '<div class="horizontal-aisle" style="height:12px;margin:' + (rowMargin * 2) + 'px 0;display:flex;align-items:center;justify-content:center;">' +
+            '<div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px;"></div>' +
+            '<span style="padding:0 8px;font-size:8px;color:#94a3b8;font-weight:600;">过道</span>' +
+            '<div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px;"></div></div>';
+        }
+      });
+    });
+
+    html += '</div><div class="legend">' +
+      '<div class="legend-item"><div class="legend-dot" style="background:#dde3ed"></div>座位</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>您的座位</div></div></div>';
+    return html;
+  }
+
+  // 普通/剧院模式：计算最大列数和过道数
+  var maxCols = 0;
+  var aisleCount = 0;
+  venue.rows.forEach(function(row) {
+    var cols = 0;
+    row.seatGroups.forEach(function(g) { cols += g.length; });
+    if (row.seatGroups.length - 1 > aisleCount) aisleCount = row.seatGroups.length - 1;
+    if (cols > maxCols) maxCols = cols;
+  });
+
+  // 计算座位尺寸
+  var seatSize = Math.floor((availWidth - aisleCount * aisleWidth - (maxCols - 1) * gap) / maxCols);
+  seatSize = Math.max(8, Math.min(20, seatSize));
+  var fontSize = Math.max(5, Math.min(8, seatSize - 4));
+
+  var sizeStyle = 'width:' + seatSize + 'px;height:' + seatSize + 'px;font-size:' + fontSize + 'px;';
+  var gapStyle = 'gap:' + gap + 'px;';
+  var aisleStyle = 'width:' + aisleWidth + 'px;';
+  var labelStyle = 'width:' + labelWidth + 'px;font-size:' + Math.max(8, Math.min(10, seatSize - 2)) + 'px;';
+  var rowMargin = Math.max(1, Math.min(3, Math.floor(seatSize / 6)));
+
+  var html = '<div class="seat-map-wrap"><div class="seat-map-title">' +
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
+    '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+    '座位分布图 - 全貌</div>' +
+    '<div class="stage">' + esc(venue.stageName || '舞台') + '</div><div class="seat-map">';
+
+  venue.rows.forEach(function(row) {
+    var rowLabel = (row.label || '').replace(/\s+/g, '');
+    var isTargetRow = (rowLabel === pRow);
+    html += '<div class="seat-row" style="' + gapStyle + 'margin-bottom:' + rowMargin + 'px">' +
+      '<span class="row-label" style="' + labelStyle + '">' + esc(row.label) + '</span>';
+    row.seatGroups.forEach(function(group, gi) {
+      if (gi > 0) html += '<div class="seat-aisle" style="' + aisleStyle + '"></div>';
+      group.forEach(function(seatNum) {
+        var isHit = isTargetRow && parseInt(seatNum) === pSeat;
+        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="' + sizeStyle + '" title="' + esc(row.label) + seatNum + '座">' + (isHit ? seatNum : '') + '</div>';
+      });
+    });
+    html += '</div>';
+    
+    // 如果该行有横向过道标记，添加横向过道
+    if (row.hasAisleAfter) {
+      html += '<div class="horizontal-aisle" style="height:12px;margin:' + (rowMargin * 2) + 'px 0;display:flex;align-items:center;justify-content:center;">' +
+        '<div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px;"></div>' +
+        '<span style="padding:0 8px;font-size:8px;color:#94a3b8;font-weight:600;">过道</span>' +
+        '<div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px;"></div>' +
+        '</div>';
+    }
+  });
+
+  html += '</div><div class="legend">' +
+    '<div class="legend-item"><div class="legend-dot" style="background:#dde3ed"></div>座位</div>' +
+    '<div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>您的座位</div></div></div>';
+  return html;
+}
+
+function renderUShapeSeatMap(venue, pRow, pSeat) {
+  // 分离左臂、右臂和底部
+  var leftRows = [], rightRows = [], bottomRow = null;
+  var midIdx = Math.floor(venue.rows.length / 2);
+  
+  venue.rows.forEach(function(row, idx) {
+    var label = (row.label || '').replace(/\s+/g, '');
+    if (label === '底部') { bottomRow = row; }
+    else if (idx < midIdx) { leftRows.push(row); }
+    else { rightRows.push(row); }
+  });
+  
+  // 右臂需要反转顺序，使得外侧列（第四列）在最右边，内侧列（第三列）靠近中间
+  rightRows.reverse();
+
+  // 计算最大座位数
+  var maxArmSeats = 0;
+  venue.rows.forEach(function(row) {
+    var label = (row.label || '').replace(/\s+/g, '');
+    if (label !== '底部' && row.seatGroups[0]) {
+      maxArmSeats = Math.max(maxArmSeats, row.seatGroups[0].length);
+    }
+  });
+  var bottomCount = bottomRow ? bottomRow.seatGroups[0].length : 0;
+
+  // 座位尺寸自适应
+  var seatSize = Math.max(10, Math.min(20, Math.floor(Math.min(400, maxArmSeats * 24) / maxArmSeats) - 2));
+  var gap = 2;
+  var fontSize = Math.max(6, Math.min(9, seatSize - 3));
+  var sizeStyle = 'width:' + seatSize + 'px;height:' + seatSize + 'px;font-size:' + fontSize + 'px;';
+  var centerWidth = Math.max(40, bottomCount * (seatSize + gap) - seatSize * 2);
+
+  var html = '<div class="seat-map-wrap" style="display: flex; flex-direction: column; align-items: center; width: 100%;"><div class="seat-map-title">' +
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
+    '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+    '座位分布图 - 全貌</div>' +
+    '<div class="stage" style="width: auto; min-width: 200px; display: block;">' + esc(venue.stageName || '投屏区') + '</div>' +
+    '<div class="seat-map" style="display: flex; flex-direction: column; align-items: center; width: 100%;">';
+
+  // U型布局：左臂、底部、右臂按U型排列
+  html += '<div style="display: flex; flex-direction: column; align-items: center;">';
+  
+  // 第一行：左臂 + 空白 + 右臂
+  html += '<div style="display: flex; align-items: flex-start;">';
+
+  // 左臂（可能有多列）
+  if (leftRows.length > 0) {
+    html += '<div style="display: flex; flex-direction: row; gap: 2px;">';
+    leftRows.forEach(function(leftRow, colIdx) {
+      var leftLabel = (leftRow.label || '').replace(/\s+/g, '');
+      // 判断是否需要在左侧显示座位号
+      var showSeatNum = false;
+      if (colIdx === 0) {
+        showSeatNum = true;
+      } else {
+        var currentLen = leftRow.seatGroups[0] ? leftRow.seatGroups[0].length : 0;
+        var nextLen = leftRows[colIdx - 1].seatGroups[0] ? leftRows[colIdx - 1].seatGroups[0].length : -1;
+        if (currentLen !== nextLen) {
+          showSeatNum = true;
+        }
+      }
+      
+      html += '<div style="display: flex; flex-direction: column; align-items: center; gap: 2px;' + (showSeatNum ? ' margin-right:16px' : '') + '">' +
+        '<div style="font-size:9px;color:var(--text2);font-weight:600;margin-bottom:2px;white-space:nowrap;">' + esc(leftRow.label) + '</div>';
+      leftRow.seatGroups[0].forEach(function(seatNum) {
+        var isHit = leftLabel === pRow && parseInt(seatNum) === pSeat;
+        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="' + sizeStyle + '" title="' + esc(leftRow.label) + seatNum + '号">' + (isHit ? seatNum : '') + '</div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // 中间空白区域
+  html += '<div style="width:' + centerWidth + 'px;"></div>';
+
+  // 右臂（可能有多列）
+  if (rightRows.length > 0) {
+    html += '<div style="display: flex; flex-direction: row; gap: 2px;">';
+    rightRows.forEach(function(rightRow, colIdx) {
+      var rightLabel = (rightRow.label || '').replace(/\s+/g, '');
+      // 判断是否需要在右侧显示座位号
+      var showSeatNum = false;
+      if (colIdx === rightRows.length - 1) {
+        showSeatNum = true;
+      } else {
+        var currentLen = rightRow.seatGroups[0] ? rightRow.seatGroups[0].length : 0;
+        var nextLen = rightRows[colIdx + 1].seatGroups[0] ? rightRows[colIdx + 1].seatGroups[0].length : -1;
+        if (currentLen !== nextLen) {
+          showSeatNum = true;
+        }
+      }
+      
+      html += '<div style="display: flex; flex-direction: column; align-items: center; gap: 2px;' + (showSeatNum ? ' margin-left:16px' : '') + '">' +
+        '<div style="font-size:9px;color:var(--text2);font-weight:600;margin-bottom:2px;white-space:nowrap;">' + esc(rightRow.label) + '</div>';
+      rightRow.seatGroups[0].forEach(function(seatNum) {
+        var isHit = rightLabel === pRow && parseInt(seatNum) === pSeat;
+        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="' + sizeStyle + '" title="' + esc(rightRow.label) + seatNum + '号">' + (isHit ? seatNum : '') + '</div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+
+  // 底部行（在左臂和右臂下方，但在中间位置）
+  if (bottomRow) {
+    var bottomLabel = (bottomRow.label || '').replace(/\s+/g, '');
+    html += '<div style="display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 4px;">' +
+      '<span style="font-size:9px;color:var(--text2);font-weight:600;margin-right:4px;white-space:nowrap;">' + esc(bottomRow.label) + '</span>';
+    bottomRow.seatGroups[0].forEach(function(seatNum) {
+      var isHit = bottomLabel === pRow && parseInt(seatNum) === pSeat;
+      html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="' + sizeStyle + '" title="' + esc(bottomRow.label) + seatNum + '号">' + (isHit ? seatNum : '') + '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div></div><div class="legend">' +
+    '<div class="legend-item"><div class="legend-dot" style="background:#dde3ed"></div>座位</div>' +
+    '<div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>您的座位</div></div></div>';
+  return html;
+}
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+</script>
+</body>
+</html>

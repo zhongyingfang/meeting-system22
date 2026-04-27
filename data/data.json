@@ -1,0 +1,3818 @@
+{
+  "venues": [
+    {
+      "id": "venue-0",
+      "name": "主会场",
+      "description": "舞台区域",
+      "stageName": "舞台区域",
+      "rows": [
+        {
+          "label": "沙发第一排",
+          "seatGroups": [
+            [
+              12,
+              10,
+              8,
+              6,
+              4,
+              2,
+              1,
+              3,
+              5,
+              7,
+              9,
+              11,
+              13
+            ]
+          ]
+        },
+        {
+          "label": "沙发第二排",
+          "seatGroups": [
+            [
+              12,
+              10,
+              8,
+              6,
+              4,
+              2,
+              1,
+              3,
+              5,
+              7,
+              9,
+              11,
+              13
+            ]
+          ]
+        },
+        {
+          "label": "第一排",
+          "rowNum": 1,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第二排",
+          "rowNum": 2,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第三排",
+          "rowNum": 3,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第四排",
+          "rowNum": 4,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第五排",
+          "rowNum": 5,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第六排",
+          "rowNum": 6,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第七排",
+          "rowNum": 7,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第八排",
+          "rowNum": 8,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第九排",
+          "rowNum": 9,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十排",
+          "rowNum": 10,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十一排",
+          "rowNum": 11,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十二排",
+          "rowNum": 12,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              null,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十三排",
+          "rowNum": 13,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十四排",
+          "rowNum": 14,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        }
+      ],
+      "mode": "standard",
+      "totalSeats": 266
+    },
+    {
+      "id": "venue-1",
+      "name": "分会场",
+      "description": "舞台区域",
+      "stageName": "舞台区域",
+      "rows": [
+        {
+          "label": "沙发第1排",
+          "seatGroups": [
+            [
+              11,
+              9,
+              7,
+              5,
+              3,
+              1,
+              2,
+              4,
+              6,
+              8,
+              10
+            ]
+          ]
+        },
+        {
+          "label": "第一排",
+          "rowNum": 1,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第二排",
+          "rowNum": 2,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第三排",
+          "rowNum": 3,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第四排",
+          "rowNum": 4,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第五排",
+          "rowNum": 5,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第六排",
+          "rowNum": 6,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第七排",
+          "rowNum": 7,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第八排",
+          "rowNum": 8,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第九排",
+          "rowNum": 9,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十排",
+          "rowNum": 10,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十一排",
+          "rowNum": 11,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十二排",
+          "rowNum": 12,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十三排",
+          "rowNum": 13,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十四排",
+          "rowNum": 14,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十五排",
+          "rowNum": 15,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        }
+      ],
+      "mode": "standard",
+      "totalSeats": 265
+    },
+    {
+      "id": "venue-2",
+      "name": "分会场2",
+      "description": "分会场2",
+      "stageName": "投屏区",
+      "rows": [
+        {
+          "label": "第二列",
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ]
+        },
+        {
+          "label": "第一列",
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ]
+          ]
+        },
+        {
+          "label": "第三列",
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ]
+          ]
+        },
+        {
+          "label": "第四列",
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          ]
+        },
+        {
+          "label": "底部",
+          "seatGroups": [
+            [
+              2,
+              1,
+              3,
+              4
+            ]
+          ]
+        }
+      ],
+      "mode": "u-shape",
+      "layout": "u-shape",
+      "totalSeats": 64
+    },
+    {
+      "id": "venue-3",
+      "name": "论坛沙龙",
+      "description": "论坛沙龙",
+      "stageName": "投屏",
+      "rows": [
+        {
+          "label": "沙发第一排",
+          "seatGroups": [
+            [
+              6,
+              4,
+              2,
+              1,
+              3,
+              5,
+              7
+            ]
+          ]
+        },
+        {
+          "label": "第一排",
+          "rowNum": 1,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第二排",
+          "rowNum": 2,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第三排",
+          "rowNum": 3,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第四排",
+          "rowNum": 4,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第五排",
+          "rowNum": 5,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第六排",
+          "rowNum": 6,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第七排",
+          "rowNum": 7,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第八排",
+          "rowNum": 8,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第九排",
+          "rowNum": 9,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            [
+              6,
+              7,
+              8,
+              9,
+              10
+            ]
+          ],
+          "seatCols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十排",
+          "rowNum": 10,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十一排",
+          "rowNum": 11,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十二排",
+          "rowNum": 12,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十三排",
+          "rowNum": 13,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        },
+        {
+          "label": "第十四排",
+          "rowNum": 14,
+          "seatGroups": [
+            [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ]
+          ],
+          "seatCols": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "isAisle": false,
+          "hasAisleAfter": false
+        }
+      ],
+      "mode": "standard",
+      "totalSeats": 142
+    }
+  ],
+  "attendees": [
+    {
+      "name": "老大",
+      "row": "沙发第一排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "十三幺",
+      "row": "沙发第二排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "秦晋栋",
+      "row": "第一排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李峰",
+      "row": "第一排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "鲁红军",
+      "row": "第一排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "马卫东",
+      "row": "第一排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘涛",
+      "row": "第一排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李屹",
+      "row": "第一排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "付波",
+      "row": "第一排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘枝",
+      "row": "第一排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "宋伟",
+      "row": "第一排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "史琳",
+      "row": "第一排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "姚海鹏",
+      "row": "第一排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "邓恩阳",
+      "row": "第一排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "何美斌",
+      "row": "第一排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘洪宇",
+      "row": "第一排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "樊俊波",
+      "row": "第一排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘飞",
+      "row": "第一排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王昱",
+      "row": "第二排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "侯圣文",
+      "row": "第二排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张旭",
+      "row": "第二排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王伟",
+      "row": "第二排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "徐海洋",
+      "row": "第二排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "童楠楠",
+      "row": "第二排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "易成岐",
+      "row": "第二排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "古亮",
+      "row": "第二排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "胡雪娇",
+      "row": "第二排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "祝玲",
+      "row": "第二排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "冯亮",
+      "row": "第二排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘亚萍",
+      "row": "第二排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张恒",
+      "row": "第二排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王冰",
+      "row": "第二排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "韩亚斌",
+      "row": "第二排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "毛项杰",
+      "row": "第二排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "曾海明",
+      "row": "第三排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘小军",
+      "row": "第三排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "黄海平",
+      "row": "第三排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "戴守柏",
+      "row": "第三排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "何荣胜",
+      "row": "第三排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王新玉",
+      "row": "第三排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "吴长华",
+      "row": "第三排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王平",
+      "row": "第三排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈德兵",
+      "row": "第三排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘永刚",
+      "row": "第三排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘林波",
+      "row": "第三排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "邱达春",
+      "row": "第三排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "朱一飞",
+      "row": "第三排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李楠",
+      "row": "第三排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张垒",
+      "row": "第三排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "黎旻",
+      "row": "第三排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张祖发",
+      "row": "第四排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "席姗姗",
+      "row": "第四排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "孙强",
+      "row": "第四排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "孙湛",
+      "row": "第四排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "朱德龙",
+      "row": "第四排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "曾刚",
+      "row": "第四排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "贺小华",
+      "row": "第四排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "朱文兴",
+      "row": "第四排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "毛忠东",
+      "row": "第四排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈毅明",
+      "row": "第四排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张光年",
+      "row": "第四排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "韦宇星",
+      "row": "第四排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "汪熹乾",
+      "row": "第四排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "井广豹",
+      "row": "第四排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张玮",
+      "row": "第四排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "马宝金",
+      "row": "第四排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李飞",
+      "row": "第五排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张本琦",
+      "row": "第五排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "储华喆",
+      "row": "第五排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘宜强",
+      "row": "第五排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "朱芳",
+      "row": "第五排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈浩",
+      "row": "第五排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "钟成",
+      "row": "第五排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "何黎明",
+      "row": "第五排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "谢文魁",
+      "row": "第五排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "米世涛",
+      "row": "第五排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "唐国玉",
+      "row": "第五排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张辉华",
+      "row": "第五排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李楠",
+      "row": "第五排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陶乐文",
+      "row": "第五排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "廖双",
+      "row": "第五排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陶然",
+      "row": "第五排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "谢骞",
+      "row": "第六排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "钟君瑜",
+      "row": "第六排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "林东",
+      "row": "第六排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "严洁娥",
+      "row": "第六排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘杨",
+      "row": "第六排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张涛",
+      "row": "第六排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "谌小明",
+      "row": "第六排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "范说根",
+      "row": "第六排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "席世浩",
+      "row": "第六排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "宋跃华",
+      "row": "第六排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "周政",
+      "row": "第六排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "范桂梅",
+      "row": "第六排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "努兰别克.\n哈森别克",
+      "row": "第六排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张一鸣",
+      "row": "第六排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘旭莹",
+      "row": "第六排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "欧自刚",
+      "row": "第六排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "黄俊杰",
+      "row": "第七排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈维民",
+      "row": "第七排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李太生",
+      "row": "第七排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "何松",
+      "row": "第七排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张建庭",
+      "row": "第七排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "薛葵",
+      "row": "第七排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "叶瑞云",
+      "row": "第七排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王立新",
+      "row": "第七排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市委宣传部",
+      "row": "第七排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市委政法委",
+      "row": "第七排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市委政研室",
+      "row": "第七排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市委网信办",
+      "row": "第七排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "融媒体中心",
+      "row": "第七排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市发改委",
+      "row": "第七排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市工信局",
+      "row": "第七排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市科技局",
+      "row": "第七排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "徐天任",
+      "row": "第八排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘贤材",
+      "row": "第八排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "乔鲲鹏",
+      "row": "第八排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "魏金雷",
+      "row": "第八排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘惠志",
+      "row": "第八排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市自然资源局",
+      "row": "第八排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市生态环境局",
+      "row": "第八排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市住建局",
+      "row": "第八排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市国资委",
+      "row": "第八排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市市场监管局",
+      "row": "第八排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市医保局",
+      "row": "第八排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市城管局",
+      "row": "第八排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市行政审批局",
+      "row": "第八排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市投资促进中心",
+      "row": "第八排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "市果业发展中心",
+      "row": "第八排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "赣州城投集团",
+      "row": "第八排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "涂旭青",
+      "row": "第九排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "杨超",
+      "row": "第九排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "魏华卿",
+      "row": "第九排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "姜林海",
+      "row": "第九排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘天亮",
+      "row": "第九排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈韬",
+      "row": "第九排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "韩东方",
+      "row": "第九排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "熊忠森",
+      "row": "第九排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘伟明",
+      "row": "第九排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "袁小乐",
+      "row": "第九排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "周春雨",
+      "row": "第九排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李睿锋",
+      "row": "第九排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "周华",
+      "row": "第九排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张琳颖",
+      "row": "第九排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "文雯",
+      "row": "第九排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "杨君",
+      "row": "第九排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈巍",
+      "row": "第十排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "戴宇",
+      "row": "第十排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "周晔",
+      "row": "第十排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "田鹏飞",
+      "row": "第十排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "劳彦铭",
+      "row": "第十排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "胡水平",
+      "row": "第十排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "曹攀",
+      "row": "第十排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王凡",
+      "row": "第十排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "谭志明",
+      "row": "第十排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘维",
+      "row": "第十排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李卓勋",
+      "row": "第十排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "侯令甫",
+      "row": "第十排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王博",
+      "row": "第十排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈铸洪",
+      "row": "第十排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "张函",
+      "row": "第十排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘欣",
+      "row": "第十排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "冯军",
+      "row": "第十一排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李海兵",
+      "row": "第十一排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "钟荣宝",
+      "row": "第十一排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "黄盛平",
+      "row": "第十一排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "曾衍明",
+      "row": "第十一排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "程晓龙",
+      "row": "第十一排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "杨智云",
+      "row": "第十一排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "赵钊",
+      "row": "第十一排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "杨勇",
+      "row": "第十一排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘江祎",
+      "row": "第十一排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "尹秀平",
+      "row": "第十一排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "吴毅力",
+      "row": "第十一排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "段之棱",
+      "row": "第十一排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "刘冬根",
+      "row": "第十一排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "尹郡",
+      "row": "第十一排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "葛建立",
+      "row": "第十一排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "曾卫平",
+      "row": "第十二排",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "王荣福",
+      "row": "第十二排",
+      "seat": 2,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陶丹",
+      "row": "第十二排",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈小峰",
+      "row": "第十二排",
+      "seat": 4,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "危巍",
+      "row": "第十二排",
+      "seat": 5,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "钟铨",
+      "row": "第十二排",
+      "seat": 6,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "马静",
+      "row": "第十二排",
+      "seat": 7,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "陈良",
+      "row": "第十二排",
+      "seat": 8,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "唐晓华",
+      "row": "第十二排",
+      "seat": 9,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "许江蛟",
+      "row": "第十二排",
+      "seat": 10,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "严济阳",
+      "row": "第十二排",
+      "seat": 11,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "汪杨",
+      "row": "第十二排",
+      "seat": 12,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "李星",
+      "row": "第十二排",
+      "seat": 13,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "朱敬彬",
+      "row": "第十二排",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "廖远辉",
+      "row": "第十二排",
+      "seat": 15,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "廖文锋",
+      "row": "第十二排",
+      "seat": 16,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "老六",
+      "row": "第十四排",
+      "seat": 17,
+      "company": "",
+      "title": "",
+      "venueId": "venue-0",
+      "source": "excel"
+    },
+    {
+      "name": "老四",
+      "row": "第二列",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-2",
+      "source": "excel"
+    },
+    {
+      "name": "老二",
+      "row": "第三列",
+      "seat": 14,
+      "company": "",
+      "title": "",
+      "venueId": "venue-2",
+      "source": "excel"
+    },
+    {
+      "name": "老大",
+      "row": "底部",
+      "seat": 1,
+      "company": "",
+      "title": "",
+      "venueId": "venue-2",
+      "source": "excel"
+    },
+    {
+      "name": "李大嘴",
+      "row": "第一列",
+      "seat": 3,
+      "company": "",
+      "title": "",
+      "venueId": "venue-2"
+    }
+  ]
+}

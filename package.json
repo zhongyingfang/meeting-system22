@@ -1,0 +1,17 @@
+{
+  "name": "seat-finder",
+  "version": "1.1.0",
+  "description": "会议座位查询系统 - 扫码查座位",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "init-password": "node init-password.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.18.2",
+    "helmet": "^7.2.0",
+    "qrcode": "^1.5.4",
+    "xlsx": "^0.18.5"
+  }
+}

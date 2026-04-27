@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>座位管理后台</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #1a56db; --primary-light: #3b82f6; --primary-dark: #1e40af;
+    --bg: #f0f4ff; --card-bg: #fff; --text: #1e293b; --text2: #64748b;
+    --border: #e2e8f0; --danger: #ef4444; --success: #10b981;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); }
+  .header { background: linear-gradient(135deg, var(--primary-dark), var(--primary)); color: #fff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 18px; }
+  .header a { color: #fff; text-decoration: none; font-size: 13px; opacity: .85; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  .card { background: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,.06); margin-bottom: 16px; }
+  .card h2 { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-dark); }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 12px; color: var(--text2); font-weight: 600; }
+  .form-group input, .form-group select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
+  .form-group input:focus, .form-group select:focus { border-color: var(--primary); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .stat-item { background: #f8fafc; border-radius: 10px; padding: 14px; text-align: center; }
+  .stat-item .num { font-size: 26px; font-weight: 700; color: var(--primary); }
+  .stat-item .label { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+  .venue-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .venue-tab {
+    padding: 8px 16px; border-radius: 8px; border: 2px solid var(--border);
+    background: #fff; cursor: pointer; font-size: 13px; font-weight: 600; transition: all .2s;
+  }
+  .venue-tab:hover { border-color: var(--primary-light); }
+  .venue-tab.active { border-color: var(--primary); background: #e0e7ff; color: var(--primary); }
+
+  .import-area textarea {
+    width: 100%; height: 140px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-size: 13px; font-family: Consolas, Monaco, monospace; resize: vertical; outline: none; line-height: 1.6;
+  }
+  .import-area textarea:focus { border-color: var(--primary); }
+  .import-tip { font-size: 12px; color: var(--text2); margin-top: 6px; line-height: 1.6; }
+
+  .add-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .add-form .form-group { flex: 1; min-width: 80px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #f8fafc; padding: 8px 10px; text-align: left; font-weight: 600; color: var(--text2); font-size: 12px; border-bottom: 2px solid var(--border); }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: #f8fafc; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; background: #e0e7ff; color: var(--primary); }
+
+  .venue-info { font-size: 13px; color: var(--text2); margin-bottom: 12px; line-height: 1.6; }
+  .venue-info strong { color: var(--text); }
+
+  .qr-section { text-align: center; padding: 16px; }
+  .qr-section input { width: 100%; max-width: 400px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; text-align: center; margin-bottom: 12px; outline: none; }
+  #qrCanvas { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: #fff; display: inline-block; }
+
+  .toast {
+    position: fixed; top: 20px; right: 20px; background: var(--success); color: #fff;
+    padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 1000;
+    animation: toastIn .3s ease, toastOut .3s ease 2s forwards;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-20px); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateY(-20px); } }
+
+
+
+  .diff-summary { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .diff-summary .diff-stat { padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+  .diff-stat.added { background: #ecfdf5; color: #059669; }
+  .diff-stat.removed { background: #fef2f2; color: #dc2626; }
+  .diff-stat.moved { background: #eff6ff; color: #2563eb; }
+  .diff-table tr.added td { background: #f0fdf4; }
+  .diff-table tr.removed td { background: #fef2f2; }
+  .diff-table tr.moved td { background: #eff6ff; }
+  .diff-type { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+  .diff-type.t-added { background: #d1fae5; color: #065f46; }
+  .diff-type.t-removed { background: #fee2e2; color: #991b1b; }
+  .diff-type.t-moved { background: #dbeafe; color: #1e40af; }
+  .arrow { color: var(--primary); font-weight: 700; }
+
+  .upload-area {
+    margin-top: 14px; padding: 24px; border: 2px dashed var(--border); border-radius: 10px;
+    text-align: center; cursor: pointer; transition: all .2s; background: #fafbff;
+  }
+  .upload-area:hover, .upload-area.dragover { border-color: var(--primary); background: #eef2ff; }
+  .upload-area .upload-icon { font-size: 32px; color: var(--primary-light); margin-bottom: 8px; }
+  .upload-area .upload-text { font-size: 14px; color: var(--text); font-weight: 600; }
+  .upload-area .upload-hint { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  .upload-area .file-name { font-size: 13px; color: var(--success); font-weight: 600; margin-top: 8px; }
+  .upload-options { display: flex; align-items: center; gap: 16px; margin-top: 12px; font-size: 13px; }
+  .upload-options label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text2); }
+  .upload-options input[type="checkbox"] { accent-color: var(--primary); }
+  .sheet-modes-config { margin-top: 12px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border); display: none; }
+  .sheet-modes-config.show { display: block; }
+  .sheet-modes-config h4 { font-size: 13px; margin-bottom: 8px; color: var(--text); }
+  .sheet-mode-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; font-size: 13px; }
+  .sheet-mode-row .sheet-name { font-weight: 600; color: var(--text); min-width: 120px; }
+  .sheet-mode-row .detected-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #e0e7ff; color: var(--primary); }
+  .sheet-mode-row select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; }
+  .sheet-mode-row select:focus { border-color: var(--primary); }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>座位管理后台</h1>
+  <div style="display:flex;gap:16px;align-items:center">
+    <a href="/">前往查询页面 &rarr;</a>
+    <a href="javascript:void(0)" onclick="openSeatCard()" style="opacity:1;background:rgba(255,255,255,.2);padding:4px 12px;border-radius:6px;font-size:12px">座位牌生成 &rarr;</a>
+    <a href="javascript:void(0)" onclick="logout()" style="opacity:1;background:rgba(255,255,255,.2);padding:4px 12px;border-radius:6px;font-size:12px">退出登录</a>
+  </div>
+</div>
+
+<script>
+async function generateSeatCardToken() {
+  var timestamp = Math.floor(Date.now() / 1000);
+  var secret = "seat-card-secret-key-2025";
+  var encoder = new TextEncoder();
+  var keyData = encoder.encode(secret);
+  var messageData = encoder.encode(String(timestamp));
+  try {
+    var cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: { name: "SHA-256" } },
+      false,
+      ["sign"]
+    );
+    var signature = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
+    var hashArray = Array.from(new Uint8Array(signature));
+    var hashHex = hashArray.map(function(b) {
+      return b.toString(16).padStart(2, "0");
+    }).join("");
+    return timestamp + ":" + hashHex;
+  } catch (e) {
+    console.error("Token generation failed:", e);
+    return "";
+  }
+}
+
+async function openSeatCard() {
+  var token = await generateSeatCardToken();
+  if (token) {
+    window.open("http://localhost:8505?token=" + token, "_blank");
+  } else {
+    window.open("http://localhost:8505", "_blank");
+  }
+}
+</script>
+
+<div class="container">
+  <div class="stats" id="stats"></div>
+
+  <!-- 查询统计卡片 -->
+  <div class="card" id="searchStatsCard" style="display:none">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      查询统计
+    </h2>
+    <div class="stats" id="searchStats" style="margin-bottom:16px"></div>
+    <div id="hotSearches" style="margin-top:12px"></div>
+    <div id="recentQueries" style="margin-top:12px"></div>
+  </div>
+
+  <!-- 数据统计卡片 -->
+  <div class="card" id="statisticsCard" style="display:none">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+      数据统计
+    </h2>
+    <div class="stats" id="statsSummary" style="margin-bottom:16px"></div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="btn btn-primary btn-sm" onclick="loadStatistics()">刷新统计</button>
+      <button class="btn btn-success btn-sm" onclick="exportSeating()">导出座位安排表 Excel</button>
+      <button class="btn btn-success btn-sm" onclick="exportSeatingSVG()">导出座位安排表图片 SVG</button>
+      <button class="btn btn-primary btn-sm" onclick="analyzeLayout()">自动分析布局</button>
+      <button class="btn btn-success btn-sm" onclick="generatePreview()">生成预览图</button>
+    </div>
+    <div id="layoutPreview" style="display:none;margin-top:16px;padding:16px;background:#f8fafc;border-radius:10px">
+      <h3 style="font-size:14px;margin-bottom:12px">布局预览</h3>
+      <div id="previewContent" style="overflow-x:auto"></div>
+    </div>
+    <div id="companyStatsSection"></div>
+    <div id="venueUtilizationSection" style="margin-top:16px"></div>
+  </div>
+
+  <!-- 上传表格卡片 -->
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      上传座位表格
+    </h2>
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()"
+         ondragover="event.preventDefault();this.classList.add('dragover')"
+         ondragleave="this.classList.remove('dragover')"
+         ondrop="handleDrop(event)">
+      <div class="upload-icon">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </div>
+      <div class="upload-text">点击选择或拖拽 Excel 文件到此处</div>
+      <div class="upload-hint">支持 .xlsx / .xls 格式，上传后可点击"自动分析布局"</div>
+      <div class="file-name" id="fileName"></div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" onchange="handleFileSelect(this)">
+    </div>
+    <div class="upload-options" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:12px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text2);font-size:13px">
+        <input type="checkbox" id="keepManual" checked> 保留已手动添加的参会者
+      </label>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)">
+        <span>解析模式：</span>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="layoutMode" value="auto" checked> 自动检测
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="layoutMode" value="theater"> 剧院会场
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="layoutMode" value="standard"> 普通会场
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="layoutMode" value="u-shape"> U型会场
+        </label>
+      </div>
+      <button class="btn btn-success" id="uploadBtn" onclick="uploadExcel()" disabled>上传表格</button>
+    </div>
+    <div class="sheet-modes-config" id="sheetModesConfig">
+      <h4>检测到的 Sheet 布局类型（可手动调整）</h4>
+      <div id="sheetModesList"></div>
+    </div>
+  </div>
+
+  <!-- 系统设置卡片 -->
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      系统设置
+    </h2>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+      <div class="form-group" style="flex:1;min-width:200px">
+        <label>系统标题</label>
+        <input type="text" id="configSiteTitle" placeholder="如：数据创新发展大会">
+      </div>
+      <div class="form-group" style="flex:1;min-width:200px">
+        <label>系统副标题</label>
+        <input type="text" id="configSiteSubtitle" placeholder="如：座位查询系统">
+      </div>
+      <button class="btn btn-primary" onclick="saveSiteConfig()" style="align-self:flex-end">保存设置</button>
+    </div>
+  </div>
+
+
+
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      选择会场
+    </h2>
+    <div class="venue-tabs" id="venueTabs"></div>
+    <div class="venue-info" id="venueInfo"></div>
+    <div id="venueEdit" style="display:none;margin-top:12px;padding:14px;background:#f8fafc;border-radius:10px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="form-group" style="flex:1;min-width:160px">
+          <label>会场名称</label>
+          <input type="text" id="editVenueName" placeholder="会场名称">
+        </div>
+        <div class="form-group" style="flex:2;min-width:200px">
+          <label>会场描述</label>
+          <input type="text" id="editVenueDesc" placeholder="会场描述">
+        </div>
+        <button class="btn btn-primary" onclick="saveVenueName()">保存</button>
+        <button class="btn btn-outline" onclick="cancelEditVenue()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="importCard" style="display:none">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+      导入参会者到当前会场
+    </h2>
+    <div class="import-area">
+      <textarea id="importText" placeholder="每行一条，格式：姓名,排名(如第三排),座位号,单位,职务&#10;&#10;示例：&#10;张三,沙发第一排,1,数产集团,总经理&#10;李四,第三排,5,科技公司,副总&#10;王五,第十四排,20,创新科技,技术总监"></textarea>
+      <div class="import-tip">格式：姓名,排名,座位号,单位(选填),职务(选填)。排名需与会场布局一致（如"第三排""沙发第一排"）</div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-success" onclick="importAttendees('append')">追加导入</button>
+      <button class="btn btn-danger" onclick="importAttendees('replace')">覆盖导入</button>
+    </div>
+  </div>
+
+  <div class="card" id="addCard" style="display:none">
+    <h2>添加单个参会者</h2>
+    <div class="add-form">
+      <div class="form-group"><label>姓名 *</label><input type="text" id="addName" placeholder="姓名"></div>
+      <div class="form-group">
+        <label>排 *</label>
+        <select id="addRow"></select>
+      </div>
+      <div class="form-group"><label>座位号 *</label><input type="number" id="addSeat" min="1" placeholder="号"></div>
+      <div class="form-group"><label>单位</label><input type="text" id="addCompany" placeholder="单位"></div>
+      <div class="form-group"><label>职务</label><input type="text" id="addTitle" placeholder="职务"></div>
+      <button class="btn btn-primary" onclick="addPerson()" style="align-self:flex-end">添加</button>
+    </div>
+  </div>
+
+  <div class="card" id="listCard" style="display:none">
+    <h2>
+      参会者列表
+      <span style="font-size:12px;color:var(--text2);font-weight:400;margin-left:auto" id="totalCount"></span>
+    </h2>
+    <div class="btn-group" style="margin-top:0;margin-bottom:10px">
+      <button class="btn btn-outline btn-sm" onclick="exportCSV()">导出 CSV</button>
+      <button class="btn btn-danger btn-sm" onclick="clearVenue()">清空本会场</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table><thead><tr><th>#</th><th>姓名</th><th>座位</th><th>单位</th><th>职务</th><th>操作</th></tr></thead>
+      <tbody id="attendeeList"></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/></svg>
+      Excel 变动对比
+    </h2>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px">上传新版 Excel 与系统当前数据对比，快速查看人员变动（不会覆盖现有数据）</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="compareFileInput" accept=".xlsx,.xls" style="font-size:13px">
+      <button class="btn btn-primary" onclick="compareExcel()" id="compareBtn">开始对比</button>
+    </div>
+    <div id="diffResult" style="display:none;margin-top:16px">
+      <div class="diff-summary" id="diffSummary"></div>
+      <div id="diffActions" style="margin-top:12px"></div>
+      <div class="btn-group" style="margin-top:0;margin-bottom:10px">
+        <button class="btn btn-outline btn-sm" onclick="exportDiffCSV()">导出变动报告 CSV</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="diff-table"><thead><tr><th><input type="checkbox" id="selectAllHeader" style="display:none"></th><th>类型</th><th>会场</th><th>姓名</th><th>原位置</th><th></th><th>新位置</th></tr></thead>
+        <tbody id="diffList"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="5" height="5"/><rect x="16" y="3" width="5" height="5"/><rect x="3" y="16" width="5" height="5"/></svg>
+      生成查询二维码
+    </h2>
+    <div class="qr-section">
+      <input type="text" id="qrUrl" placeholder="输入查询页面完整URL">
+      <br>
+      <button class="btn btn-primary" onclick="generateQR()" style="margin-bottom:16px">生成二维码</button>
+      <button class="btn btn-success" id="downloadQRBtn" onclick="downloadQR()" style="margin-bottom:16px;display:none">下载二维码图片</button>
+      <div id="qrCanvas"></div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text2)">将二维码打印放置在签到处，参会者扫码查询座位</div>
+    </div>
+  </div>
+</div>
+
+<script>
+var allData = null;        // 会场列表（轻量数据）
+var venueAttendees = {};   // 按需缓存：{ venueId: [attendees] }
+var currentVenueId = null;
+var authToken = localStorage.getItem('adminToken');
+
+// 登录检查
+if (!authToken) { window.location.href = '/login.html'; }
+
+// 带 token 的 fetch 封装
+function authFetch(url, options) {
+  options = options || {};
+  options.headers = options.headers || {};
+  options.headers['X-Auth-Token'] = authToken;
+  return fetch(url, options).then(function(res) {
+    if (res.status === 401) {
+      localStorage.removeItem('adminToken');
+      window.location.href = '/login.html';
+      throw new Error('未登录');
+    }
+    return res;
+  });
+}
+
+// 加载会场列表（不含参会者详情）
+async function loadVenueList() {
+  var res = await fetch('/api/venues');
+  var venues = await res.json();
+  allData = { venues: venues, attendees: [] };
+
+  // 使用轻量统计 API
+  var statsRes = await fetch('/api/stats');
+  var stats = await statsRes.json();
+  allData._stats = stats;
+
+  renderStats();
+  renderVenueTabs();
+  if (venues.length > 0) {
+    selectVenue(currentVenueId || venues[0].id);
+  }
+}
+
+// 按需加载单个会场的参会者
+async function loadVenueAttendees(venueId) {
+  // 已有缓存则直接返回
+  if (venueAttendees[venueId]) {
+    return venueAttendees[venueId];
+  }
+  var res = await authFetch('/api/venues/' + encodeURIComponent(venueId));
+  var data = await res.json();
+  venueAttendees[venueId] = data.attendees || [];
+  return venueAttendees[venueId];
+}
+
+// 刷新统计数据（使用 venues API 的轻量数据）
+async function refreshStats() {
+  var res = await fetch('/api/venues');
+  var venues = await res.json();
+  var totalAttendees = 0;
+  var totalSeats = 0;
+  venues.forEach(function(v) {
+    totalSeats += v.totalSeats || 0;
+    totalAttendees += v.attendeeCount || 0;
+  });
+  // 如果没有 attendeeCount，则加载详细数据
+  if (totalAttendees === 0 && venues.length > 0) {
+    var dataRes = await fetch('/api/data');
+    var fullData = await dataRes.json();
+    totalAttendees = fullData.attendees.length;
+    allData = fullData;
+  } else {
+    allData = { venues: venues, attendees: [] };
+  }
+  renderStats();
+}
+
+// 刷新数据（清除缓存）
+async function refreshData() {
+  venueAttendees = {}; // 清除会场参会者缓存
+  await loadVenueList();
+  loadSearchStats(); // 刷新查询统计
+}
+
+function renderStats() {
+  var stats = allData._stats;
+  if (!stats) {
+    var totalAttendees = allData.attendees.length;
+    var totalSeats = allData.venues.reduce(function(s, v) { return s + (v.totalSeats || 0); }, 0);
+    stats = { venueCount: allData.venues.length, totalSeats: totalSeats, totalAttendees: totalAttendees };
+  }
+  document.getElementById('stats').innerHTML =
+    '<div class="stat-item"><div class="num">' + stats.venueCount + '</div><div class="label">会场数</div></div>' +
+    '<div class="stat-item"><div class="num">' + stats.totalSeats + '</div><div class="label">总座位</div></div>' +
+    '<div class="stat-item"><div class="num">' + stats.totalAttendees + '</div><div class="label">已安排</div></div>' +
+    '<div class="stat-item"><div class="num">' + (stats.totalSeats - stats.totalAttendees) + '</div><div class="label">剩余</div></div>';
+}
+
+// 加载查询统计
+async function loadSearchStats() {
+  try {
+    var res = await authFetch('/api/search-stats');
+    var data = await res.json();
+    renderSearchStats(data);
+    document.getElementById('searchStatsCard').style.display = '';
+  } catch (err) {
+    console.error('加载查询统计失败:', err);
+  }
+}
+
+// 渲染查询统计
+function renderSearchStats(data) {
+  document.getElementById('searchStats').innerHTML =
+    '<div class="stat-item"><div class="num">' + data.totalQueries + '</div><div class="label">总查询次数</div></div>' +
+    '<div class="stat-item"><div class="num">' + data.uniqueUsers + '</div><div class="label">查询人数</div></div>' +
+    '<div class="stat-item"><div class="num">' + data.lastHourQueries + '</div><div class="label">近1小时查询</div></div>';
+
+  // 热门搜索
+  if (data.hotSearches.length > 0) {
+    var hotHtml = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)">热门搜索</div>';
+    hotHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    data.hotSearches.forEach(function(h) {
+      hotHtml += '<span class="badge" style="background:#e0e7ff;color:var(--primary);padding:4px 10px">' + esc(h.name) + ' (' + h.count + '次)</span>';
+    });
+    hotHtml += '</div>';
+    document.getElementById('hotSearches').innerHTML = hotHtml;
+  } else {
+    document.getElementById('hotSearches').innerHTML = '';
+  }
+
+  // 最近查询
+  if (data.recentQueries.length > 0) {
+    var recentHtml = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;margin-top:16px;color:var(--text2)">最近查询记录</div>';
+    recentHtml += '<table><thead><tr><th>时间</th><th>查询姓名</th><th>结果</th></tr></thead><tbody>';
+    data.recentQueries.slice(0, 5).forEach(function(q) {
+      var time = new Date(q.timestamp).toLocaleString('zh-CN');
+      var result = q.found ? '<span style="color:var(--success)">找到</span>' : '<span style="color:var(--danger)">未找到</span>';
+      recentHtml += '<tr><td>' + time + '</td><td>' + esc(q.name) + '</td><td>' + result + '</td></tr>';
+    });
+    recentHtml += '</tbody></table>';
+    document.getElementById('recentQueries').innerHTML = recentHtml;
+  } else {
+    document.getElementById('recentQueries').innerHTML = '';
+  }
+}
+
+// 加载数据统计
+async function loadStatistics() {
+  try {
+    var res = await authFetch('/api/statistics');
+    var data = await res.json();
+    renderStatistics(data);
+    document.getElementById('statisticsCard').style.display = '';
+  } catch (err) {
+    console.error('加载统计失败:', err);
+  }
+}
+
+// 加载系统配置
+async function loadSiteConfig() {
+  try {
+    var res = await fetch('/api/site-config');
+    var data = await res.json();
+    document.getElementById('configSiteTitle').value = data.siteTitle || '';
+    document.getElementById('configSiteSubtitle').value = data.siteSubtitle || '';
+  } catch (err) {
+    console.error('加载配置失败:', err);
+  }
+}
+
+// 保存系统配置
+async function saveSiteConfig() {
+  var siteTitle = document.getElementById('configSiteTitle').value.trim();
+  var siteSubtitle = document.getElementById('configSiteSubtitle').value.trim();
+  if (!siteTitle) return alert('系统标题不能为空');
+
+  try {
+    var res = await authFetch('/api/site-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteTitle: siteTitle, siteSubtitle: siteSubtitle })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('设置已保存');
+    } else {
+      alert('保存失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('保存失败: ' + err.message);
+  }
+}
+
+// 渲染统计
+function renderStatistics(data) {
+  var s = data.summary;
+  document.getElementById('statsSummary').innerHTML =
+    '<div class="stat-item"><div class="num">' + s.totalVenues + '</div><div class="label">会场数</div></div>' +
+    '<div class="stat-item"><div class="num">' + s.totalSeats + '</div><div class="label">总座位</div></div>' +
+    '<div class="stat-item"><div class="num">' + s.totalAttendees + '</div><div class="label">已安排</div></div>' +
+    '<div class="stat-item"><div class="num">' + s.companies + '</div><div class="label">单位数</div></div>';
+
+  // 按单位统计
+  if (data.companyStats.length > 0) {
+    var companyHtml = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)">按单位统计</div>';
+    companyHtml += '<table><thead><tr><th>单位</th><th>人数</th><th>会场数</th></tr></thead><tbody>';
+    data.companyStats.slice(0, 20).forEach(function(c) {
+      companyHtml += '<tr><td>' + esc(c.name) + '</td><td>' + c.count + '</td><td>' + c.venueCount + '</td></tr>';
+    });
+    companyHtml += '</tbody></table>';
+    document.getElementById('companyStatsSection').innerHTML = companyHtml;
+  }
+
+  // 座位利用率
+  if (data.venueUtilization.length > 0) {
+    var utilHtml = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)">座位利用率</div>';
+    utilHtml += '<table><thead><tr><th>会场</th><th>总座位</th><th>已安排</th><th>利用率</th></tr></thead><tbody>';
+    data.venueUtilization.forEach(function(v) {
+      var rate = parseFloat(v.utilizationRate);
+      var color = rate >= 80 ? 'var(--success)' : rate >= 50 ? 'var(--accent)' : 'var(--danger)';
+      utilHtml += '<tr><td>' + esc(v.venueName) + '</td><td>' + v.totalSeats + '</td><td>' + v.attendeeCount + '</td><td style="color:' + color + ';font-weight:600">' + v.utilizationRate + '%</td></tr>';
+    });
+    utilHtml += '</tbody></table>';
+    document.getElementById('venueUtilizationSection').innerHTML = utilHtml;
+  }
+}
+
+// 导出座位安排表
+function exportSeating() {
+  showToast('正在生成 Excel 文件...');
+  // 使用 fetch 获取 Excel 文件
+  fetch('/api/export-seating', {
+    headers: { 'X-Auth-Token': authToken }
+  })
+  .then(function(response) {
+    if (!response.ok) throw new Error('下载失败');
+    return response.blob();
+  })
+  .then(function(blob) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = '座位安排表.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('Excel 下载完成');
+  })
+  .catch(function(err) {
+    console.error('Excel 导出失败:', err);
+    alert('导出失败：' + err.message);
+  });
+}
+
+function exportSeatingSVG() {
+  showToast('正在生成 SVG 图片文件...');
+  // 使用 fetch 获取 SVG 内容，然后创建 Blob 下载
+  fetch('/api/export-seating-svg', {
+    headers: { 'X-Auth-Token': authToken }
+  })
+  .then(function(response) {
+    if (!response.ok) throw new Error('下载失败');
+    return response.blob();
+  })
+  .then(function(blob) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = '座位安排表.svg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('SVG 图片下载完成');
+  })
+  .catch(function(err) {
+    console.error('SVG 导出失败:', err);
+    alert('导出失败：' + err.message);
+  });
+}
+
+// 上传表格相关函数
+var selectedFile = null;
+var detectedSheetModes = null;
+
+function handleFileSelect(input) {
+  if (input.files && input.files[0]) {
+    selectedFile = input.files[0];
+    document.getElementById('fileName').textContent = '已选择: ' + selectedFile.name;
+    document.getElementById('uploadBtn').disabled = false;
+    detectSheetModesForFile(selectedFile);
+  }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadArea').classList.remove('dragover');
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    var file = e.dataTransfer.files[0];
+    if (file.name.match(/\.(xlsx|xls)$/i)) {
+      selectedFile = file;
+      document.getElementById('fileName').textContent = '已选择: ' + selectedFile.name;
+      document.getElementById('uploadBtn').disabled = false;
+      detectSheetModesForFile(file);
+    } else {
+      alert('请选择 Excel 文件（.xlsx 或 .xls）');
+    }
+  }
+}
+
+async function detectSheetModesForFile(file) {
+  var configDiv = document.getElementById('sheetModesConfig');
+  var listDiv = document.getElementById('sheetModesList');
+  configDiv.classList.remove('show');
+  listDiv.innerHTML = '<span style="font-size:12px;color:var(--text2)">检测中...</span>';
+
+  try {
+    var base64 = await new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function(e) { resolve(e.target.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    var res = await authFetch('/api/detect-sheet-modes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileData: base64 })
+    });
+    var data = await res.json();
+    if (data.ok && data.sheets && data.sheets.length > 0) {
+      detectedSheetModes = {};
+      var modeLabelMap = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场' };
+      var html = '';
+      data.sheets.forEach(function(s) {
+        detectedSheetModes[s.name] = s.detectedMode;
+        html += '<div class="sheet-mode-row">';
+        html += '<span class="sheet-name">' + esc(s.name) + '</span>';
+        html += '<span class="detected-badge">检测: ' + (modeLabelMap[s.detectedMode] || s.detectedMode) + '</span>';
+        html += '<select data-sheet="' + esc(s.name) + '" class="sheet-mode-select">';
+        html += '<option value="auto"' + (s.detectedMode === 'auto' ? ' selected' : '') + '>自动检测</option>';
+        html += '<option value="theater"' + (s.detectedMode === 'theater' ? ' selected' : '') + '>剧院会场</option>';
+        html += '<option value="standard"' + (s.detectedMode === 'standard' ? ' selected' : '') + '>普通会场</option>';
+        html += '<option value="u-shape"' + (s.detectedMode === 'u-shape' ? ' selected' : '') + '>U型会场</option>';
+        html += '</select>';
+        html += '</div>';
+      });
+      listDiv.innerHTML = html;
+
+      var selects = listDiv.querySelectorAll('.sheet-mode-select');
+      selects.forEach(function(sel) {
+        sel.onchange = function() {
+          detectedSheetModes[sel.getAttribute('data-sheet')] = sel.value;
+        };
+      });
+
+      if (data.sheets.length > 1) {
+        configDiv.classList.add('show');
+      } else {
+        configDiv.classList.remove('show');
+      }
+    } else {
+      listDiv.innerHTML = '<span style="font-size:12px;color:var(--text2)">检测失败</span>';
+    }
+  } catch (err) {
+    listDiv.innerHTML = '<span style="font-size:12px;color:var(--text2)">检测出错: ' + err.message + '</span>';
+  }
+}
+
+function buildSheetModes() {
+  var result = {};
+  if (detectedSheetModes) {
+    for (var key in detectedSheetModes) {
+      if (detectedSheetModes.hasOwnProperty(key)) {
+        result[key] = detectedSheetModes[key];
+      }
+    }
+  }
+  return result;
+}
+
+async function uploadExcel() {
+  if (!selectedFile) return alert('请先选择文件');
+
+  var btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  btn.textContent = '上传中...';
+
+  try {
+    var reader = new FileReader();
+    reader.onload = async function(e) {
+      var base64 = e.target.result.split(',')[1];
+      var keepManual = document.getElementById('keepManual').checked;
+      var mode = document.querySelector('input[name="layoutMode"]:checked').value;
+      var sheetModes = buildSheetModes();
+
+      var res = await authFetch('/api/upload-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileData: base64, keepManual: keepManual, mode: mode, sheetModes: sheetModes })
+      });
+      var data = await res.json();
+      
+      btn.textContent = '上传表格';
+      
+      if (data.ok) {
+        showToast('文件上传成功，已导入 ' + data.data.venues.length + ' 个会场');
+        selectedFile = null;
+        detectedSheetModes = null;
+        document.getElementById('fileName').textContent = '';
+        document.getElementById('fileInput').value = '';
+        document.getElementById('sheetModesConfig').classList.remove('show');
+        btn.disabled = true;
+        refreshData();
+      } else {
+        btn.disabled = false;
+        alert('导入失败: ' + (data.error || '未知错误'));
+      }
+    };
+    reader.readAsDataURL(selectedFile);
+  } catch (err) {
+    btn.textContent = '上传表格';
+    btn.disabled = false;
+    alert('上传失败: ' + err.message);
+  }
+}
+
+// 自动分析已上传表格的布局
+async function analyzeLayout() {
+  showToast('正在分析布局...');
+  try {
+    var mode = document.querySelector('input[name="layoutMode"]:checked').value;
+    var sheetModes = buildSheetModes();
+    var res = await authFetch('/api/analyze-layout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode, sheetModes: sheetModes })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('布局分析完成，共 ' + data.data.venues.length + ' 个会场');
+      refreshData();
+    } else {
+      alert('分析失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('分析失败: ' + err.message);
+  }
+}
+
+// 生成布局预览图
+async function generatePreview() {
+  showToast('正在生成预览图...');
+  var previewDiv = document.getElementById('layoutPreview');
+  var contentDiv = document.getElementById('previewContent');
+  previewDiv.style.display = '';
+  contentDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">生成中...</div>';
+  
+  try {
+    var res = await authFetch('/api/generate-preview', {
+      method: 'POST'
+    });
+    var data = await res.json();
+    if (data.ok) {
+      // 显示预览图
+      var previewHtml = '';
+      data.data.venues.forEach(function(venue) {
+        previewHtml += '<div style="margin-bottom:20px">';
+        previewHtml += '<h4 style="font-size:14px;margin-bottom:8px">' + esc(venue.name) + '</h4>';
+        previewHtml += '<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto">';
+        previewHtml += '<svg width="100%" height="' + (venue.height || 300) + '" viewBox="0 0 ' + (venue.width || 800) + ' ' + (venue.height || 300) + '">';
+        previewHtml += venue.svgContent;
+        previewHtml += '</svg>';
+        previewHtml += '</div>';
+        previewHtml += '</div>';
+      });
+      contentDiv.innerHTML = previewHtml;
+      showToast('预览图生成完成');
+    } else {
+      contentDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--danger)">生成失败: ' + (data.error || '未知错误') + '</div>';
+    }
+  } catch (err) {
+    contentDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--danger)">生成失败: ' + err.message + '</div>';
+  }
+}
+
+function renderVenueTabs() {
+  var html = '';
+  var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'auto': '自动' };
+  allData.venues.forEach(function(v) {
+    var vm = v.layout || v.mode || 'theater';
+    html += '<div class="venue-tab' + (v.id === currentVenueId ? ' active' : '') + '" data-id="' + v.id + '" onclick="selectVenue(\'' + v.id + '\')">' +
+      esc(v.name) + ' <span style="font-size:11px;opacity:0.7">(' + (modeLabel[vm] || vm) + ')</span></div>';
+  });
+  document.getElementById('venueTabs').innerHTML = html;
+}
+
+async function selectVenue(id) {
+  currentVenueId = id;
+  var venue = allData.venues.find(function(v) { return v.id === id; });
+  if (!venue) return;
+
+  document.querySelectorAll('.venue-tab').forEach(function(el) {
+    el.classList.toggle('active', el.getAttribute('data-id') === id);
+  });
+
+  // 按需加载该会场的参会者
+  var attendees = await loadVenueAttendees(id);
+
+  // 如果 venue 没有 rows 信息，需要加载完整会场数据
+  if (!venue.rows) {
+    var res = await authFetch('/api/venues/' + encodeURIComponent(id));
+    var venueData = await res.json();
+    venue = venueData.venue;
+    attendees = venueData.attendees || [];
+    venueAttendees[id] = attendees;
+  }
+
+  var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场' };
+  var currentMode = venue.layout || venue.mode || 'theater';
+  document.getElementById('venueInfo').innerHTML =
+    '<strong>' + esc(venue.description) + '</strong> ' +
+    '<a href="javascript:void(0)" onclick="showEditVenue()" style="font-size:12px;color:var(--primary);margin-left:8px">修改名称</a><br>' +
+    '共 ' + (venue.rows ? venue.rows.length : 0) + ' 排，' + venue.totalSeats + ' 个座位，已安排 ' + attendees.length + ' 人' +
+    ' &nbsp;|&nbsp; 模式：<span class="badge">' + (modeLabel[currentMode] || currentMode) + '</span>';
+  document.getElementById('venueEdit').style.display = 'none';
+
+  var sel = document.getElementById('addRow');
+  sel.innerHTML = '<option value="">选择排</option>';
+  if (venue.rows) {
+    venue.rows.forEach(function(r) {
+      sel.innerHTML += '<option value="' + esc(r.label) + '">' + esc(r.label) + '</option>';
+    });
+  }
+
+  document.getElementById('importCard').style.display = '';
+  document.getElementById('addCard').style.display = '';
+  document.getElementById('listCard').style.display = '';
+  renderAttendees(attendees);
+}
+
+function renderAttendees(list) {
+  document.getElementById('totalCount').textContent = '共 ' + list.length + ' 人';
+  var tbody = document.getElementById('attendeeList');
+  if (list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:24px">暂无参会者</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(function(a, i) {
+    return '<tr><td>' + (i+1) + '</td><td><strong>' + esc(a.name) + '</strong></td>' +
+      '<td><span class="badge">' + esc(a.row) + ' ' + a.seat + '座</span></td>' +
+      '<td>' + esc(a.company || '-') + '</td><td>' + esc(a.title || '-') + '</td>' +
+      '<td><button class="btn btn-danger btn-sm" onclick="deletePerson(\'' + esc(a.name).replace(/'/g, "\\'") + '\')">删除</button></td></tr>';
+  }).join('');
+}
+
+function showEditVenue() {
+  var venue = allData.venues.find(function(v) { return v.id === currentVenueId; });
+  if (!venue) return;
+  document.getElementById('editVenueName').value = venue.name;
+  document.getElementById('editVenueDesc').value = venue.description;
+  document.getElementById('venueEdit').style.display = '';
+}
+
+function cancelEditVenue() {
+  document.getElementById('venueEdit').style.display = 'none';
+}
+
+async function saveVenueName() {
+  var name = document.getElementById('editVenueName').value.trim();
+  var description = document.getElementById('editVenueDesc').value.trim();
+  if (!name) return alert('会场名称不能为空');
+  var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, description: description })
+  });
+  var data = await res.json();
+  if (data.ok) { showToast('会场信息已更新'); refreshData(); }
+  else alert('保存失败: ' + (data.error || '未知错误'));
+}
+
+
+
+async function importAttendees(mode) {
+  var text = document.getElementById('importText').value.trim();
+  if (!text) return alert('请输入数据');
+  if (mode === 'replace' && !confirm('覆盖导入将清除本会场所有参会者，确定？')) return;
+
+  var lines = text.split('\n').filter(function(l) { return l.trim(); });
+  var attendees = [];
+  lines.forEach(function(line) {
+    var parts = line.split(/[,\t，]/).map(function(s) { return s.trim(); });
+    if (parts.length < 3) return;
+    attendees.push({ name: parts[0], row: parts[1], seat: parseInt(parts[2]), company: parts[3] || '', title: parts[4] || '' });
+  });
+  if (attendees.length === 0) return alert('未解析到有效数据');
+
+  try {
+    var res = await authFetch('/api/attendees/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attendees: attendees, mode: mode, venueId: currentVenueId })
+    });
+    var result = await res.json();
+    if (result.ok) {
+      var msg = '成功导入 ' + result.imported + ' 人';
+      if (result.duplicates > 0) msg += '，跳过 ' + result.duplicates + ' 个重复';
+      if (result.conflicts > 0) msg += '，跳过 ' + result.conflicts + ' 个座位冲突';
+      msg += '，本会场共 ' + result.count + ' 人';
+      showToast(msg);
+      if (result.conflictDetails && result.conflictDetails.length > 0) {
+        alert('以下座位存在冲突：\n' + result.conflictDetails.map(function(c) {
+          return c.name + ' (' + c.row + c.seat + '座) 已被 ' + c.occupiedBy + ' 占用';
+        }).join('\n'));
+      }
+      document.getElementById('importText').value = '';
+      refreshData();
+    } else {
+      alert('导入失败: ' + (result.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('导入失败: ' + err.message);
+  }
+}
+
+async function addPerson() {
+  var name = document.getElementById('addName').value.trim();
+  var row = document.getElementById('addRow').value;
+  var seat = parseInt(document.getElementById('addSeat').value);
+  var company = document.getElementById('addCompany').value.trim();
+  var title = document.getElementById('addTitle').value.trim();
+  if (!name || !row || isNaN(seat)) return alert('请填写姓名、排和座位号');
+
+  var res = await authFetch('/api/attendees', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, row: row, seat: seat, company: company, title: title, venueId: currentVenueId })
+  });
+  var data = await res.json();
+  if (data.ok) {
+    showToast('已添加 ' + name);
+    ['addName','addSeat','addCompany','addTitle'].forEach(function(id) { document.getElementById(id).value = ''; });
+    document.getElementById('addRow').selectedIndex = 0;
+    refreshData();
+  } else {
+    alert('添加失败: ' + (data.error || '未知错误'));
+  }
+}
+
+async function deletePerson(name) {
+  if (!confirm('确定删除 ' + name + '？')) return;
+  var res = await authFetch('/api/attendees?name=' + encodeURIComponent(name) + '&venueId=' + encodeURIComponent(currentVenueId), { method: 'DELETE' });
+  var data = await res.json();
+  if (data.ok) {
+    showToast('已删除');
+    refreshData();
+  } else {
+    alert('删除失败: ' + (data.error || '未知错误'));
+  }
+}
+
+async function clearVenue() {
+  if (!confirm('确定清空本会场所有参会者？')) return;
+  var res = await authFetch('/api/attendees?venueId=' + encodeURIComponent(currentVenueId), { method: 'DELETE' });
+  var data = await res.json();
+  if (data.ok) {
+    showToast('已清空');
+    refreshData();
+  } else {
+    alert('操作失败: ' + (data.error || '未知错误'));
+  }
+}
+
+async function exportCSV() {
+  var list = allData.attendees.filter(function(a) { return a.venueId === currentVenueId; });
+  var venue = allData.venues.find(function(v) { return v.id === currentVenueId; });
+  var csv = '\uFEFF姓名,排,座位号,单位,职务\n';
+  list.forEach(function(a) { csv += a.name + ',' + a.row + ',' + a.seat + ',' + (a.company||'') + ',' + (a.title||'') + '\n'; });
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url; a.download = (venue ? venue.name : '参会者') + '.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function generateQR() {
+  var url = document.getElementById('qrUrl').value.trim();
+  if (!url) { url = window.location.origin + '/'; document.getElementById('qrUrl').value = url; }
+  var container = document.getElementById('qrCanvas');
+  container.innerHTML = '生成中...';
+  document.getElementById('downloadQRBtn').style.display = 'none';
+  try {
+    var res = await fetch('/api/qrcode?url=' + encodeURIComponent(url));
+    var data = await res.json();
+    if (data.ok) {
+      var img = document.createElement('img');
+      img.src = data.dataUrl;
+      img.id = 'qrImage';
+      img.style.width = '256px';
+      img.style.height = '256px';
+      container.innerHTML = '';
+      container.appendChild(img);
+      document.getElementById('downloadQRBtn').style.display = '';
+    } else {
+      container.innerHTML = '<span style="color:var(--danger)">生成失败: ' + (data.error || '未知错误') + '</span>';
+    }
+  } catch (err) {
+    container.innerHTML = '<span style="color:var(--danger)">生成失败: ' + err.message + '</span>';
+  }
+}
+
+function downloadQR() {
+  var img = document.getElementById('qrImage');
+  if (!img) return;
+  var a = document.createElement('a');
+  a.href = img.src;
+  a.download = '座位查询二维码.png';
+  a.click();
+}
+
+function showToast(msg) {
+  var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(function() { t.remove(); }, 2500);
+}
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function logout() {
+  localStorage.removeItem('adminToken');
+  window.location.href = '/login.html';
+}
+
+var lastDiffs = null;
+var compareFileData = null;
+
+async function compareExcel() {
+  var input = document.getElementById('compareFileInput');
+  if (!input.files || !input.files[0]) return alert('请先选择新的 Excel 文件');
+  var btn = document.getElementById('compareBtn');
+  btn.disabled = true;
+  btn.textContent = '对比中...';
+
+  try {
+    var reader = new FileReader();
+    reader.onload = async function(e) {
+      var base64 = e.target.result.split(',')[1];
+      compareFileData = base64;
+      var mode = document.querySelector('input[name="layoutMode"]:checked').value || 'auto';
+      var sheetModes = buildSheetModes();
+      var res = await authFetch('/api/compare-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileData: base64, mode: mode, sheetModes: sheetModes })
+      });
+      var data = await res.json();
+      btn.disabled = false;
+      btn.textContent = '开始对比';
+
+      if (data.ok) {
+        lastDiffs = data.diffs;
+        renderDiffResult(data);
+      } else {
+        alert('对比失败: ' + (data.error || '未知错误'));
+      }
+    };
+    reader.readAsDataURL(input.files[0]);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = '开始对比';
+    alert('对比失败: ' + err.message);
+  }
+}
+
+function renderDiffResult(data) {
+  var container = document.getElementById('diffResult');
+  container.style.display = '';
+
+  var s = data.summary;
+  document.getElementById('diffSummary').innerHTML =
+    '<div class="diff-stat added">+ 新增 ' + s.added + ' 人</div>' +
+    '<div class="diff-stat removed">- 移除 ' + s.removed + ' 人</div>' +
+    '<div class="diff-stat moved">&#8644; 换座 ' + s.moved + ' 人</div>';
+
+  // 添加全选/取消全选和操作按钮
+  var actionHtml = '<div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+    '<label style="font-size:13px;cursor:pointer"><input type="checkbox" id="selectAllDiffs" onchange="toggleAllDiffs(this.checked)"> 全选</label>' +
+    '<span style="font-size:13px;color:var(--text2)" id="selectedCount">已选 0 项</span>' +
+    '<button class="btn btn-success btn-sm" onclick="applySelectedDiffs()">应用选中项</button>' +
+    '<button class="btn btn-outline btn-sm" onclick="applyAllDiffs()">应用全部</button>' +
+    '</div>';
+
+  var tbody = document.getElementById('diffList');
+  if (data.diffs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--success);padding:24px;font-weight:600">没有变动，新旧表格一致</td></tr>';
+    document.getElementById('diffActions').innerHTML = '';
+    return;
+  }
+
+  document.getElementById('diffActions').innerHTML = actionHtml;
+
+  var typeLabels = { added: '新增', removed: '移除', moved: '换座' };
+  var typeClass = { added: 't-added', removed: 't-removed', moved: 't-moved' };
+
+  tbody.innerHTML = data.diffs.map(function(d, i) {
+    var oldPos = d.oldRow ? esc(d.oldRow) + ' ' + d.oldSeat + '座' : '-';
+    var newPos = d.newRow ? esc(d.newRow) + ' ' + d.newSeat + '座' : '-';
+    var arrow = d.type === 'moved' ? '<span class="arrow">&rarr;</span>' : '';
+    return '<tr class="' + d.type + '">' +
+      '<td><input type="checkbox" class="diff-checkbox" data-index="' + i + '" onchange="updateSelectedCount()"></td>' +
+      '<td><span class="diff-type ' + typeClass[d.type] + '">' + typeLabels[d.type] + '</span></td>' +
+      '<td>' + esc(d.venue) + '</td>' +
+      '<td><strong>' + esc(d.name) + '</strong></td>' +
+      '<td>' + oldPos + '</td>' +
+      '<td>' + arrow + '</td>' +
+      '<td>' + newPos + '</td></tr>';
+  }).join('');
+}
+
+function toggleAllDiffs(checked) {
+  document.querySelectorAll('.diff-checkbox').forEach(function(cb) { cb.checked = checked; });
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  var count = document.querySelectorAll('.diff-checkbox:checked').length;
+  document.getElementById('selectedCount').textContent = '已选 ' + count + ' 项';
+}
+
+// 应用选中的变动项
+async function applySelectedDiffs() {
+  var checkboxes = document.querySelectorAll('.diff-checkbox:checked');
+  if (checkboxes.length === 0) return alert('请至少选择一项变动');
+
+  var selectedDiffs = [];
+  checkboxes.forEach(function(cb) {
+    var idx = parseInt(cb.getAttribute('data-index'));
+    selectedDiffs.push(lastDiffs[idx]);
+  });
+
+  if (!confirm('确认应用选中的 ' + selectedDiffs.length + ' 项变动？')) return;
+
+  try {
+    var res = await authFetch('/api/apply-diffs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ diffs: selectedDiffs })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('已应用 ' + data.applied + ' 项变动');
+      document.getElementById('diffResult').style.display = 'none';
+      refreshData();
+    } else {
+      alert('应用失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('应用失败: ' + err.message);
+  }
+}
+
+// 应用全部变动
+async function applyAllDiffs() {
+  if (!lastDiffs || lastDiffs.length === 0) return;
+  if (!confirm('确认应用全部 ' + lastDiffs.length + ' 项变动？')) return;
+
+  try {
+    var res = await authFetch('/api/apply-diffs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ diffs: lastDiffs })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('已应用 ' + data.applied + ' 项变动');
+      document.getElementById('diffResult').style.display = 'none';
+      refreshData();
+    } else {
+      alert('应用失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('应用失败: ' + err.message);
+  }
+}
+
+function exportDiffCSV() {
+  if (!lastDiffs || lastDiffs.length === 0) return alert('没有对比数据');
+  var typeLabels = { added: '新增', removed: '移除', moved: '换座' };
+  var csv = '\uFEFF变动类型,会场,姓名,原排,原座位号,新排,新座位号\n';
+  lastDiffs.forEach(function(d) {
+    csv += typeLabels[d.type] + ',' + d.venue + ',' + d.name + ',' +
+      (d.oldRow || '') + ',' + (d.oldSeat || '') + ',' +
+      (d.newRow || '') + ',' + (d.newSeat || '') + '\n';
+  });
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = '座位变动报告_' + new Date().toLocaleDateString().replace(/\//g, '-') + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function applyNewExcel() {
+  if (!compareFileData) return alert('没有对比文件数据');
+  if (!confirm('确认应用新表格？当前数据将被覆盖为新表格内容。')) return;
+  var mode = document.querySelector('input[name="layoutMode"]:checked').value || 'auto';
+  var sheetModes = buildSheetModes();
+  var res = await authFetch('/api/upload-excel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileData: compareFileData, keepManual: false, mode: mode, sheetModes: sheetModes })
+  });
+  var data = await res.json();
+  if (data.ok) {
+    showToast('新表格已应用');
+    document.getElementById('diffResult').style.display = 'none';
+    document.getElementById('compareFileInput').value = '';
+    compareFileData = null;
+    lastDiffs = null;
+    refreshData();
+  } else {
+    alert('应用失败: ' + (data.error || '未知错误'));
+  }
+}
+
+document.getElementById('qrUrl').value = window.location.origin + '/';
+refreshData();
+loadSearchStats(); // 加载查询统计
+loadStatistics(); // 加载数据统计
+loadSiteConfig(); // 加载系统配置
+</script>
+</body>
+</html>

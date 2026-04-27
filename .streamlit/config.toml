@@ -1,0 +1,9 @@
+[server]
+maxUploadSize = 50
+enableCORS = false
+enableXsrfProtection = true
+port = 8505
+address = "0.0.0.0"
+
+[browser]
+gatherUsageStats = false

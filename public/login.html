@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台登录</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  }
+  .login-card {
+    background: #fff; border-radius: 16px; padding: 40px; width: 360px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.2);
+  }
+  .login-card h1 { font-size: 22px; text-align: center; margin-bottom: 8px; color: #1e293b; }
+  .login-card p { font-size: 13px; text-align: center; color: #64748b; margin-bottom: 28px; }
+  .form-group { margin-bottom: 20px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+  .form-group input {
+    width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 10px;
+    font-size: 15px; outline: none; transition: border-color .2s;
+  }
+  .form-group input:focus { border-color: #667eea; }
+  .btn {
+    width: 100%; padding: 14px; background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
+    cursor: pointer; transition: opacity .2s;
+  }
+  .btn:hover { opacity: .9; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .error { color: #ef4444; font-size: 13px; text-align: center; margin-top: 12px; display: none; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <h1>座位管理后台</h1>
+  <p>请输入管理密码登录</p>
+  <div class="form-group">
+    <label>管理密码</label>
+    <input type="password" id="password" placeholder="请输入密码" autofocus
+           onkeydown="if(event.key==='Enter')doLogin()">
+  </div>
+  <button class="btn" id="loginBtn" onclick="doLogin()">登 录</button>
+  <div class="error" id="errorMsg"></div>
+</div>
+<script>
+// 如果已登录，直接跳转
+if (localStorage.getItem('adminToken')) {
+  checkToken();
+}
+
+async function checkToken() {
+  try {
+    var res = await fetch('/api/data', {
+      headers: { 'X-Auth-Token': localStorage.getItem('adminToken') }
+    });
+    if (res.ok) window.location.href = '/admin.html';
+  } catch (e) {}
+}
+
+async function doLogin() {
+  var pwd = document.getElementById('password').value.trim();
+  if (!pwd) return;
+  var btn = document.getElementById('loginBtn');
+  var errEl = document.getElementById('errorMsg');
+  btn.disabled = true;
+  errEl.style.display = 'none';
+
+  try {
+    var res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      localStorage.setItem('adminToken', data.token);
+      window.location.href = '/admin.html';
+    } else {
+      errEl.textContent = data.error || '密码错误';
+      errEl.style.display = 'block';
+    }
+  } catch (e) {
+    errEl.textContent = '网络错误，请重试';
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

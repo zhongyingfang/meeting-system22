@@ -1,0 +1,1980 @@
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const XLSX = require('xlsx');
+const QRCode = require('qrcode');
+const bcrypt = require('bcryptjs');
+const helmet = require('helmet');
+const { parseWorkbook, detectSheetMode } = require('./parse-excel');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const DATA_DIR = path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'data.json');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json'); // 配置文件也放在 data 目录
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+
+// ==================== 安全中间件 ====================
+
+// ==================== 日志系统 ====================
+
+// 访问日志（JSON 结构化格式）
+const accessLogFile = path.join(__dirname, 'access.log');
+const accessLogStream = fs.createWriteStream(accessLogFile, { flags: 'a' });
+
+// 错误日志
+const errorLogFile = path.join(__dirname, 'error.log');
+const errorLogStream = fs.createWriteStream(errorLogFile, { flags: 'a' });
+
+// 审计日志文件
+const auditLogFile = path.join(__dirname, 'audit.log');
+const auditLogStream = fs.createWriteStream(auditLogFile, { flags: 'a' });
+
+// 结构化日志函数
+function structuredLog(type, data) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    type,
+    ...data
+  };
+  
+  if (type === 'access') {
+    accessLogStream.write(JSON.stringify(entry) + '\n');
+  } else if (type === 'error') {
+    errorLogStream.write(JSON.stringify(entry) + '\n');
+    // 错误同时输出到控制台
+    console.error(`[ERROR] ${data.message}`, data.stack || '');
+  } else if (type === 'system') {
+    console.log(`[SYSTEM] ${data.message}`);
+  }
+}
+
+// 审计日志函数
+function auditLog(action, ip, details = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    type: 'audit',
+    action,
+    ip,
+    ...details
+  };
+  auditLogStream.write(JSON.stringify(entry) + '\n');
+}
+
+// 请求日志中间件
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '-';
+  const method = req.method;
+  const url = req.originalUrl || req.url;
+
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    const status = res.statusCode;
+    
+    structuredLog('access', {
+      ip,
+      method,
+      url,
+      status,
+      duration_ms: duration,
+      user_agent: req.headers['user-agent'] || '-',
+      content_length: parseInt(req.headers['content-length']) || 0
+    });
+  });
+
+  next();
+});
+
+// Helmet: 设置安全 HTTP 头
+app.use(helmet({
+  contentSecurityPolicy: false, // 允许内联脚本（现有页面需要）
+  crossOriginEmbedderPolicy: false
+}));
+
+// ==================== 配置管理 ====================
+
+const SALT_ROUNDS = 10;
+const TOKEN_TTL = 24 * 60 * 60 * 1000; // Token 有效期 24 小时
+const MAX_BACKUPS = 10; // 最多保留备份数
+
+// 读取/初始化配置
+function readConfig() {
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    // 如果是明文密码，自动转换为 bcrypt 哈希
+    if (config.adminPassword && !config.adminPassword.startsWith('$2')) {
+      const hashed = bcrypt.hashSync(config.adminPassword, SALT_ROUNDS);
+      config.adminPassword = hashed;
+      writeConfig(config);
+      structuredLog('system', { message: '密码已自动加密存储' });
+    }
+    return config;
+  } catch {
+    // 默认密码 admin888，自动哈希
+    const defaultConfig = {
+      adminPassword: bcrypt.hashSync('admin888', SALT_ROUNDS),
+      tokenTtl: TOKEN_TTL
+    };
+    writeConfig(defaultConfig);
+    return defaultConfig;
+  }
+}
+
+function writeConfig(config) {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+}
+
+// 确保数据目录和备份目录存在
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(BACKUP_DIR)) {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
+
+// ==================== Token 管理（带过期） ====================
+
+// 存储格式：Map<token, { createdAt: number }>
+const validTokens = new Map();
+
+// 定期清理过期 token（每小时执行一次）
+setInterval(() => {
+  const config = readConfig();
+  const ttl = config.tokenTtl || TOKEN_TTL;
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [token, meta] of validTokens.entries()) {
+    if (now - meta.createdAt > ttl) {
+      validTokens.delete(token);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    structuredLog('system', { message: `清理了 ${cleaned} 个过期 token` });
+  }
+}, 60 * 60 * 1000);
+
+// ==================== 数据管理（带文件锁、备份和内存缓存） ====================
+
+// 内存缓存：数据加载到内存，避免每次请求都读磁盘
+let dataCache = null;
+let dataCacheVersion = 0;
+
+// 简单的文件锁实现
+let fileLock = null;
+const LOCK_TIMEOUT = 5000; // 锁超时时间 5 秒
+
+function acquireLock() {
+  const now = Date.now();
+  if (fileLock && now - fileLock.timestamp > LOCK_TIMEOUT) {
+    console.warn('文件锁超时，自动释放');
+    fileLock = null;
+  }
+  if (fileLock) {
+    throw new Error('文件正在被其他操作占用，请稍后重试');
+  }
+  fileLock = { timestamp: now };
+}
+
+function releaseLock() {
+  fileLock = null;
+}
+
+// 从磁盘读取数据并更新缓存
+function loadDataFromFile() {
+  try {
+    dataCache = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+    dataCacheVersion++;
+    return dataCache;
+  } catch {
+    dataCache = { venues: [], attendees: [] };
+    dataCacheVersion++;
+    return dataCache;
+  }
+}
+
+// 获取数据（优先使用缓存）
+function readData() {
+  if (!dataCache) {
+    return loadDataFromFile();
+  }
+  return dataCache;
+}
+
+// 强制刷新缓存（从磁盘重新加载）
+function refreshCache() {
+  return loadDataFromFile();
+}
+
+// 数据备份
+function backupData() {
+  if (!fs.existsSync(DATA_FILE)) return;
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(BACKUP_DIR, `data-${timestamp}.json`);
+    fs.copyFileSync(DATA_FILE, backupPath);
+    structuredLog('system', { message: `数据已备份至 ${backupPath}` });
+
+    // 清理旧备份（保留最新的 MAX_BACKUPS 个）
+    const backups = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('data-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    if (backups.length > MAX_BACKUPS) {
+      backups.slice(MAX_BACKUPS).forEach(f => {
+        fs.unlinkSync(path.join(BACKUP_DIR, f));
+      });
+    }
+  } catch (err) {
+    console.error('备份失败:', err.message);
+  }
+}
+
+function writeData(data, skipBackup = false) {
+  acquireLock();
+  try {
+    // 写入前先备份
+    if (!skipBackup) {
+      backupData();
+    }
+    // 原子写入：先写临时文件，再重命名
+    const tmpFile = DATA_FILE + '.tmp';
+    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpFile, DATA_FILE);
+    // 同步更新内存缓存
+    dataCache = JSON.parse(JSON.stringify(data)); // 深拷贝
+    dataCacheVersion++;
+  } finally {
+    releaseLock();
+  }
+}
+
+// ==================== 数据验证 ====================
+
+// 中文数字映射
+const numToCn = { 1:'一',2:'二',3:'三',4:'四',5:'五',6:'六',7:'七',8:'八',9:'九',10:'十',
+  11:'十一',12:'十二',13:'十三',14:'十四',15:'十五',16:'十六',17:'十七',18:'十八',19:'十九',20:'二十',21:'二十一' };
+
+// 规范化排名
+function normalizeRowLabel(raw) {
+  if (!raw) return raw;
+  let s = raw.trim().replace(/\s+/g, '');
+
+  const sofaMatch = s.match(/^沙发[第]?(\d+|[一二三四五六七八九十]+)排?$/);
+  if (sofaMatch) {
+    let num = sofaMatch[1];
+    if (/^\d+$/.test(num)) num = numToCn[parseInt(num)] || num;
+    return '沙发第' + num + '排';
+  }
+
+  const match = s.match(/^[第]?(\d+|[一二三四五六七八九十]+)排$/);
+  if (match) {
+    let num = match[1];
+    if (/^\d+$/.test(num)) num = numToCn[parseInt(num)] || num;
+    return '第' + num + '排';
+  }
+
+  return s;
+}
+
+// 清理参会者数据
+function cleanAttendee(a) {
+  return {
+    ...a,
+    name: (a.name || '').trim().replace(/\s+/g, ''),
+    row: normalizeRowLabel(a.row),
+    seat: typeof a.seat === 'string' ? parseInt(a.seat) : a.seat,
+    company: (a.company || '').trim(),
+    title: (a.title || '').trim()
+  };
+}
+
+// 检查参会者是否已存在（同会场同姓名）
+function findDuplicateAttendee(data, attendee) {
+  return data.attendees.find(a =>
+    a.venueId === attendee.venueId &&
+    a.name === attendee.name
+  );
+}
+
+// 检查座位冲突（同会场同排同座位号）
+function findSeatConflict(data, attendee) {
+  return data.attendees.find(a =>
+    a.venueId === attendee.venueId &&
+    a.row === attendee.row &&
+    a.seat === attendee.seat
+  );
+}
+
+// ==================== Express 配置 ====================
+
+app.use(express.json({ limit: '50mb' }));
+
+// ==================== 系统配置 API ====================
+
+// 获取系统标题（公开）
+app.get('/api/site-config', (req, res) => {
+  const config = readConfig();
+  res.json({
+    siteTitle: config.siteTitle || '数据创新发展大会',
+    siteSubtitle: config.siteSubtitle || '座位查询系统'
+  });
+});
+
+// 修改系统标题（需认证）
+app.put('/api/site-config', requireAuth, (req, res) => {
+  const config = readConfig();
+  const { siteTitle, siteSubtitle } = req.body;
+  if (siteTitle !== undefined) config.siteTitle = siteTitle.trim();
+  if (siteSubtitle !== undefined) config.siteSubtitle = siteSubtitle.trim();
+  writeConfig(config);
+  res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle });
+});
+
+// ==================== 认证 API ====================
+
+// 登录 API（带速率限制和密码哈希验证）
+app.post('/api/login', (req, res) => {
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ error: '缺少密码参数' });
+  }
+
+  const config = readConfig();
+  // 使用 bcrypt 验证密码
+  if (bcrypt.compareSync(password, config.adminPassword)) {
+    const token = crypto.randomBytes(32).toString('hex');
+    validTokens.set(token, { createdAt: Date.now() });
+    res.json({ ok: true, token });
+  } else {
+    res.status(401).json({ error: '密码错误' });
+  }
+});
+
+// 验证中间件（带 token 过期检查）
+function requireAuth(req, res, next) {
+  const token = req.headers['x-auth-token'];
+  if (!token) {
+    return res.status(401).json({ error: '未登录，请先登录管理后台' });
+  }
+
+  const meta = validTokens.get(token);
+  if (!meta) {
+    return res.status(401).json({ error: '登录已过期，请重新登录' });
+  }
+
+  // 检查 token 是否过期
+  const config = readConfig();
+  const ttl = config.tokenTtl || TOKEN_TTL;
+  if (Date.now() - meta.createdAt > ttl) {
+    validTokens.delete(token);
+    return res.status(401).json({ error: '登录已过期，请重新登录' });
+  }
+
+  return next();
+}
+
+// ==================== 公开 API ====================
+
+// 服务端生成二维码
+app.get('/api/qrcode', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: '缺少 url 参数' });
+  try {
+    const dataUrl = await QRCode.toDataURL(url, {
+      width: 300, margin: 2,
+      color: { dark: '#1a56db', light: '#ffffff' }
+    });
+    res.json({ ok: true, dataUrl });
+  } catch (err) {
+    res.status(500).json({ error: '生成失败: ' + err.message });
+  }
+});
+
+// 静态文件（index.html 公开访问）
+app.use(express.static(path.join(__dirname, 'public')));
+
+// 获取所有数据
+app.get('/api/data', (req, res) => {
+  res.json(readData());
+});
+
+// 获取统计数据（轻量，不含详细数据）
+app.get('/api/stats', (req, res) => {
+  const data = readData();
+  const totalSeats = data.venues.reduce((s, v) => s + (v.totalSeats || 0), 0);
+  res.json({
+    venueCount: data.venues.length,
+    totalSeats: totalSeats,
+    totalAttendees: data.attendees.length,
+    remainingSeats: totalSeats - data.attendees.length
+  });
+});
+
+// 获取场馆列表（轻量数据，含参会者数量）
+app.get('/api/venues', (req, res) => {
+  const data = readData();
+  res.json(data.venues.map(v => ({
+    id: v.id, name: v.name, description: v.description,
+    totalSeats: v.totalSeats, rowCount: v.rows.length,
+    attendeeCount: data.attendees.filter(a => a.venueId === v.id).length,
+    layout: v.layout || v.mode || 'theater'
+  })));
+});
+
+// 获取单个场馆详情
+app.get('/api/venues/:id', (req, res) => {
+  const data = readData();
+  const venue = data.venues.find(v => v.id === req.params.id);
+  if (!venue) return res.status(404).json({ error: '场馆不存在' });
+  const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
+  res.json({ venue, attendees: venueAttendees });
+});
+
+// ==================== 搜索缓存 ====================
+
+// 搜索缓存：key=name, value={ results, version, timestamp }
+const searchCache = new Map();
+const SEARCH_CACHE_TTL = 30 * 1000; // 30 秒缓存
+const SEARCH_CACHE_MAX = 500; // 最多缓存 500 个搜索结果
+
+// 查询统计：记录每次搜索
+const searchStats = {
+  totalQueries: 0,          // 总查询次数
+  uniqueUsers: new Set(),   // 唯一用户（按 IP）
+  queryLog: []              // 查询日志（最近 1000 条）
+};
+const MAX_QUERY_LOG = 1000;
+
+// 定期清理过期缓存
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of searchCache.entries()) {
+    if (now - entry.timestamp > SEARCH_CACHE_TTL) {
+      searchCache.delete(key);
+    }
+  }
+  if (searchCache.size > SEARCH_CACHE_MAX) {
+    const entries = Array.from(searchCache.entries());
+    entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+    for (let i = 0; i < entries.length - SEARCH_CACHE_MAX; i++) {
+      searchCache.delete(entries[i][0]);
+    }
+  }
+  // 清理过旧的查询日志（保留最近 1 小时）
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  searchStats.queryLog = searchStats.queryLog.filter(q => q.timestamp > oneHourAgo);
+}, 60 * 1000);
+
+// 搜索座位（跨所有场馆，带缓存和统计）
+app.get('/api/search', (req, res) => {
+  const rawName = (req.query.name || '').trim().replace(/\s+/g, '');
+  if (!rawName) return res.json({ results: [] });
+
+  // 检查缓存
+  const cached = searchCache.get(rawName);
+  if (cached && cached.version === dataCacheVersion && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+    // 缓存命中时，如果需要记录统计也要记录
+    const trackStats = req.query.track === '1';
+    if (trackStats) {
+      const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '-';
+      searchStats.totalQueries++;
+      searchStats.uniqueUsers.add(ip);
+      searchStats.queryLog.push({
+        name: rawName,
+        ip: ip,
+        timestamp: Date.now(),
+        found: cached.results.length > 0
+      });
+      if (searchStats.queryLog.length > MAX_QUERY_LOG) {
+        searchStats.queryLog = searchStats.queryLog.slice(-MAX_QUERY_LOG);
+      }
+    }
+    return res.json({ results: cached.results, cached: true });
+  }
+
+  const data = readData();
+  const results = data.attendees
+    .filter(a => {
+      const n = (a.name || '').replace(/\s+/g, '');
+      return n === rawName || n.includes(rawName) || rawName.includes(n);
+    })
+    .map(a => {
+      const venue = data.venues.find(v => v.id === a.venueId);
+      return { ...a, venueName: venue ? venue.name : '未知', venue };
+    });
+
+  // 写入缓存
+  searchCache.set(rawName, {
+    results,
+    version: dataCacheVersion,
+    timestamp: Date.now()
+  });
+
+  // 只在 track=1 时记录查询统计（用户完成输入后的最终查询）
+  const trackStats = req.query.track === '1';
+  if (trackStats) {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '-';
+    searchStats.totalQueries++;
+    searchStats.uniqueUsers.add(ip);
+    searchStats.queryLog.push({
+      name: rawName,
+      ip: ip,
+      timestamp: Date.now(),
+      found: results.length > 0
+    });
+    // 限制日志大小
+    if (searchStats.queryLog.length > MAX_QUERY_LOG) {
+      searchStats.queryLog = searchStats.queryLog.slice(-MAX_QUERY_LOG);
+    }
+  }
+
+  res.json({ results, cached: false });
+});
+
+// 获取查询统计
+app.get('/api/search-stats', requireAuth, (req, res) => {
+  const now = Date.now();
+  const oneHourAgo = now - 60 * 60 * 1000;
+  const recentQueries = searchStats.queryLog.filter(q => q.timestamp > oneHourAgo);
+
+  // 统计热门搜索词
+  const nameCount = {};
+  recentQueries.forEach(q => {
+    nameCount[q.name] = (nameCount[q.name] || 0) + 1;
+  });
+  const hotSearches = Object.entries(nameCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
+  res.json({
+    totalQueries: searchStats.totalQueries,
+    uniqueUsers: searchStats.uniqueUsers.size,
+    lastHourQueries: recentQueries.length,
+    hotSearches: hotSearches,
+    recentQueries: searchStats.queryLog.slice(-50).reverse()
+  });
+});
+
+// 数据统计 API
+app.get('/api/statistics', requireAuth, (req, res) => {
+  const data = readData();
+
+  // 按单位统计
+  const companyStats = {};
+  data.attendees.forEach(a => {
+    const company = a.company || '未填写';
+    if (!companyStats[company]) {
+      companyStats[company] = { count: 0, venues: new Set() };
+    }
+    companyStats[company].count++;
+    companyStats[company].venues.add(a.venueId);
+  });
+
+  // 转换为数组并排序
+  const companyList = Object.entries(companyStats)
+    .map(([name, stats]) => ({
+      name,
+      count: stats.count,
+      venueCount: stats.venues.size
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  // 座位利用率
+  const venueUtilization = data.venues.map(v => {
+    const attendeeCount = data.attendees.filter(a => a.venueId === v.id).length;
+    return {
+      venueId: v.id,
+      venueName: v.name,
+      totalSeats: v.totalSeats,
+      attendeeCount: attendeeCount,
+      utilizationRate: v.totalSeats > 0 ? ((attendeeCount / v.totalSeats) * 100).toFixed(1) : 0
+    };
+  });
+
+  res.json({
+    companyStats: companyList,
+    venueUtilization: venueUtilization,
+    summary: {
+      totalVenues: data.venues.length,
+      totalSeats: data.venues.reduce((s, v) => s + (v.totalSeats || 0), 0),
+      totalAttendees: data.attendees.length,
+      companies: companyList.length
+    }
+  });
+});
+
+// 导出座位安排表（Excel 格式 - 可视化布局图）
+app.get('/api/export-seating', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const wb = XLSX.utils.book_new();
+
+    // 为每个会场创建一个 sheet
+    data.venues.forEach(venue => {
+      const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
+      
+      const attendeeMap = {};
+      venueAttendees.forEach(a => {
+        const key = `${a.row}_${a.seat}`;
+        attendeeMap[key] = a.name;
+      });
+
+      const sheetData = [];
+      
+      // 标题行
+      sheetData.push([venue.name]);
+      sheetData.push([venue.description || '', '', '', '', '', '共 ' + venueAttendees.length + ' 人']);
+      sheetData.push([]);
+
+      // 渲染每一排
+      venue.rows.forEach(row => {
+        const rowLabel = row.label;
+        const rowData = [rowLabel];
+
+        row.seatGroups.forEach((group, groupIdx) => {
+          group.forEach(seatNum => {
+            const key = `${rowLabel}_${seatNum}`;
+            const name = attendeeMap[key] || '';
+            rowData.push(name);
+          });
+          if (groupIdx < row.seatGroups.length - 1) {
+            rowData.push('');
+          }
+        });
+
+        sheetData.push(rowData);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      // 设置列宽
+      const maxCols = Math.max(...sheetData.map(r => r.length));
+      ws['!cols'] = [];
+      for (let i = 0; i < maxCols; i++) {
+        ws['!cols'].push({ wch: i === 0 ? 12 : 14 });
+      }
+
+      // 设置行高
+      ws['!rows'] = [];
+      ws['!rows'][0] = { hpt: 40 };
+      ws['!rows'][1] = { hpt: 25 };
+
+      XLSX.utils.book_append_sheet(wb, ws, venue.name.substring(0, 31));
+    });
+
+    const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const filename = '座位安排表.xlsx';
+    const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="seating-layout.xlsx"; filename*=UTF-8''${encodedFilename}`);
+    res.send(excelBuffer);
+  } catch (err) {
+    structuredLog('error', { message: 'Excel 导出失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '导出失败: ' + err.message });
+  }
+});
+
+// 导出座位安排表（SVG 矢量图，适合喷绘）
+
+// 导出座位安排表（SVG 矢量图，适合喷绘）
+app.get('/api/export-seating-svg', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const config = readConfig();
+    const siteTitle = config.siteTitle || '会议';
+
+    // 座位参数
+    const seatWidth = 200;
+    const seatHeight = 80;
+    const seatGap = 40;
+    const groupGap = 120;
+    const rowGap = 50;
+    const labelWidth = 120;
+    const margin = 40;
+    const numBoxWidth = 60;
+    const numBoxHeight = 32;
+
+    // 辅助函数：计算排宽度
+    function getRowWidth(row) {
+      let w = 0;
+      row.seatGroups.forEach((g, gIdx) => {
+        w += g.length * (seatWidth + seatGap);
+        if (gIdx < row.seatGroups.length - 1) w += groupGap - seatGap;
+      });
+      return w;
+    }
+
+    // 辅助函数：座位组结构签名
+    function getGroupSignature(row) {
+      return row.seatGroups.map(g => g.length).join(',');
+    }
+
+    // 计算总高度（模拟渲染流程精确计算）
+    const stageHeight = 80;
+    const aisleHeight = 30;
+    let totalHeight = margin; // 顶部边距
+    data.venues.forEach(venue => {
+      // 舞台 + 标题区域
+      totalHeight += stageHeight + 30 + 120 + seatHeight + rowGap;
+      if (venue.layout === 'u-shape' && venue.rows && venue.rows.length > 0) {
+        const uArmRows = venue.rows.filter(r => !(r.label || '').includes('底部'));
+        const uBottom = venue.rows.find(r => (r.label || '').includes('底部'));
+        const maxArmLen = Math.max(...uArmRows.map(r => r.seatGroups[0] ? r.seatGroups[0].length : 0), 0);
+        totalHeight += 50; // 列标签行
+        totalHeight += maxArmLen * (seatHeight + rowGap); // 两臂座位
+        if (uBottom) {
+          totalHeight += 30 + seatHeight + 50; // 底部行间隙 + 底部行座位 + 底部间距
+        }
+        totalHeight += 60; // 底部间距
+      } else if (venue.rows && venue.rows.length > 0) {
+        // 普通渲染方式的高度计算：每行 = seatHeight + rowGap + 可能的过道
+        venue.rows.forEach(row => {
+          totalHeight += seatHeight + rowGap;
+          if (row.hasAisleAfter) {
+            totalHeight += 20 + 30 + 30; // 间隙 + 过道高 + 间隙
+          }
+        });
+      }
+      totalHeight += 60; // 会场间距
+    });
+    totalHeight += margin; // 底部边距
+
+    // 计算最大宽度
+    let maxWidth = 0;
+    data.venues.forEach(venue => {
+      if (venue.layout === 'u-shape' && venue.rows) {
+         const uArmRows = venue.rows.filter(r => !(r.label || '').includes('底部'));
+         const uBottom = venue.rows.find(r => (r.label || '').includes('底部'));
+         const colGap = 30;
+         const armBottomGap = 60;
+         const midIdx = Math.floor(uArmRows.length / 2);
+         const leftColCount = midIdx;
+         const rightColCount = uArmRows.length - midIdx;
+         const lWidth = leftColCount * seatWidth + Math.max(0, leftColCount - 1) * colGap;
+         const rWidth = rightColCount * seatWidth + Math.max(0, rightColCount - 1) * colGap;
+         const bSeats = uBottom ? (uBottom.seatGroups[0] || []).length : 0;
+         const bWidth = bSeats * (seatWidth + seatGap) - (bSeats > 0 ? seatGap : 0);
+         const uTotal = lWidth + (bWidth > 0 ? armBottomGap + bWidth + armBottomGap : 0) + rWidth;
+         maxWidth = Math.max(maxWidth, uTotal);
+      } else if (venue.rows) {
+        // 新方式：计算所有排的最大组数和每组最大座位数
+        let vMaxGroupCount = 0;
+        const vMaxSeatsPerGroup = {};
+        venue.rows.forEach(row => {
+          if (row.seatGroups) {
+            vMaxGroupCount = Math.max(vMaxGroupCount, row.seatGroups.length);
+            row.seatGroups.forEach((g, gi) => {
+              vMaxSeatsPerGroup[gi] = Math.max(vMaxSeatsPerGroup[gi] || 0, g.length);
+            });
+          }
+        });
+        let vTotalSeatWidth = 0;
+        for (let gi = 0; gi < vMaxGroupCount; gi++) {
+          const gs = vMaxSeatsPerGroup[gi] || 0;
+          vTotalSeatWidth += gs * (seatWidth + seatGap);
+          if (gi < vMaxGroupCount - 1) vTotalSeatWidth += groupGap - seatGap;
+        }
+        maxWidth = Math.max(maxWidth, vTotalSeatWidth);
+      }
+    });
+
+    const labelSpace = 160;
+    const expandSpace = 80;
+    let svgWidth = maxWidth + labelSpace * 2 + expandSpace * 2 + margin * 2;
+
+    let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${totalHeight}" viewBox="0 0 ${svgWidth} ${totalHeight}">
+  <defs>
+    <style>
+      .main-title { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 64px; font-weight: bold; fill: #1e293b; }
+      .subtitle { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 32px; fill: #64748b; }
+      .row-label { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 30px; fill: #475569; }
+      .seat-name { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; fill: #1e293b; font-weight: 600; }
+      .seat-num { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 24px; fill: #ffffff; font-weight: bold; }
+      .stage-label { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 48px; font-weight: bold; fill: #ffffff; }
+      .aisle-label { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 28px; fill: #94a3b8; font-weight: 600; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+`;
+
+    let y = margin;
+
+    data.venues.forEach((venue) => {
+      const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
+      const attendeeMap = {};
+      venueAttendees.forEach(a => {
+        attendeeMap[a.row + '_' + a.seat] = a.name;
+      });
+
+      // 标题（会场名称在最上方）
+      svgContent += `  <text x="${svgWidth / 2}" y="${y + 64}" class="main-title" text-anchor="middle">${escXml(venue.name)}</text>\n`;
+      const totalSeats = (venue.rows || []).reduce((sum, r) => sum + (r.seatGroups || []).reduce((s, g) => s + g.length, 0), 0);
+      svgContent += `  <text x="${svgWidth / 2}" y="${y + 108}" class="subtitle" text-anchor="middle">共 ${totalSeats} 个座位</text>\n`;
+      y += 120 + 30;
+
+      // 舞台（在标题下方）
+      const stageHeight = 80;
+      svgContent += `  <rect x="${margin}" y="${y}" width="${svgWidth - margin * 2}" height="${stageHeight}" fill="#1a56db" rx="10"/>\n`;
+      svgContent += `  <text x="${svgWidth / 2}" y="${y + 56}" class="stage-label" text-anchor="middle">${escXml(venue.stageName || '舞台区域')}</text>\n`;
+      y += stageHeight + seatHeight + rowGap;
+
+      if (!venue.rows || venue.rows.length === 0) { y += 50; return; }
+
+      // U型会场SVG渲染：按实际U型布局（左臂 + 底部 + 右臂）
+      if (venue.layout === 'u-shape') {
+        const uBottomRow = venue.rows.find(r => (r.label || '').includes('底部'));
+        const uArmRows = venue.rows.filter(r => !(r.label || '').includes('底部'));
+        const midIdx = Math.floor(uArmRows.length / 2);
+        const leftArmRows = uArmRows.slice(0, midIdx);
+        const rightArmRows = uArmRows.slice(midIdx);
+
+        const bottomSeats = uBottomRow ? uBottomRow.seatGroups[0] || [] : [];
+        const maxArmLen = Math.max(...uArmRows.map(r => r.seatGroups[0] ? r.seatGroups[0].length : 0), 0);
+
+        const colGap = 30;
+        const labelRowHeight = 50;
+
+        // 计算左臂宽度（各列宽度累加）
+        const leftArmWidth = leftArmRows.reduce((sum, col) => sum + seatWidth + colGap, 0) - (leftArmRows.length > 0 ? colGap : 0);
+        // 计算右臂宽度
+        const rightArmWidth = rightArmRows.reduce((sum, col) => sum + seatWidth + colGap, 0) - (rightArmRows.length > 0 ? colGap : 0);
+        // 底部行宽度
+        const bottomWidth = bottomSeats.length > 0 ? bottomSeats.length * (seatWidth + seatGap) - seatGap : 0;
+        // 底部和臂之间的间距
+        const armBottomGap = 60;
+        // 总宽度
+        const totalWidth = leftArmWidth + (bottomWidth > 0 ? armBottomGap + bottomWidth + armBottomGap : 0) + rightArmWidth;
+        
+        // 整体居中偏移
+        const baseX = Math.max(0, (svgWidth - totalWidth) / 2);
+        
+        // 各区域起始X位置
+        const leftStartX = baseX;
+        const bottomStartX = leftStartX + leftArmWidth + (leftArmWidth > 0 && bottomWidth > 0 ? armBottomGap : 0);
+        const rightStartX = (bottomWidth > 0 ? bottomStartX + bottomWidth + armBottomGap : leftStartX + leftArmWidth + armBottomGap);
+
+        // 计算各列在每个垂直位置的X坐标
+        const leftColXs = [];
+        let lx = leftStartX;
+        leftArmRows.forEach(() => {
+          leftColXs.push(lx);
+          lx += seatWidth + colGap;
+        });
+
+        const rightColXs = [];
+        let rx = rightStartX;
+        rightArmRows.forEach(() => {
+          rightColXs.push(rx);
+          rx += seatWidth + colGap;
+        });
+
+        // ---- 1. 列标签行 ----
+        const labelY = y;
+        leftArmRows.forEach((col, idx) => {
+          const cx = leftColXs[idx] + seatWidth / 2;
+          svgContent += `  <text x="${cx}" y="${labelY}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="36" font-weight="bold">${escXml(col.label)}</text>\n`;
+        });
+        rightArmRows.forEach((col, idx) => {
+          const cx = rightColXs[idx] + seatWidth / 2;
+          svgContent += `  <text x="${cx}" y="${labelY}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="36" font-weight="bold">${escXml(col.label)}</text>\n`;
+        });
+        y += labelRowHeight;
+
+        // ---- 2. 渲染两臂座位（垂直排列）----
+        for (let si = 0; si < maxArmLen; si++) {
+          // 左臂：每列的第si个座位
+          leftArmRows.forEach((col, idx) => {
+            const seats = col.seatGroups[0] || [];
+            if (si < seats.length) {
+              const sn = seats[si];
+              const name = attendeeMap[col.label + '_' + sn];
+              const sx = leftColXs[idx];
+
+              // 座位号
+              const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+              const numBoxY = y - numBoxHeight - 8;
+              svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+              svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+
+              // 姓名框
+              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
+                svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+              }
+            }
+          });
+
+          // 右臂：每列的第si个座位
+          rightArmRows.forEach((col, idx) => {
+            const seats = col.seatGroups[0] || [];
+            if (si < seats.length) {
+              const sn = seats[si];
+              const name = attendeeMap[col.label + '_' + sn];
+              const sx = rightColXs[idx];
+
+              // 座位号
+              const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+              const numBoxY = y - numBoxHeight - 8;
+              svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+              svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+
+              // 姓名框
+              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
+                svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+              }
+            }
+          });
+
+          y += seatHeight + rowGap;
+        }
+
+        // ---- 3. 底部行：所有座位排成一行（在臂下方）----
+        if (bottomSeats.length > 0) {
+          y += 30;
+          // 底部行标签
+          const bottomLabel = uBottomRow ? uBottomRow.label : '底部';
+          svgContent += `  <text x="${leftStartX}" y="${y - 10}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(bottomLabel)}</text>\n`;
+
+          // 渲染底部座位——排在底部区域中间，与臂对齐
+          const bottomAreaCenter = bottomStartX + bottomWidth / 2;
+          let bx = bottomAreaCenter - (bottomSeats.length * (seatWidth + seatGap) - seatGap) / 2;
+
+          bottomSeats.forEach((sn) => {
+            const name = attendeeMap[(uBottomRow ? uBottomRow.label : '底部') + '_' + sn];
+
+            // 座位号
+            const numBoxX = bx + (seatWidth - numBoxWidth) / 2;
+            const numBoxY = y - numBoxHeight - 8;
+            svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+            svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+
+            // 姓名框
+            svgContent += `  <rect x="${bx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+            if (name) {
+              const dn = name.replace(/\n/g, ' ');
+              const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
+              svgContent += `  <text x="${bx + seatWidth / 2}" y="${y + seatHeight / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+            }
+
+            bx += seatWidth + seatGap;
+          });
+
+          y += seatHeight + 50;
+        }
+
+        y += 60;
+        return;
+      }
+
+      // 按分组渲染座位图
+      const isStandardMode = venue.layout === 'standard' || venue.mode === 'standard';
+      
+      if (isStandardMode) {
+        // 标准模式：每排独立居中渲染
+        // 按座位数分组——连续相同座位数的排为一组，只在每组首排显示座位号
+        const numBoxHeightWithGap = numBoxHeight + 8;
+
+        const rowGroups = [];
+        venue.rows.forEach((row, rowIdx) => {
+          if (row.seatGroups) {
+            const seatCount = row.seatGroups.reduce((s, g) => s + g.filter(x => x !== null && x !== undefined).length, 0);
+            const totalSlots = row.seatGroups.reduce((s, g) => s + g.length, 0);
+            const prev = rowGroups[rowGroups.length - 1];
+            if (prev && prev.seatCount === seatCount && prev.totalSlots === totalSlots) {
+              prev.rows.push(row);
+            } else {
+              rowGroups.push({ seatCount, totalSlots, rows: [row], isFirst: true });
+            }
+          }
+        });
+
+        let maxRowSeats = 0;
+        venue.rows.forEach(row => {
+          if (row.seatGroups) {
+            const count = row.seatGroups.reduce((s, g) => s + g.length, 0);
+            if (count > maxRowSeats) maxRowSeats = count;
+          }
+        });
+        totalSeatWidth = maxRowSeats * (seatWidth + seatGap);
+        svgWidth = Math.max(totalSeatWidth + 400, 1200);
+
+        rowGroups.forEach(group => {
+          group.rows.forEach((row, ri) => {
+            if (row.isAisle) { y += aisleHeight; return; }
+
+            const rowLabel = row.label || '';
+            const isFirstRowInGroup = ri === 0;
+            svgContent += `  <text x="${60}" y="${y + seatHeight / 2 + 10}" class="row-label" text-anchor="end">${escXml(rowLabel)}</text>\n`;
+
+            if (row.seatGroups) {
+              const allSeats = row.seatGroups.flat();
+              const rowWidth = allSeats.length * (seatWidth + seatGap);
+              let sx = Math.max(160, (svgWidth - rowWidth) / 2);
+
+              allSeats.forEach((seatNum) => {
+                if (seatNum === null || seatNum === undefined) {
+                  sx += seatWidth + seatGap;
+                  return;
+                }
+
+                const name = attendeeMap[rowLabel + '_' + seatNum];
+
+                if (isFirstRowInGroup) {
+                  const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+                  const numBoxY = y - numBoxHeight - 8;
+                  svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                  svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${seatNum}</text>\n`;
+                }
+
+                const fill = name ? '#dbeafe' : '#ffffff';
+                svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                if (name) {
+                  const displayName = name.replace(/\n/g, ' ');
+                  const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
+                  svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
+                }
+                sx += seatWidth + seatGap;
+              });
+            }
+
+            y += seatHeight + rowGap;
+            if (row.hasAisleAfter) {
+              y += 20;
+              const aisleY = y;
+              const aisleHeightVal = 30;
+              const aisleWidth = totalSeatWidth + 80;
+              const aisleX = (svgWidth - aisleWidth) / 2;
+              svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>\n`;
+              svgContent += `  <text x="${svgWidth / 2}" y="${aisleY + 22}" class="aisle-label" text-anchor="middle">横向过道</text>\n`;
+              y += aisleHeightVal + 30;
+            }
+          });
+        });
+      } else {
+      // 剧院模式：使用分组对齐渲染
+      let maxGroupCount = 0;
+      const maxSeatsPerGroup = {};
+      venue.rows.forEach(row => {
+        if (row.seatGroups) {
+          maxGroupCount = Math.max(maxGroupCount, row.seatGroups.length);
+          row.seatGroups.forEach((g, gi) => {
+            maxSeatsPerGroup[gi] = Math.max(maxSeatsPerGroup[gi] || 0, g.length);
+          });
+        }
+      });
+      if (maxGroupCount === 0) maxGroupCount = 1;
+      
+      // 计算SVG宽度
+      let totalSeatWidth = 0;
+      for (let gi = 0; gi < maxGroupCount; gi++) {
+        const groupSeats = maxSeatsPerGroup[gi] || 0;
+        totalSeatWidth += groupSeats * (seatWidth + seatGap);
+        if (gi < maxGroupCount - 1) totalSeatWidth += groupGap - seatGap;
+      }
+      svgWidth = Math.max(totalSeatWidth + 400, 1200);
+
+      // 渲染每一排
+      venue.rows.forEach((row, rowIdx) => {
+        if (row.isAisle) {
+          y += aisleHeight;
+          return;
+        }
+
+        const rowLabel = row.label || `第${rowIdx + 1}排`;
+        const labelY = y + seatHeight / 2 + 10;
+        const startX = 160;
+        
+        // 排号标签（左侧）
+        svgContent += `  <text x="${startX - 20}" y="${labelY}" class="row-label" text-anchor="end">${escXml(rowLabel)}</text>\n`;
+        
+        // 逐组渲染
+        if (row.seatGroups) {
+          let x = startX;
+          for (let gi = 0; gi < maxGroupCount; gi++) {
+            const groupSeats = row.seatGroups[gi] || [];
+            const groupMax = maxSeatsPerGroup[gi] || 0;
+            
+            const groupActualWidth = groupSeats.length * (seatWidth + seatGap);
+            const groupMaxWidth = groupMax * (seatWidth + seatGap);
+            const offset = groupMax > groupSeats.length ? (groupMaxWidth - groupActualWidth) / 2 : 0;
+            
+            let sx = x + offset;
+            
+            groupSeats.forEach((seatNum) => {
+              const name = attendeeMap[rowLabel + '_' + seatNum];
+              
+              if (seatNum) {
+                const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+                const numBoxY = y - numBoxHeight - 8;
+                svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${seatNum}</text>\n`;
+              }
+              
+              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              if (name) {
+                const displayName = name.replace(/\n/g, ' ');
+                const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
+                svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
+              }
+              sx += seatWidth + seatGap;
+            });
+            
+            x += groupMaxWidth;
+            if (gi < maxGroupCount - 1) x += groupGap - seatGap;
+          }
+        }
+
+        y += seatHeight + rowGap;
+        if (row.hasAisleAfter) {
+          y += 20;
+          const aisleY = y;
+          const aisleHeightVal = 30;
+          const aisleWidth = totalSeatWidth + 80;
+          const aisleX = (svgWidth - aisleWidth) / 2;
+          svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>\n`;
+          svgContent += `  <text x="${svgWidth / 2}" y="${aisleY + 22}" class="aisle-label" text-anchor="middle">横向过道</text>\n`;
+          y += aisleHeightVal + 30;
+        }
+      });
+      }
+      y += 60;
+    });
+
+    svgContent += '</svg>';
+
+    const filename = `${siteTitle}_座位布局图.svg`;
+    const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="seating-layout.svg"; filename*=UTF-8''${encodedFilename}`);
+    res.setHeader('Content-Length', Buffer.byteLength(svgContent, 'utf8'));
+    res.send(svgContent);
+  } catch (err) {
+    structuredLog('error', { message: 'SVG 导出失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '导出失败: ' + err.message });
+  }
+});
+
+// XML 转义
+function escXml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// 自动分析已上传表格的布局（从 uploaded.xlsx 重新解析）
+app.post('/api/analyze-layout', requireAuth, (req, res) => {
+  try {
+    const uploadedPath = path.join(__dirname, 'uploads', 'uploaded.xlsx');
+    if (!fs.existsSync(uploadedPath)) {
+      return res.status(404).json({ error: '未找到已上传的表格文件，请先上传 Excel 文件' });
+    }
+    
+    const mode = req.body.mode || 'auto';
+    const sheetModes = req.body.sheetModes || {};
+    const wb = XLSX.readFile(uploadedPath);
+    const existing = readData();
+    const manualAttendees = (existing.attendees || []).filter(a => a.source !== 'excel');
+    const result = parseWorkbook(wb, manualAttendees, mode, sheetModes);
+    
+    writeData(result);
+    
+    res.json({ 
+      ok: true, 
+      data: { venues: result.venues },
+      mode: mode,
+      sheetModes: sheetModes,
+      message: '布局分析完成'
+    });
+  } catch (err) {
+    structuredLog('error', { message: '布局分析失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '分析失败: ' + err.message });
+  }
+});
+
+// 生成布局预览图
+app.post('/api/generate-preview', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const config = readConfig();
+    const siteTitle = config.siteTitle || '会议';
+    
+    // 座位参数
+    const seatWidth = 60;
+    const seatHeight = 30;
+    const seatGap = 8;
+    const groupGap = 30;
+    const rowGap = 12;
+    const margin = 20;
+    
+    // 辅助函数：计算排宽度
+    function getRowWidth(row) {
+      let w = 0;
+      if (!row.seatGroups) return w;
+      row.seatGroups.forEach((g, gIdx) => {
+        w += g.length * (seatWidth + seatGap);
+        if (gIdx < row.seatGroups.length - 1) w += groupGap - seatGap;
+      });
+      return w;
+    }
+    
+    // 辅助函数：座位组结构签名（基于分组数，而非精确座位数）
+    function getGroupSignature(row) {
+      if (!row.seatGroups) return '';
+      // 使用分组数作为签名，确保相同过道数的排在同一组
+      return `groups:${row.seatGroups.length}`;
+    }
+    
+    const previewVenues = [];
+    
+    data.venues.forEach(venue => {
+      const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
+      const attendeeMap = {};
+      venueAttendees.forEach(a => {
+        attendeeMap[a.row + '_' + a.seat] = a.name;
+      });
+      
+      // 计算所有排的最大组数和每组最大座位数
+      let maxGroupCount = 0;
+      const maxSeatsPerGroup = {};
+      venue.rows.forEach(row => {
+        if (row.seatGroups) {
+          maxGroupCount = Math.max(maxGroupCount, row.seatGroups.length);
+          row.seatGroups.forEach((g, gi) => {
+            maxSeatsPerGroup[gi] = Math.max(maxSeatsPerGroup[gi] || 0, g.length);
+          });
+        }
+      });
+      if (maxGroupCount === 0) maxGroupCount = 1;
+      
+      // 计算SVG宽度：各组最大宽度 + 过道间距
+      let totalSeatWidth = 0;
+      for (let gi = 0; gi < maxGroupCount; gi++) {
+        const groupSeats = maxSeatsPerGroup[gi] || 0;
+        totalSeatWidth += groupSeats * (seatWidth + seatGap);
+        if (gi < maxGroupCount - 1) totalSeatWidth += groupGap - seatGap;
+      }
+      const svgWidth = totalSeatWidth + margin * 2 + 160;
+      
+      // 计算高度
+      let venueHeight = margin + 50 + margin;
+      if (venue.rows) {
+        venue.rows.forEach(row => {
+          venueHeight += seatHeight + rowGap;
+          if (row.hasAisleAfter) {
+            venueHeight += 10 + 20 + 10; // 间隙 + 过道高 + 间隙
+          }
+        });
+      }
+      
+      // 生成SVG内容
+      let svgContent = `<rect width="100%" height="100%" fill="#f8fafc"/>`;
+      let y = margin;
+
+      const isStandardMode = venue.layout === 'standard' || venue.mode === 'standard';
+
+      if (isStandardMode) {
+        // 标准模式：每排独立居中，按座位数分组，只在每组首排显示座位号
+        const rowGroups = [];
+        venue.rows.forEach((row, rowIdx) => {
+          if (row.seatGroups) {
+            const seatCount = row.seatGroups.reduce((s, g) => s + g.filter(x => x !== null && x !== undefined).length, 0);
+            const totalSlots = row.seatGroups.reduce((s, g) => s + g.length, 0);
+            const prev = rowGroups[rowGroups.length - 1];
+            if (prev && prev.seatCount === seatCount && prev.totalSlots === totalSlots) {
+              prev.rows.push(row);
+            } else {
+              rowGroups.push({ seatCount, totalSlots, rows: [row] });
+            }
+          }
+        });
+
+        let maxRowSeats = 0;
+        venue.rows.forEach(row => {
+          if (row.seatGroups) {
+            const count = row.seatGroups.reduce((s, g) => s + g.length, 0);
+            if (count > maxRowSeats) maxRowSeats = count;
+          }
+        });
+        totalSeatWidth = maxRowSeats * (seatWidth + seatGap);
+        const svgWidth = totalSeatWidth + margin * 2 + 160;
+
+        venueHeight = margin + 50 + margin;
+        venue.rows.forEach(row => { venueHeight += seatHeight + rowGap; if (row.hasAisleAfter) venueHeight += 40; });
+
+        svgContent = `<rect width="100%" height="100%" fill="#f8fafc"/>`;
+        y = margin;
+        svgContent += `<text x="${svgWidth / 2}" y="${y + 30}" font-family="Microsoft YaHei, sans-serif" font-size="16" font-weight="bold" fill="#1e293b" text-anchor="middle">${escXml(venue.name)}</text>`;
+        y += 50;
+
+        rowGroups.forEach(group => {
+          group.rows.forEach((row, ri) => {
+            const rowLabel = row.label || '';
+            const isFirstRowInGroup = ri === 0;
+            svgContent += `<text x="${margin + 50}" y="${y + seatHeight / 2 + 5}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="end">${escXml(rowLabel)}</text>`;
+
+            if (row.seatGroups) {
+              const allSeats = row.seatGroups.flat();
+              const rowWidth = allSeats.length * (seatWidth + seatGap);
+              let sx = Math.max(margin + 100, (svgWidth - rowWidth) / 2);
+
+              allSeats.forEach((seatNum) => {
+                if (seatNum === null || seatNum === undefined) {
+                  sx += seatWidth + seatGap;
+                  return;
+                }
+                const name = attendeeMap[rowLabel + '_' + seatNum];
+                const fill = name ? '#dbeafe' : '#ffffff';
+                svgContent += `<rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
+                if (isFirstRowInGroup) {
+                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${seatNum}</text>`;
+                }
+                if (name) {
+                  const displayName = name.length > 4 ? name.substring(0, 3) + '...' : name;
+                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight - 6}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#1e293b" text-anchor="middle">${escXml(displayName)}</text>`;
+                }
+                sx += seatWidth + seatGap;
+              });
+            }
+
+            y += seatHeight + rowGap;
+            if (row.hasAisleAfter) {
+              y += 10;
+              const aisleY = y;
+              const aisleHeightVal = 20;
+              const aisleWidth = totalSeatWidth + 80;
+              const aisleX = (svgWidth - aisleWidth) / 2;
+              svgContent += `<rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>`;
+              svgContent += `<text x="${svgWidth / 2}" y="${aisleY + 14}" font-family="Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">横向过道</text>`;
+              y += aisleHeightVal + 10;
+            }
+          });
+        });
+
+        previewVenues.push({ name: venue.name, width: svgWidth, height: venueHeight, svgContent: svgContent });
+      } else {
+      
+      // 标题
+      svgContent += `<text x="${svgWidth / 2}" y="${y + 30}" font-family="Microsoft YaHei, sans-serif" font-size="16" font-weight="bold" fill="#1e293b" text-anchor="middle">${escXml(venue.name)}</text>`;
+      y += 50;
+      
+      if (venue.rows && venue.rows.length > 0) {
+        const startX = margin + 100;
+        
+        venue.rows.forEach((row, rowIdx) => {
+          const rowLabel = row.label || `第${rowIdx + 1}排`;
+          
+          // 排号标签
+          svgContent += `<text x="${startX - 10}" y="${y + seatHeight / 2 + 5}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="end">${escXml(rowLabel)}</text>`;
+          
+          if (row.seatGroups) {
+            // 逐组渲染，每组使用最大宽度，较少的座位居中
+            let x = startX;
+            for (let gi = 0; gi < maxGroupCount; gi++) {
+              const groupSeats = row.seatGroups[gi] || [];
+              const groupMax = maxSeatsPerGroup[gi] || groupSeats.length;
+              
+              // 计算该组占用的实际宽度
+              const groupActualWidth = groupSeats.length * (seatWidth + seatGap);
+              const groupMaxWidth = groupMax * (seatWidth + seatGap);
+              
+              // 偏移量：居中对齐
+              const offset = (groupMaxWidth - groupActualWidth) / 2;
+              let sx = x + offset;
+              
+              groupSeats.forEach((seatNum) => {
+                const name = attendeeMap[rowLabel + '_' + seatNum];
+                svgContent += `<rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
+                if (seatNum) {
+                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${seatNum}</text>`;
+                }
+                if (name) {
+                  const displayName = name.length > 4 ? name.substring(0, 3) + '...' : name;
+                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight - 6}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#1e293b" text-anchor="middle">${escXml(displayName)}</text>`;
+                }
+                sx += seatWidth + seatGap;
+              });
+              
+              x += groupMaxWidth;
+              if (gi < maxGroupCount - 1) x += groupGap - seatGap;
+            }
+          }
+          
+          y += seatHeight + rowGap;
+          if (row.hasAisleAfter) {
+            y += 10;
+            const aisleY = y;
+            const aisleHeightVal = 20;
+            const aisleWidth = totalSeatWidth + 80;
+            const aisleX = (svgWidth - aisleWidth) / 2;
+            svgContent += `<rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>`;
+            svgContent += `<text x="${svgWidth / 2}" y="${aisleY + 14}" font-family="Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">横向过道</text>`;
+            y += aisleHeightVal + 10;
+          }
+        });
+      }
+      
+      previewVenues.push({
+        name: venue.name,
+        width: svgWidth,
+        height: venueHeight,
+        svgContent: svgContent
+      });
+      }
+    });
+    
+    res.json({
+      ok: true,
+      data: { venues: previewVenues }
+    });
+  } catch (err) {
+    structuredLog('error', { message: '预览图生成失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '生成失败: ' + err.message });
+  }
+});
+
+// 健康检查接口
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    venues: readData().venues.length,
+    attendees: readData().attendees.length
+  });
+});
+
+// ==================== 管理 API（需认证） ====================
+
+// 批量导入参会者（指定场馆）
+app.post('/api/attendees/import', requireAuth, (req, res) => {
+  const data = readData();
+  const { attendees, mode, venueId } = req.body;
+
+  if (!venueId) {
+    return res.status(400).json({ error: '缺少 venueId 参数' });
+  }
+
+  // 验证导入数据
+  if (!Array.isArray(attendees) || attendees.length === 0) {
+    return res.status(400).json({ error: '无效的参会者数据' });
+  }
+  if (attendees.length > MAX_ATTENDEES_IMPORT) {
+    return res.status(413).json({ 
+      error: `导入数据过多（${attendees.length} 人），不超过 ${MAX_ATTENDEES_IMPORT} 人` 
+    });
+  }
+
+  const cleaned = attendees.map(a => cleanAttendee({ ...a, venueId }));
+  const duplicates = [];
+  const conflicts = [];
+  const valid = [];
+
+  cleaned.forEach(a => {
+    // 检查重复
+    if (mode === 'append' && findDuplicateAttendee(data, a)) {
+      duplicates.push(a.name);
+      return;
+    }
+    // 检查座位冲突
+    const conflict = findSeatConflict(data, a);
+    if (conflict) {
+      conflicts.push({ name: a.name, row: a.row, seat: a.seat, occupiedBy: conflict.name });
+      return;
+    }
+    valid.push(a);
+  });
+
+  if (mode === 'replace') {
+    data.attendees = data.attendees.filter(a => a.venueId !== venueId);
+  }
+
+  data.attendees = data.attendees.concat(valid);
+  writeData(data);
+
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  auditLog('IMPORT_ATTENDEES', ip, {
+    venueId,
+    mode,
+    imported: valid.length,
+    duplicates: duplicates.length,
+    conflicts: conflicts.length
+  });
+
+  res.json({
+    ok: true,
+    count: data.attendees.filter(a => a.venueId === venueId).length,
+    imported: valid.length,
+    duplicates: duplicates.length,
+    conflicts: conflicts.length,
+    duplicateNames: duplicates,
+    conflictDetails: conflicts
+  });
+});
+
+// 添加单个参会者（带重复和冲突检测）
+app.post('/api/attendees', requireAuth, (req, res) => {
+  const data = readData();
+  const attendee = cleanAttendee(req.body);
+
+  // 检查重复
+  const duplicate = findDuplicateAttendee(data, attendee);
+  if (duplicate) {
+    return res.status(409).json({
+      error: `参会者「${attendee.name}」在该会场已存在`,
+      existing: duplicate
+    });
+  }
+
+  // 检查座位冲突
+  const conflict = findSeatConflict(data, attendee);
+  if (conflict) {
+    return res.status(409).json({
+      error: `座位「${attendee.row} ${attendee.seat}号」已被「${conflict.name}」占用`,
+      existing: conflict
+    });
+  }
+
+  data.attendees.push(attendee);
+  writeData(data);
+  res.json({ ok: true });
+});
+
+// 修改会场名称/描述
+app.put('/api/venues/:id', requireAuth, (req, res) => {
+  const data = readData();
+  const venue = data.venues.find(v => v.id === req.params.id);
+  if (!venue) return res.status(404).json({ error: '场馆不存在' });
+  const { name, description } = req.body;
+  if (name !== undefined) venue.name = name.trim();
+  if (description !== undefined) venue.description = description.trim();
+  writeData(data);
+  res.json({ ok: true, venue });
+});
+
+// 应用增量变动
+app.post('/api/apply-diffs', requireAuth, (req, res) => {
+  const { diffs } = req.body;
+  if (!diffs || !Array.isArray(diffs)) {
+    return res.status(400).json({ error: '缺少变动数据' });
+  }
+
+  const data = readData();
+  let applied = 0;
+
+  diffs.forEach(d => {
+    // 查找对应的会场
+    const venue = data.venues.find(v => v.name === d.venue);
+    if (!venue) return;
+
+    if (d.type === 'added') {
+      // 新增：添加参会者
+      const exists = data.attendees.find(a => a.venueId === venue.id && a.name === d.name);
+      if (!exists) {
+        data.attendees.push({
+          name: d.name,
+          row: d.newRow,
+          seat: d.newSeat,
+          company: '',
+          title: '',
+          venueId: venue.id,
+          source: 'excel'
+        });
+        applied++;
+      }
+    } else if (d.type === 'removed') {
+      // 移除：删除参会者
+      const idx = data.attendees.findIndex(a => a.venueId === venue.id && a.name === d.name);
+      if (idx !== -1) {
+        data.attendees.splice(idx, 1);
+        applied++;
+      }
+    } else if (d.type === 'moved') {
+      // 换座：更新位置
+      const attendee = data.attendees.find(a => a.venueId === venue.id && a.name === d.name);
+      if (attendee) {
+        attendee.row = d.newRow;
+        attendee.seat = d.newSeat;
+        applied++;
+      }
+    }
+  });
+
+  writeData(data);
+  
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  auditLog('APPLY_DIFFS', ip, {
+    totalDiffs: diffs.length,
+    applied,
+    summary: {
+      added: diffs.filter(d => d.type === 'added').length,
+      removed: diffs.filter(d => d.type === 'removed').length,
+      moved: diffs.filter(d => d.type === 'moved').length
+    }
+  });
+  
+  res.json({ ok: true, applied: applied });
+});
+
+// 删除参会者
+app.delete('/api/attendees', requireAuth, (req, res) => {
+  const { name, venueId } = req.query;
+  const data = readData();
+  const beforeCount = data.attendees.length;
+
+  if (name && venueId) {
+    data.attendees = data.attendees.filter(a => !(a.name === name && a.venueId === venueId));
+  } else if (venueId) {
+    data.attendees = data.attendees.filter(a => a.venueId !== venueId);
+  } else {
+    data.attendees = [];
+  }
+
+  const deletedCount = beforeCount - data.attendees.length;
+  writeData(data);
+  
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  auditLog('DELETE_ATTENDEES', ip, {
+    name: name || null,
+    venueId: venueId || null,
+    deletedCount,
+    scope: name && venueId ? 'single' : venueId ? 'venue' : 'all'
+  });
+  
+  res.json({ ok: true, deleted: deletedCount });
+});
+
+// 重新从服务端 Excel 导入布局
+app.post('/api/import-excel', requireAuth, (req, res) => {
+  const excelPath = path.join(__dirname, '..', '座位排表.xlsx');
+  if (!fs.existsSync(excelPath)) {
+    return res.status(404).json({ error: '未找到 座位排表.xlsx' });
+  }
+  try {
+    const mode = req.body.mode || 'auto';
+    const sheetModes = req.body.sheetModes || {};
+    const wb = XLSX.readFile(excelPath);
+    const existing = readData();
+    const manualAttendees = (existing.attendees || []).filter(a => a.source !== 'excel');
+    const result = parseWorkbook(wb, manualAttendees, mode, sheetModes);
+    writeData(result);
+    res.json({ ok: true, data: result, mode: mode, sheetModes: sheetModes });
+  } catch (err) {
+    res.status(500).json({ error: '解析失败: ' + err.message });
+  }
+});
+
+// 上传 Excel 文件导入（从浏览器上传）
+// 文件上传配置
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_ATTENDEES_IMPORT = 5000; // 最多导入 5000 人
+
+// 验证 Excel 文件
+function validateExcelFile(fileData) {
+  if (!fileData || typeof fileData !== 'string') {
+    throw new Error('未提供文件数据');
+  }
+  
+  // 检查 base64 大小
+  const estimatedSize = fileData.length * 0.75;
+  if (estimatedSize > MAX_FILE_SIZE) {
+    throw new Error(`文件过大（${(estimatedSize / 1024 / 1024).toFixed(1)}MB），不超过 10MB`);
+  }
+  
+  const buffer = Buffer.from(fileData, 'base64');
+  
+  // 检查实际大小
+  if (buffer.length > MAX_FILE_SIZE) {
+    throw new Error(`文件过大（${(buffer.length / 1024 / 1024).toFixed(1)}MB），不超过 10MB`);
+  }
+  
+  // 检查 Excel 文件签名（ZIP 格式：PK）
+  if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+    throw new Error('不是有效的 Excel 文件');
+  }
+  
+  return buffer;
+}
+
+// 自动检测已上传 Excel 文件每个 Sheet 的布局类型
+app.post('/api/detect-sheet-modes', requireAuth, (req, res) => {
+  const { fileData } = req.body;
+  
+  try {
+    const buffer = validateExcelFile(fileData);
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    
+    const sheets = wb.SheetNames.map(name => {
+      const ws = wb.Sheets[name];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const detectedMode = detectSheetMode(data);
+      return { name, detectedMode };
+    });
+    
+    res.json({ ok: true, sheets });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/upload-excel', requireAuth, (req, res) => {
+  const { fileData, keepManual, mode, sheetModes } = req.body;
+  
+  try {
+    const buffer = validateExcelFile(fileData);
+    const parseMode = mode || 'auto';
+    const sheetModesMap = sheetModes || {};
+    
+    // 保存上传的文件到 uploaded.xlsx
+    const uploadedPath = path.join(__dirname, 'uploads', 'uploaded.xlsx');
+    fs.writeFileSync(uploadedPath, buffer);
+    
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const manualAttendees = keepManual
+      ? (readData().attendees || []).filter(a => a.source !== 'excel')
+      : [];
+    const result = parseWorkbook(wb, manualAttendees, parseMode, sheetModesMap);
+    
+    // 验证导入数量
+    if (result.attendees.length > MAX_ATTENDEES_IMPORT) {
+      return res.status(413).json({ 
+        error: `导入数据过大（${result.attendees.length} 人），不超过 ${MAX_ATTENDEES_IMPORT} 人` 
+      });
+    }
+    
+    writeData(result);
+    auditLog('UPLOAD_EXCEL', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      fileName: 'uploaded.xlsx',
+      venueCount: result.venues.length,
+      attendeeCount: result.attendees.length,
+      keepManual: keepManual,
+      mode: parseMode,
+      sheetModes: sheetModesMap
+    });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    structuredLog('error', { message: 'Excel 上传失败', error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 对比 Excel：上传新 Excel 与当前系统数据对比，返回差异
+app.post('/api/compare-excel', requireAuth, (req, res) => {
+  const { fileData, mode, sheetModes } = req.body;
+  
+  try {
+    const buffer = validateExcelFile(fileData);
+    const parseMode = mode || 'auto';
+    const sheetModesMap = sheetModes || {};
+    
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const newData = parseWorkbook(wb, [], parseMode, sheetModesMap);
+    const oldData = readData();
+
+    const diffs = [];
+
+    // 遍历每个会场做对比
+    newData.venues.forEach(newVenue => {
+      const oldVenue = oldData.venues.find(v => v.name === newVenue.name);
+      const venueName = newVenue.name;
+      const newAttendees = newData.attendees.filter(a => a.venueId === newVenue.id);
+
+      if (!oldVenue) {
+        // 整个会场是新增的
+        newAttendees.forEach(a => {
+          diffs.push({ type: 'added', venue: venueName, name: a.name, newRow: a.row, newSeat: a.seat, oldRow: '', oldSeat: '' });
+        });
+        return;
+      }
+
+      const oldAttendees = oldData.attendees.filter(a => a.venueId === oldVenue.id);
+
+      // 建立 name -> attendee 的映射
+      const oldMap = {};
+      oldAttendees.forEach(a => { oldMap[a.name] = a; });
+      const newMap = {};
+      newAttendees.forEach(a => { newMap[a.name] = a; });
+
+      // 新增的人（新表有、旧表没有）
+      newAttendees.forEach(a => {
+        if (!oldMap[a.name]) {
+          diffs.push({ type: 'added', venue: venueName, name: a.name, newRow: a.row, newSeat: a.seat, oldRow: '', oldSeat: '' });
+        }
+      });
+
+      // 删除的人（旧表有、新表没有）
+      oldAttendees.forEach(a => {
+        if (!newMap[a.name]) {
+          diffs.push({ type: 'removed', venue: venueName, name: a.name, newRow: '', newSeat: '', oldRow: a.row, oldSeat: a.seat });
+        }
+      });
+
+      // 位置变动的人
+      newAttendees.forEach(a => {
+        const old = oldMap[a.name];
+        if (old && (old.row !== a.row || old.seat !== a.seat)) {
+          diffs.push({ type: 'moved', venue: venueName, name: a.name, oldRow: old.row, oldSeat: old.seat, newRow: a.row, newSeat: a.seat });
+        }
+      });
+    });
+
+    // 检查旧数据中有但新数据里整个会场都没有的
+    oldData.venues.forEach(oldVenue => {
+      const newVenue = newData.venues.find(v => v.name === oldVenue.name);
+      if (!newVenue) {
+        const oldAttendees = oldData.attendees.filter(a => a.venueId === oldVenue.id);
+        oldAttendees.forEach(a => {
+          diffs.push({ type: 'removed', venue: oldVenue.name, name: a.name, newRow: '', newSeat: '', oldRow: a.row, oldSeat: a.seat });
+        });
+      }
+    });
+
+    res.json({ ok: true, diffs, summary: {
+      total: diffs.length,
+      added: diffs.filter(d => d.type === 'added').length,
+      removed: diffs.filter(d => d.type === 'removed').length,
+      moved: diffs.filter(d => d.type === 'moved').length
+    }});
+  } catch (err) {
+    res.status(500).json({ error: '对比失败: ' + err.message });
+  }
+});
+
+// ==================== 备份管理 API ====================
+
+// 获取备份列表
+app.get('/api/backups', requireAuth, (req, res) => {
+  if (!fs.existsSync(BACKUP_DIR)) {
+    return res.json({ backups: [] });
+  }
+  const backups = fs.readdirSync(BACKUP_DIR)
+    .filter(f => f.startsWith('data-') && f.endsWith('.json'))
+    .sort()
+    .reverse()
+    .map(f => {
+      const filePath = path.join(BACKUP_DIR, f);
+      const stat = fs.statSync(filePath);
+      return {
+        filename: f,
+        size: stat.size,
+        createdAt: stat.birthtime.toISOString()
+      };
+    });
+  res.json({ backups });
+});
+
+// 获取访问日志
+app.get('/api/logs', requireAuth, (req, res) => {
+  const lines = parseInt(req.query.lines) || 100;
+  if (!fs.existsSync(accessLogFile)) {
+    return res.json({ logs: [] });
+  }
+  try {
+    const content = fs.readFileSync(accessLogFile, 'utf-8');
+    const allLines = content.trim().split('\n').filter(l => l);
+    const recentLines = allLines.slice(-lines);
+    res.json({ logs: recentLines, total: allLines.length });
+  } catch (err) {
+    res.json({ logs: [], total: 0 });
+  }
+});
+
+// 获取审计日志
+app.get('/api/audit-logs', requireAuth, (req, res) => {
+  const lines = parseInt(req.query.lines) || 100;
+  if (!fs.existsSync(auditLogFile)) {
+    return res.json({ logs: [] });
+  }
+  try {
+    const content = fs.readFileSync(auditLogFile, 'utf-8');
+    const allLines = content.trim().split('\n').filter(l => l);
+    const recentLines = allLines.slice(-lines).map(l => {
+      try { return JSON.parse(l); } catch { return { raw: l }; }
+    });
+    res.json({ logs: recentLines.reverse(), total: allLines.length });
+  } catch (err) {
+    res.json({ logs: [], total: 0 });
+  }
+});
+
+// 清空访问日志
+app.delete('/api/logs', requireAuth, (req, res) => {
+  try {
+    fs.writeFileSync(accessLogFile, '', 'utf-8');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: '清空失败: ' + err.message });
+  }
+});
+
+// 恢复备份
+app.post('/api/backups/restore', requireAuth, (req, res) => {
+  const { filename } = req.body;
+  if (!filename) {
+    return res.status(400).json({ error: '缺少 filename 参数' });
+  }
+  const backupPath = path.join(BACKUP_DIR, filename);
+  if (!fs.existsSync(backupPath)) {
+    return res.status(404).json({ error: '备份文件不存在' });
+  }
+  try {
+    // 先备份当前数据
+    backupData();
+    // 恢复
+    const data = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
+    writeData(data, true); // 跳过备份，避免循环
+    res.json({ ok: true, message: `已从 ${filename} 恢复` });
+  } catch (err) {
+    res.status(500).json({ error: '恢复失败: ' + err.message });
+  }
+});
+
+// ==================== 错误处理 ====================
+
+// 404 处理
+app.use((req, res) => {
+  res.status(404).json({ error: '接口不存在' });
+});
+
+// 全局错误处理
+app.use((err, req, res, next) => {
+  structuredLog('error', { message: '未捕获的错误', error: err.message, stack: err.stack, url: req.url });
+  res.status(500).json({ error: '服务器内部错误' });
+});
+
+// ==================== 启动服务 ====================
+
+// 优雅关闭
+function gracefulShutdown(signal) {
+  structuredLog('system', { message: `收到 ${signal} 信号，正在优雅关闭...` });
+  // 这里可以添加关闭数据库连接等清理操作
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+app.listen(PORT, () => {
+  structuredLog('system', { message: `座位查询系统已启动：http://localhost:${PORT}` });
+  structuredLog('system', { message: `管理后台：http://localhost:${PORT}/admin.html` });
+  structuredLog('system', { message: `用户查询：http://localhost:${PORT}/` });
+  structuredLog('system', { message: `健康检查：http://localhost:${PORT}/api/health` });
+
+  // 首次启动提示
+  const config = readConfig();
+  if (config.adminPassword === bcrypt.hashSync('admin888', SALT_ROUNDS)) {
+    structuredLog('error', { message: '检测到使用默认密码，请及时修改 config.json 中的密码' });
+  }
+});
+
+// 导出供 Vercel 使用
+module.exports = app;

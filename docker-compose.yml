@@ -1,0 +1,33 @@
+services:
+  meeting-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meeting-system
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:80"
+      - "${CARD_PORT:-8505}:8506"
+    volumes:
+      - meeting-data:/app/data
+      - meeting-output:/app/output
+      - ./fonts:/app/fonts
+    environment:
+      - TZ=Asia/Shanghai
+      - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  meeting-data:
+    driver: local
+  meeting-output:
+    driver: local
