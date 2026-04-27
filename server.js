@@ -1849,6 +1849,389 @@ app.post('/api/compare-excel', requireAuth, (req, res) => {
   }
 });
 
+// ==================== 座位安排可视化 API ====================
+
+// 获取会场座位状态（返回已占座位和空座位）
+app.get('/api/venues/:id/seating', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const venue = data.venues.find(v => v.id === req.params.id);
+    if (!venue) return res.status(404).json({ error: '场馆不存在' });
+
+    const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
+    const attendeeMap = {};
+    venueAttendees.forEach(a => {
+      const key = `${a.row}_${a.seat}`;
+      attendeeMap[key] = a;
+    });
+
+    // 构建座位状态矩阵
+    const seating = {
+      venue,
+      attendees: venueAttendees,
+      seatOccupancy: {}
+    };
+
+    if (venue.rows) {
+      venue.rows.forEach(row => {
+        if (row.seatGroups) {
+          row.seatGroups.forEach(group => {
+            group.forEach(seatNum => {
+              const key = `${row.label}_${seatNum}`;
+              seating.seatOccupancy[key] = attendeeMap[key] || null;
+            });
+          });
+        }
+      });
+    }
+
+    res.json({ ok: true, seating });
+  } catch (err) {
+    structuredLog('error', { message: '获取座位状态失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '获取失败: ' + err.message });
+  }
+});
+
+// 更新单个参会者座位（拖拽用）
+app.put('/api/attendees/:id/seat', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const attendee = data.attendees.find(a => a.id === req.params.id);
+    if (!attendee) return res.status(404).json({ error: '参会者不存在' });
+
+    const { venueId, row, seat } = req.body;
+    const venue = data.venues.find(v => v.id === venueId);
+    if (!venue) return res.status(404).json({ error: '会场不存在' });
+
+    // 检查目标座位是否已被占用
+    const existing = data.attendees.find(
+      a => a.venueId === venueId &&
+           a.row === row &&
+           a.seat === seat &&
+           a.id !== attendee.id
+    );
+
+    if (existing) {
+      return res.status(409).json({
+        error: `座位「${row} ${seat}号」已被「${existing.name}」占用`,
+        occupiedBy: existing
+      });
+    }
+
+    // 更新座位
+    attendee.venueId = venueId;
+    attendee.row = row;
+    attendee.seat = seat;
+
+    writeData(data);
+    auditLog('UPDATE_ATTENDEE_SEAT', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      attendeeId: attendee.id,
+      name: attendee.name,
+      newVenueId: venueId,
+      newRow: row,
+      newSeat: seat
+    });
+
+    res.json({ ok: true, attendee });
+  } catch (err) {
+    structuredLog('error', { message: '更新座位失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '更新失败: ' + err.message });
+  }
+});
+
+// 将参会者安排到指定座位（如果座位被占用则交换）
+app.post('/api/venues/:id/assign-seat', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const venue = data.venues.find(v => v.id === req.params.id);
+    if (!venue) return res.status(404).json({ error: '场馆不存在' });
+
+    const { attendeeId, row, seat } = req.body;
+    const attendee = data.attendees.find(a => a.id === attendeeId);
+    if (!attendee) return res.status(404).json({ error: '参会者不存在' });
+
+    // 检查目标座位是否被占用
+    const existing = data.attendees.find(
+      a => a.venueId === venue.id &&
+           a.row === row &&
+           a.seat === seat
+    );
+
+    if (existing) {
+      // 交换座位
+      const oldRow = attendee.row;
+      const oldSeat = attendee.seat;
+      const oldVenueId = attendee.venueId;
+
+      attendee.venueId = venue.id;
+      attendee.row = row;
+      attendee.seat = seat;
+
+      existing.venueId = oldVenueId;
+      existing.row = oldRow;
+      existing.seat = oldSeat;
+
+      auditLog('SWAP_SEATS', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+        venueId: venue.id,
+        attendee1: { id: attendee.id, name: attendee.name, fromRow: oldRow, fromSeat: oldSeat, toRow: row, toSeat: seat },
+        attendee2: { id: existing.id, name: existing.name, fromRow: row, fromSeat: seat, toRow: oldRow, toSeat: oldSeat }
+      });
+    } else {
+      // 直接安排
+      attendee.venueId = venue.id;
+      attendee.row = row;
+      attendee.seat = seat;
+
+      auditLog('ASSIGN_SEAT', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+        venueId: venue.id,
+        attendeeId: attendee.id,
+        name: attendee.name,
+        row: row,
+        seat: seat
+      });
+    }
+
+    writeData(data);
+    res.json({ ok: true, venueAttendees: data.attendees.filter(a => a.venueId === venue.id) });
+  } catch (err) {
+    structuredLog('error', { message: '安排座位失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '安排失败: ' + err.message });
+  }
+});
+
+// 清除参会者的座位
+app.put('/api/attendees/:id/clear-seat', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const attendee = data.attendees.find(a => a.id === req.params.id);
+    if (!attendee) return res.status(404).json({ error: '参会者不存在' });
+
+    attendee.venueId = '';
+    attendee.row = '';
+    attendee.seat = '';
+
+    writeData(data);
+    auditLog('CLEAR_SEAT', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      attendeeId: attendee.id,
+      name: attendee.name
+    });
+
+    res.json({ ok: true, attendee });
+  } catch (err) {
+    structuredLog('error', { message: '清除座位失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '清除失败: ' + err.message });
+  }
+});
+
+// 清空会场所有座位
+app.delete('/api/venues/:id/seating', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const venue = data.venues.find(v => v.id === req.params.id);
+    if (!venue) return res.status(404).json({ error: '场馆不存在' });
+
+    const count = data.attendees.filter(a => a.venueId === venue.id).length;
+
+    data.attendees = data.attendees.map(a => {
+      if (a.venueId === venue.id) {
+        return { ...a, venueId: '', row: '', seat: '' };
+      }
+      return a;
+    });
+
+    writeData(data);
+    auditLog('CLEAR_VENUE_SEATING', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      venueId: venue.id,
+      venueName: venue.name,
+      clearedCount: count
+    });
+
+    res.json({ ok: true, clearedCount: count });
+  } catch (err) {
+    structuredLog('error', { message: '清空会场座位失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '清空失败: ' + err.message });
+  }
+});
+
+// 随机排座
+app.post('/api/venues/:id/random-seat', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const venue = data.venues.find(v => v.id === req.params.id);
+    if (!venue) return res.status(404).json({ error: '场馆不存在' });
+
+    // 获取该会场所有未安排座位的参会者
+    const unassigned = data.attendees.filter(a => !a.venueId || !a.row || !a.seat);
+    
+    // 获取该会场所有座位
+    const allSeats = [];
+    if (venue.rows) {
+      venue.rows.forEach(row => {
+        if (row.seatGroups) {
+          row.seatGroups.forEach(group => {
+            group.forEach(seatNum => {
+              allSeats.push({ row: row.label, seat: seatNum });
+            });
+          });
+        }
+      });
+    }
+
+    // 获取已占用的座位
+    const occupied = new Set();
+    data.attendees.forEach(a => {
+      if (a.venueId === venue.id && a.row && a.seat) {
+        occupied.add(`${a.row}_${a.seat}`);
+      }
+    });
+
+    // 获取空座位
+    const emptySeats = allSeats.filter(s => !occupied.has(`${s.row}_${s.seat}`));
+    
+    // 打乱顺序
+    emptySeats.sort(() => Math.random() - 0.5);
+    unassigned.sort(() => Math.random() - 0.5);
+
+    // 分配座位
+    let assigned = 0;
+    const min = Math.min(unassigned.length, emptySeats.length);
+    for (let i = 0; i < min; i++) {
+      unassigned[i].venueId = venue.id;
+      unassigned[i].row = emptySeats[i].row;
+      unassigned[i].seat = emptySeats[i].seat;
+      assigned++;
+    }
+
+    writeData(data);
+    auditLog('RANDOM_SEATING', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      venueId: venue.id,
+      venueName: venue.name,
+      assignedCount: assigned,
+      unassignedCount: unassigned.length - assigned
+    });
+
+    res.json({ 
+      ok: true, 
+      assignedCount: assigned, 
+      remainingCount: Math.max(0, unassigned.length - assigned) 
+    });
+  } catch (err) {
+    structuredLog('error', { message: '随机排座失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '随机排座失败: ' + err.message });
+  }
+});
+
+// 批量导入参会者（Excel文件或纯文本名单）
+app.post('/api/attendees/import-names', requireAuth, (req, res) => {
+  try {
+    const { names, venueId, fileData } = req.body;
+    const data = readData();
+    let attendeesToImport = [];
+
+    // 如果是Excel文件，先解析
+    if (fileData) {
+      const buffer = Buffer.from(fileData, 'base64');
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+
+      let startRow = 0;
+      // 寻找数据起始行
+      for (let i = 0; i < sheetData.length; i++) {
+        const row = sheetData[i];
+        if (row.length > 0 && row[0] && (typeof row[0] === 'string' && (row[0].includes('姓名') || row[0].includes('name')))) {
+          startRow = i + 1;
+          break;
+        }
+      }
+
+      // 解析每行数据
+      for (let i = startRow; i < sheetData.length; i++) {
+        const row = sheetData[i];
+        if (!row || row.length === 0) continue;
+        
+        const name = row[0] ? String(row[0]).trim() : '';
+        if (!name) continue;
+
+        const company = row[1] ? String(row[1]).trim() : '';
+        const title = row[2] ? String(row[2]).trim() : '';
+        const rowLabel = row[3] ? String(row[3]).trim() : '';
+        const seatNum = row[4] ? String(row[4]).trim() : '';
+
+        attendeesToImport.push({
+          name,
+          company,
+          title,
+          row: rowLabel,
+          seat: seatNum
+        });
+      }
+    }
+    // 如果是纯文本名单
+    else if (Array.isArray(names) && names.length > 0) {
+      attendeesToImport = names.map(item => {
+        if (typeof item === 'string') {
+          return { name: item, company: '' };
+        }
+        return {
+          name: item.name || '',
+          company: item.company || '',
+          title: item.title || '',
+          row: item.row || '',
+          seat: item.seat || ''
+        };
+      });
+    }
+
+    if (attendeesToImport.length === 0) {
+      return res.status(400).json({ error: '没有有效的参会者数据' });
+    }
+
+    if (attendeesToImport.length > 500) {
+      return res.status(400).json({ error: '单次导入不超过 500 人' });
+    }
+
+    const imported = [];
+    const duplicates = [];
+
+    attendeesToImport.forEach(item => {
+      const trimmedName = item.name.trim();
+      if (!trimmedName) return;
+
+      // 检查重复
+      if (data.attendees.some(a => a.name === trimmedName)) {
+        duplicates.push(trimmedName);
+        return;
+      }
+
+      const newAttendee = {
+        id: 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+        name: trimmedName,
+        company: item.company || '',
+        title: item.title || '',
+        venueId: (item.row && item.seat) ? venueId || '' : '',
+        row: item.row || '',
+        seat: item.seat || '',
+        source: 'manual'
+      };
+
+      data.attendees.push(newAttendee);
+      imported.push(newAttendee);
+    });
+
+    writeData(data);
+    auditLog('IMPORT_NAMES', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      importedCount: imported.length,
+      duplicateCount: duplicates.length
+    });
+
+    res.json({ ok: true, importedCount: imported.length, duplicates, attendees: data.attendees });
+  } catch (err) {
+    structuredLog('error', { message: '导入名单失败', error: err.message, stack: err.stack });
+    res.status(500).json({ error: '导入失败: ' + err.message });
+  }
+});
+
 // ==================== 备份管理 API ====================
 
 // 获取备份列表

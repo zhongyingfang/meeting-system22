@@ -331,6 +331,57 @@ async function openSeatCard() {
     </div>
   </div>
 
+  <div class="card" id="listCard" style="display:none">
+    <h2>
+      参会者列表
+      <span style="font-size:12px;color:var(--text2);font-weight:400;margin-left:auto" id="totalCount"></span>
+    </h2>
+    <div class="btn-group" style="margin-top:0;margin-bottom:10px">
+      <button class="btn btn-outline btn-sm" onclick="exportCSV()">导出 CSV</button>
+      <button class="btn btn-danger btn-sm" onclick="clearVenue()">清空本会场</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table><thead><tr><th>#</th><th>姓名</th><th>座位</th><th>单位</th><th>职务</th><th>操作</th></tr></thead>
+      <tbody id="attendeeList"></tbody></table>
+    </div>
+  </div>
+
+  <!-- 可视化座位安排 -->
+  <div class="card" id="dragCard" style="display:none">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/><path d="M19 7h-4"/><path d="M17 3l2-2 2 2"/></svg>
+      可视化座位安排
+      <span style="font-size:12px;color:var(--text2);font-weight:400;margin-left:auto" id="dragStatus"></span>
+    </h2>
+    <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn btn-success btn-sm" onclick="openImportNamesModal()">导入参会者名单</button>
+      <button class="btn btn-primary btn-sm" onclick="randomSeat()">一键随机排座</button>
+      <button class="btn btn-outline btn-sm" onclick="refreshDragSeating()">刷新</button>
+      <button class="btn btn-danger btn-sm" onclick="clearAllSeats()">清空会场座位</button>
+    </div>
+    <div id="dragContainer" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <!-- 座位图区域 -->
+      <div style="flex:1;min-width:400px">
+        <div style="background:#f8fafc;border-radius:10px;padding:16px;overflow-x:auto">
+          <div style="text-align:center;font-size:14px;font-weight:600;color:var(--text2);margin-bottom:12px" id="dragVenueName"></div>
+          <div id="dragSeatMap"></div>
+        </div>
+      </div>
+      <!-- 参会者列表 -->
+      <div style="width:280px;flex-shrink:0">
+        <div style="background:#f8fafc;border-radius:10px;padding:12px;max-height:500px;overflow-y:auto">
+          <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">待安排参会者 (<span id="unassignedCount">0</span>人)</div>
+          <div id="unassignedList" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:12px;color:var(--text2);display:flex;gap:16px;flex-wrap:wrap">
+      <div><span style="display:inline-block;width:16px;height:16px;background:#e0e7ff;border-radius:4px;margin-right:6px;vertical-align:middle"></span>空座位</div>
+      <div><span style="display:inline-block;width:16px;height:16px;background:#dbeafe;border-radius:4px;margin-right:6px;vertical-align:middle"></span>已安排座位</div>
+      <div><span style="display:inline-block;width:16px;height:16px;background:#fff3cd;border-radius:4px;margin-right:6px;vertical-align:middle"></span>拖拽中</div>
+    </div>
+  </div>
+
   <div class="card">
     <h2>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/></svg>
@@ -1292,11 +1343,514 @@ async function applyNewExcel() {
   }
 }
 
+var currentDragSeating = null;
+var draggedAttendee = null;
+
+// 修改 selectVenue 函数以显示拖拽卡片
+var originalSelectVenue = selectVenue;
+selectVenue = async function(venueId) {
+  currentVenueId = venueId;
+  await originalSelectVenue(venueId);
+  document.getElementById('dragCard').style.display = '';
+  loadDragSeating();
+};
+
+// 加载座位安排数据
+async function loadDragSeating() {
+  if (!currentVenueId) return;
+  try {
+    var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/seating');
+    var data = await res.json();
+    if (data.ok) {
+      currentDragSeating = data.seating;
+      renderDragSeatMap();
+      renderUnassignedList();
+      updateDragStatus();
+    }
+  } catch (err) {
+    console.error('加载座位安排失败:', err);
+  }
+}
+
+// 渲染座位图
+function renderDragSeatMap() {
+  var venue = currentDragSeating.venue;
+  var container = document.getElementById('dragSeatMap');
+  document.getElementById('dragVenueName').textContent = venue.name || '';
+
+  var html = '';
+  var stage = venue.stageName || '舞台';
+  html += '<div style="background:linear-gradient(135deg,var(--primary-dark),var(--primary));color:#fff;text-align:center;padding:8px;border-radius:6px 6px 24px 24px;font-size:12px;font-weight:600;letter-spacing:4px;margin-bottom:10px">' + esc(stage) + '</div>';
+
+  if (venue.layout === 'u-shape') {
+    html += renderUShapeDragMap(venue);
+  } else {
+    html += renderStandardDragMap(venue);
+  }
+  container.innerHTML = html;
+}
+
+// 渲染普通会场拖拽图
+function renderStandardDragMap(venue) {
+  var html = '';
+  if (!venue.rows || venue.rows.length === 0) {
+    return '<div style="text-align:center;color:var(--text2);padding:20px">会场暂无座位布局，请先上传 Excel</div>';
+  }
+
+  venue.rows.forEach(function(row) {
+    html += '<div style="display:flex;align-items:center;justify-content:center;margin-bottom:4px">';
+    html += '<div style="width:60px;font-size:11px;color:var(--text2);text-align:right;padding-right:8px;white-space:nowrap">' + esc(row.label) + '</div>';
+    if (row.seatGroups) {
+      row.seatGroups.forEach(function(group, groupIdx) {
+        if (groupIdx > 0) {
+          html += '<div style="width:24px"></div>';
+        }
+        group.forEach(function(seatNum) {
+          var key = row.label + '_' + seatNum;
+          var attendee = currentDragSeating.seatOccupancy[key];
+          html += renderDragSeat(row.label, seatNum, attendee);
+        });
+      });
+    }
+    html += '</div>';
+
+    if (row.hasAisleAfter) {
+      html += '<div style="height:16px;display:flex;align-items:center;justify-content:center;margin:4px 0"><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div><span style="padding:0 8px;font-size:8px;color:#94a3b8;font-weight:600">过道</span><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div></div>';
+    }
+  });
+  return html;
+}
+
+// 渲染 U 型会场拖拽图
+function renderUShapeDragMap(venue) {
+  var html = '';
+  var leftRows = [];
+  var rightRows = [];
+  var bottomRow = null;
+  var midIdx = Math.floor((venue.rows || []).length / 2);
+
+  (venue.rows || []).forEach(function(row, idx) {
+    var label = (row.label || '').replace(/\s+/g, '');
+    if (label === '底部') {
+      bottomRow = row;
+    } else if (idx < midIdx) {
+      leftRows.push(row);
+    } else {
+      rightRows.push(row);
+    }
+  });
+  rightRows.reverse();
+
+  html += '<div style="display:flex;flex-direction:column;align-items:center">';
+  html += '<div style="display:flex;align-items:flex-start">';
+
+  // 左侧
+  if (leftRows.length > 0) {
+    html += '<div style="display:flex;flex-direction:row;gap:4px">';
+    leftRows.forEach(function(row) {
+      html += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">';
+      html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:2px">' + esc(row.label) + '</div>';
+      if (row.seatGroups && row.seatGroups[0]) {
+        row.seatGroups[0].forEach(function(seatNum) {
+          var key = row.label + '_' + seatNum;
+          var attendee = currentDragSeating.seatOccupancy[key];
+          html += renderDragSeat(row.label, seatNum, attendee, true);
+        });
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div style="width:80px"></div>';
+
+  // 右侧
+  if (rightRows.length > 0) {
+    html += '<div style="display:flex;flex-direction:row;gap:4px">';
+    rightRows.forEach(function(row) {
+      html += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">';
+      html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:2px">' + esc(row.label) + '</div>';
+      if (row.seatGroups && row.seatGroups[0]) {
+        row.seatGroups[0].forEach(function(seatNum) {
+          var key = row.label + '_' + seatNum;
+          var attendee = currentDragSeating.seatOccupancy[key];
+          html += renderDragSeat(row.label, seatNum, attendee, true);
+        });
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+
+  // 底部
+  if (bottomRow) {
+    html += '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:8px">';
+    html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-right:4px">' + esc(bottomRow.label) + '</div>';
+    if (bottomRow.seatGroups && bottomRow.seatGroups[0]) {
+      bottomRow.seatGroups[0].forEach(function(seatNum) {
+        var key = bottomRow.label + '_' + seatNum;
+        var attendee = currentDragSeating.seatOccupancy[key];
+        html += renderDragSeat(bottomRow.label, seatNum, attendee);
+      });
+    }
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// 渲染单个可拖拽座位
+function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
+  var key = rowLabel + '_' + seatNum;
+  var bgColor = attendee ? '#dbeafe' : '#e0e7ff';
+  var textColor = attendee ? '#1e40af' : '#64748b';
+  var content = attendee ? (attendee.name.length > 3 ? attendee.name.substring(0, 3) + '…' : attendee.name) : seatNum;
+  var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) : esc(rowLabel) + seatNum + '号 - 空座位';
+
+  var style = 'width:' + (vertical ? '40px' : '50px') + ';height:' + (vertical ? '50px' : '40px') + ';border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:600;cursor:pointer;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor;
+
+  var html = '<div class="drag-seat" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
+  html += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+  html += '>';
+  html += '<div style="font-size:9px">' + content + '</div>';
+  if (attendee) {
+    html += '<div class="clear-seat" style="margin-top:2px;cursor:pointer;display:none;font-size:8px;color:#ef4444" onclick="event.stopPropagation();clearAttendeeSeat(\'' + attendee.id + '\')">清除</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// 渲染待安排参会者列表
+function renderUnassignedList() {
+  var allAttendees = currentDragSeating.attendees || [];
+  var assignedKeys = new Set();
+  Object.values(currentDragSeating.seatOccupancy || {}).forEach(function(a) {
+    if (a) assignedKeys.add(a.id);
+  });
+
+  var dataRes = null;
+  try {
+    fetch('/api/data').then(function(res) { return res.json(); }).then(function(data) {
+      var unassigned = (data.attendees || []).filter(function(a) {
+        return !a.venueId || !a.row || !a.seat;
+      });
+
+      document.getElementById('unassignedCount').textContent = unassigned.length;
+      var html = '';
+      if (unassigned.length === 0) {
+        html = '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px">所有参会者已安排座位</div>';
+      } else {
+        unassigned.forEach(function(a) {
+          html += '<div class="draggable-attendee" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:#fff;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s">';
+          html += '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
+          html += '<div style="flex:1;min-width:0">';
+          html += '<div style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
+          html += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.company || '无单位') + '</div>';
+          html += '</div></div>';
+        });
+      }
+      document.getElementById('unassignedList').innerHTML = html;
+    });
+  } catch (e) {}
+}
+
+// 处理拖拽开始
+function handleAttendeeDragStart(event) {
+  event.dataTransfer.setData('text/plain', event.currentTarget.dataset.id);
+  draggedAttendee = { id: event.currentTarget.dataset.id, name: event.currentTarget.dataset.name };
+  event.currentTarget.style.opacity = '0.5';
+}
+
+// 处理拖拽结束
+function handleAttendeeDragEnd(event) {
+  event.currentTarget.style.opacity = '1';
+  draggedAttendee = null;
+  document.querySelectorAll('.drag-seat').forEach(function(el) { el.classList.remove('drag-over'); });
+}
+
+// 处理拖拽悬停
+function handleDragOver(event) {
+  event.preventDefault();
+  event.currentTarget.classList.add('drag-over');
+  event.currentTarget.style.background = '#fff3cd';
+  event.currentTarget.style.borderColor = '#f59e0b';
+}
+
+// 处理拖拽离开
+function handleDragLeave(event) {
+  event.currentTarget.classList.remove('drag-over');
+  event.currentTarget.style.background = '';
+  event.currentTarget.style.borderColor = '';
+}
+
+// 处理放置
+async function handleDrop(event) {
+  event.preventDefault();
+  var seatEl = event.currentTarget;
+  seatEl.classList.remove('drag-over');
+  seatEl.style.background = '';
+  seatEl.style.borderColor = '';
+
+  if (!draggedAttendee) return;
+
+  var row = seatEl.dataset.row;
+  var seat = seatEl.dataset.seat;
+  var key = seatEl.dataset.key;
+
+  var existingAttendee = currentDragSeating.seatOccupancy[key];
+  if (existingAttendee) {
+    if (!confirm('座位已被 ' + existingAttendee.name + ' 占用，是否交换座位？')) return;
+  }
+
+  try {
+    var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/assign-seat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attendeeId: draggedAttendee.id, row: row, seat: seat })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('座位安排成功');
+      loadDragSeating();
+      refreshData();
+    } else {
+      alert('安排失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('安排失败: ' + err.message);
+  }
+}
+
+// 清除参会者座位
+async function clearAttendeeSeat(attendeeId) {
+  if (!confirm('确定要清除该参会者的座位吗？')) return;
+  try {
+    var res = await authFetch('/api/attendees/' + encodeURIComponent(attendeeId) + '/clear-seat', {
+      method: 'PUT'
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('座位已清除');
+      loadDragSeating();
+      refreshData();
+    } else {
+      alert('清除失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('清除失败: ' + err.message);
+  }
+}
+
+// 刷新座位安排
+async function refreshDragSeating() {
+  await loadDragSeating();
+}
+
+// 更新状态文本
+function updateDragStatus() {
+  var venue = currentDragSeating.venue;
+  var totalSeats = 0;
+  var assignedSeats = 0;
+  if (venue.rows) {
+    venue.rows.forEach(function(row) {
+      if (row.seatGroups) {
+        row.seatGroups.forEach(function(group) {
+          totalSeats += group.length;
+        });
+      }
+    });
+  }
+  Object.values(currentDragSeating.seatOccupancy || {}).forEach(function(a) { if (a) assignedSeats++; });
+  document.getElementById('dragStatus').textContent = '已安排 ' + assignedSeats + '/' + totalSeats + ' 个座位';
+}
+
+// 随机排座
+async function randomSeat() {
+  if (!confirm('确定要对未安排座位的参会者进行随机排座吗？')) return;
+  try {
+    var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/random-seat', {
+      method: 'POST'
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('随机排座完成，已安排 ' + data.assignedCount + ' 人');
+      loadDragSeating();
+      refreshData();
+    } else {
+      alert('随机排座失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('随机排座失败: ' + err.message);
+  }
+}
+
+// 清空会场所有座位
+async function clearAllSeats() {
+  if (!confirm('确定要清空当前会场所有座位吗？')) return;
+  try {
+    var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/seating', {
+      method: 'DELETE'
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('已清空 ' + data.clearedCount + ' 个座位');
+      loadDragSeating();
+      refreshData();
+    } else {
+      alert('清空失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('清空失败: ' + err.message);
+  }
+}
+
+// 打开导入名单模态框
+function openImportNamesModal() {
+  var modalHtml = '<div id="importNamesModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2000">';
+  modalHtml += '<div style="background:#fff;border-radius:12px;padding:20px;max-width:550px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2)">';
+  modalHtml += '<h3 style="margin-top:0;margin-bottom:12px;font-size:16px">导入参会者名单</h3>';
+  modalHtml += '<p style="font-size:12px;color:var(--text2);margin-bottom:12px">支持Excel表格或纯文本格式。Excel格式：姓名,单位,职务,排,座位号</p>';
+  
+  // Excel上传区域
+  modalHtml += '<div id="excelUploadArea" style="margin-bottom:12px;padding:16px;border:2px dashed var(--border);border-radius:8px;text-align:center;cursor:pointer;background:#fafafa" ondragover="event.preventDefault();this.style.borderColor=\'var(--primary)\';this.style.background=\'#f0f4ff\'" ondragleave="this.style.borderColor=\'var(--border)\';this.style.background=\'#fafafa\'" ondrop="handleNamesExcelDrop(event)" onclick="document.getElementById(\'namesExcelInput\').click()">';
+  modalHtml += '<div style="font-size:24px;margin-bottom:8px">📄</div>';
+  modalHtml += '<div style="font-size:13px;font-weight:600">点击或拖拽Excel文件到这里</div>';
+  modalHtml += '<div style="font-size:11px;color:var(--text2);margin-top:4px">支持 .xlsx, .xls 格式</div>';
+  modalHtml += '<div id="selectedFileName" style="font-size:12px;color:var(--success);margin-top:8px;font-weight:600"></div>';
+  modalHtml += '<input type="file" id="namesExcelInput" accept=".xlsx,.xls" style="display:none" onchange="handleNamesExcelSelect(this)">';
+  modalHtml += '</div>';
+  
+  modalHtml += '<div style="text-align:center;margin:10px 0;color:var(--text2);font-size:12px">或使用纯文本格式</div>';
+  
+  modalHtml += '<textarea id="importNamesText" style="width:100%;height:120px;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;resize:vertical;font-family:monospace" placeholder="示例：&#10;张三,数产集团&#10;李四,科技公司&#10;王五"></textarea>';
+  modalHtml += '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">';
+  modalHtml += '<button class="btn btn-outline" onclick="closeImportNamesModal()">取消</button>';
+  modalHtml += '<button class="btn btn-primary" onclick="importNames()">导入</button>';
+  modalHtml += '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+var selectedNamesExcel = null;
+
+// 处理Excel文件选择
+function handleNamesExcelSelect(input) {
+  if (input.files && input.files[0]) {
+    var file = input.files[0];
+    document.getElementById('selectedFileName').textContent = '已选择: ' + file.name;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var data = new Uint8Array(e.target.result);
+      var binary = '';
+      for (var i = 0; i < data.length; i++) {
+        binary += String.fromCharCode(data[i]);
+      }
+      selectedNamesExcel = btoa(binary);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+// 处理Excel文件拖拽
+function handleNamesExcelDrop(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  var area = document.getElementById('excelUploadArea');
+  area.style.borderColor = 'var(--border)';
+  area.style.background = '#fafafa';
+  
+  if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+    var file = event.dataTransfer.files[0];
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      alert('请选择Excel文件（.xlsx 或 .xls）');
+      return;
+    }
+    document.getElementById('selectedFileName').textContent = '已选择: ' + file.name;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var data = new Uint8Array(e.target.result);
+      var binary = '';
+      for (var i = 0; i < data.length; i++) {
+        binary += String.fromCharCode(data[i]);
+      }
+      selectedNamesExcel = btoa(binary);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+// 关闭模态框
+function closeImportNamesModal() {
+  var modal = document.getElementById('importNamesModal');
+  if (modal) modal.remove();
+}
+
+// 导入名单
+async function importNames() {
+  var requestBody = { venueId: currentVenueId };
+
+  // 优先使用Excel文件
+  if (selectedNamesExcel) {
+    requestBody.fileData = selectedNamesExcel;
+  }
+  // 否则使用文本框内容
+  else {
+    var text = document.getElementById('importNamesText').value.trim();
+    if (!text) return alert('请输入参会者名单或选择Excel文件');
+
+    var lines = text.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+    var names = [];
+    lines.forEach(function(line) {
+      var parts = line.split(',');
+      var name = parts[0].trim();
+      var company = parts[1] ? parts[1].trim() : '';
+      if (name) {
+        names.push({ name: name, company: company });
+      }
+    });
+
+    if (names.length === 0) return alert('没有有效的参会者数据');
+    requestBody.names = names;
+  }
+
+  try {
+    var res = await authFetch('/api/attendees/import-names', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    });
+    var data = await res.json();
+    if (data.ok) {
+      var msg = '成功导入 ' + data.importedCount + ' 人';
+      if (data.duplicates && data.duplicates.length > 0) {
+        msg += '，' + data.duplicates.length + ' 人重复（已跳过）';
+      }
+      showToast(msg);
+      closeImportNamesModal();
+      selectedNamesExcel = null;
+      loadDragSeating();
+      refreshData();
+    } else {
+      alert('导入失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('导入失败: ' + err.message);
+  }
+}
+
+// 添加鼠标悬停显示清除按钮的样式
+var dragStyles = document.createElement('style');
+dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); }\n.draggable-attendee:active { cursor: grabbing !important; }\n';
+document.head.appendChild(dragStyles);
+
 document.getElementById('qrUrl').value = window.location.origin + '/';
 refreshData();
-loadSearchStats(); // 加载查询统计
-loadStatistics(); // 加载数据统计
-loadSiteConfig(); // 加载系统配置
+loadSearchStats();
+loadStatistics();
+loadSiteConfig();
+
 </script>
 </body>
 </html>
