@@ -3301,36 +3301,6 @@
       "company": "",
       "title": "",
       "venueId": "venue-2"
-    },
-    {
-      "id": "att-1777268107292-4bopyj1pa",
-      "name": "张三",
-      "company": "",
-      "title": "",
-      "venueId": "",
-      "row": "",
-      "seat": "",
-      "source": "manual"
-    },
-    {
-      "id": "att-1777268107292-gqamaafqv",
-      "name": "李四，发财公司",
-      "company": "",
-      "title": "",
-      "venueId": "",
-      "row": "",
-      "seat": "",
-      "source": "manual"
-    },
-    {
-      "id": "att-1777268107292-0mpvajpve",
-      "name": "王二麻子",
-      "company": "",
-      "title": "",
-      "venueId": "",
-      "row": "",
-      "seat": "",
-      "source": "manual"
     }
   ]
 }
