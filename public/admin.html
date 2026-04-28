@@ -1515,6 +1515,10 @@ async function loadDragSeating() {
       renderUnassignedList();
       updateDragStatus();
       updateSelectedCount();
+      // 如果在区域选择模式，高亮区域
+      if (regionSelectMode) {
+        highlightRegionsOnSeatMap();
+      }
     }
   } catch (err) {
     console.error('加载座位安排失败:', err);
@@ -1537,6 +1541,19 @@ function renderDragSeatMap() {
     html += renderStandardDragMap(venue);
   }
   container.innerHTML = html;
+  
+  // 添加画框覆盖层
+  if (container && !container.querySelector('#dragBoxOverlay')) {
+    var overlay = document.createElement('div');
+    overlay.id = 'dragBoxOverlay';
+    container.style.position = 'relative';
+    container.appendChild(overlay);
+  }
+  
+  // 如果在区域选择模式，高亮区域
+  if (regionSelectMode) {
+    highlightRegionsOnSeatMap();
+  }
 }
 
 // 渲染普通会场拖拽图
@@ -2286,9 +2303,26 @@ var selectedAttendees = []; // 存储选中的待安排参会者ID
 var filterCompany = ''; // 按单位筛选
 var filterTitle = ''; // 按职级/职务筛选
 
+// 区域颜色列表 - 为不同区域分配不同颜色
+var regionColors = [
+  { bg: '#fef3c7', border: '#f59e0b', text: '#92400e', name: '金色' },
+  { bg: '#dcfce7', border: '#22c55e', text: '#166534', name: '绿色' },
+  { bg: '#fbcfe8', border: '#ec4899', text: '#9f1239', name: '粉色' },
+  { bg: '#cffafe', border: '#06b6d4', text: '#155e75', name: '青色' },
+  { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3', name: '紫色' },
+  { bg: '#fee2e2', border: '#ef4444', text: '#991b1b', name: '红色' },
+  { bg: '#d9f99d', border: '#84cc16', text: '#365314', name: '黄绿色' },
+  { bg: '#fed7aa', border: '#f97316', text: '#9a3412', name: '橙色' }
+];
+
+// 获取区域对应的颜色
+function getRegionColor(regionIndex) {
+  return regionColors[regionIndex % regionColors.length];
+}
+
 // 添加鼠标悬停显示清除按钮和区域选择的样式
 var dragStyles = document.createElement('style');
-dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin-bottom:8px; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; }\n.batch-actions button { padding:6px 12px; font-size:12px; }\n';
+dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.region-tag-color-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin-bottom:8px; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; }\n.batch-actions button { padding:6px 12px; font-size:12px; }\n';
 document.head.appendChild(dragStyles);
 
 // 切换区域选择模式
@@ -2314,6 +2348,7 @@ function toggleRegionSelect() {
     regionsPanel.style.display = 'block';
     if (seatMap) seatMap.parentElement.parentElement.classList.add('region-select-mode');
     renderSavedRegions();
+    highlightRegionsOnSeatMap();
     showToast('区域选择模式已开启，按住鼠标画框选择');
   } else {
     btn.textContent = '开始区域选择';
@@ -2327,6 +2362,7 @@ function toggleRegionSelect() {
     regionsPanel.style.display = 'none';
     if (seatMap) seatMap.parentElement.parentElement.classList.remove('region-select-mode');
     clearRegionSelection();
+    highlightRegionsOnSeatMap();
   }
 }
 
@@ -2352,10 +2388,12 @@ function saveRegion() {
   
   if (!savedRegions[currentVenueId]) savedRegions[currentVenueId] = [];
   var regionId = 'region_' + Date.now();
+  var colorIndex = savedRegions[currentVenueId].length; // 按顺序分配颜色
   savedRegions[currentVenueId].push({
     id: regionId,
     name: name,
-    seats: selectedSeats.slice()
+    seats: selectedSeats.slice(),
+    colorIndex: colorIndex
   });
   
   // 保存到 localStorage
@@ -2364,6 +2402,7 @@ function saveRegion() {
   } catch (e) {}
   
   renderSavedRegions();
+  highlightRegionsOnSeatMap();
   showToast('区域「' + name + '」已保存');
 }
 
@@ -2377,16 +2416,22 @@ function renderSavedRegions() {
       var stored = localStorage.getItem('savedRegions_' + currentVenueId);
       if (stored) {
         regions = JSON.parse(stored);
+        // 为旧数据添加颜色索引
+        regions.forEach(function(r, idx) {
+          if (r.colorIndex === undefined) r.colorIndex = idx;
+        });
         savedRegions[currentVenueId] = regions;
       }
     } catch (e) {}
   }
   
   var html = '';
-  regions.forEach(function(region) {
-    html += '<div class="region-tag" onclick="selectRegion(\'' + region.id + '\')" title="点击选择此区域">';
-    html += '<span class="region-tag-name">' + esc(region.name) + '</span>';
-    html += '<span class="region-tag-count">' + region.seats.length + '座</span>';
+  regions.forEach(function(region, idx) {
+    var color = getRegionColor(region.colorIndex);
+    html += '<div class="region-tag" onclick="selectRegion(\'' + region.id + '\')" title="点击选择此区域" style="background:' + color.bg + ';border-color:' + color.border + '">';
+    html += '<span class="region-tag-color-dot" style="background:' + color.border + '"></span>';
+    html += '<span class="region-tag-name" style="color:' + color.text + '">' + esc(region.name) + '</span>';
+    html += '<span class="region-tag-count" style="background:' + color.border + '">' + region.seats.length + '座</span>';
     html += '<span class="region-tag-delete" onclick="event.stopPropagation();deleteRegion(\'' + region.id + '\')" title="删除">×</span>';
     html += '</div>';
   });
@@ -2422,14 +2467,48 @@ function deleteRegion(regionId) {
   if (!confirm('确定要删除此区域吗？')) return;
   var regions = savedRegions[currentVenueId] || [];
   savedRegions[currentVenueId] = regions.filter(function(r) { return r.id !== regionId; });
+  // 重新分配颜色索引
+  savedRegions[currentVenueId].forEach(function(r, idx) {
+    r.colorIndex = idx;
+  });
   try {
     localStorage.setItem('savedRegions_' + currentVenueId, JSON.stringify(savedRegions[currentVenueId]));
   } catch (e) {}
   renderSavedRegions();
+  highlightRegionsOnSeatMap();
   showToast('区域已删除');
 }
 
-// 修改 renderDragSeat，增加点击选择
+// 在座位图上高亮显示所有保存的区域
+function highlightRegionsOnSeatMap() {
+  // 先清除所有区域高亮
+  document.querySelectorAll('.drag-seat').forEach(function(el) {
+    // 移除之前添加的区域样式
+    el.style.background = '';
+    el.style.borderColor = '';
+    el.style.color = '';
+    el.style.boxShadow = '';
+  });
+  
+  var regions = savedRegions[currentVenueId] || [];
+  regions.forEach(function(region) {
+    var color = getRegionColor(region.colorIndex);
+    region.seats.forEach(function(seatKey) {
+      var seatEl = document.querySelector('.drag-seat[data-key="' + seatKey + '"]');
+      if (seatEl) {
+        // 如果座位被选中了，优先显示选中样式
+        if (!seatEl.classList.contains('selected')) {
+          seatEl.style.background = color.bg;
+          seatEl.style.borderColor = color.border;
+          seatEl.style.color = color.text;
+          seatEl.style.boxShadow = '0 0 0 2px ' + color.border + ' inset';
+        }
+      }
+    });
+  });
+}
+
+// 修改 renderDragSeat，增加点击选择和区域颜色支持
 function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
   var key = rowLabel + '_' + seatNum;
   var bgColor = attendee ? '#dbeafe' : '#e0e7ff';
@@ -2451,20 +2530,6 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
   html += '</div>';
   return html;
 }
-
-// 修改 renderDragSeatMap 增加画框覆盖层
-var originalRenderDragSeatMap = renderDragSeatMap;
-renderDragSeatMap = function() {
-  originalRenderDragSeatMap();
-  // 添加画框覆盖层
-  var container = document.getElementById('dragSeatMap');
-  if (container && !container.querySelector('#dragBoxOverlay')) {
-    var overlay = document.createElement('div');
-    overlay.id = 'dragBoxOverlay';
-    container.style.position = 'relative';
-    container.appendChild(overlay);
-  }
-};
 
 // 处理鼠标按下开始画框
 function handleSeatMouseDown(event) {
