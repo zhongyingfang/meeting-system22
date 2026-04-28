@@ -1,0 +1,17 @@
+# 数据文件
+data/data.json
+data/backups/
+
+# 日志文件
+access.log
+*.log
+
+# 输出文件
+output/
+
+# 备份文件
+*.backup
+
+# 系统文件
+.DS_Store
+Thumbs.db

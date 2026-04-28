@@ -356,8 +356,20 @@ async function openSeatCard() {
     <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
       <button class="btn btn-success btn-sm" onclick="openImportNamesModal()">导入参会者名单</button>
       <button class="btn btn-primary btn-sm" onclick="randomSeat()">一键随机排座</button>
+      <button id="regionSelectBtn" class="btn btn-outline btn-sm" onclick="toggleRegionSelect()">开始区域选择</button>
+      <button id="randomAssignBtn" class="btn btn-info btn-sm" onclick="randomAssignToRegion()" style="display:none">区域随机分配</button>
+      <button id="saveRegionBtn" class="btn btn-success btn-sm" onclick="saveRegion()" style="display:none">保存区域</button>
+      <button class="btn btn-outline btn-sm" onclick="clearRegionSelection()" style="display:none" id="clearRegionBtn">清除选择</button>
       <button class="btn btn-outline btn-sm" onclick="refreshDragSeating()">刷新</button>
       <button class="btn btn-danger btn-sm" onclick="clearAllSeats()">清空会场座位</button>
+    </div>
+    <div id="selectionStatus" style="margin-bottom:8px;font-size:13px;color:var(--text2);display:none">
+      已选择 <span id="selectedCount">0</span> 个座位
+      <span style="margin-left:10px;color:#64748b;font-size:12px">画框选择：按住左键拖动 | 点选：Ctrl+点击</span>
+    </div>
+    <div id="savedRegionsPanel" style="margin-bottom:12px;display:none">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px;font-weight:600">已保存区域</div>
+      <div id="savedRegionsList" style="display:flex;gap:6px;flex-wrap:wrap"></div>
     </div>
     <div id="dragContainer" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
       <!-- 座位图区域 -->
@@ -1363,9 +1375,12 @@ async function loadDragSeating() {
     var data = await res.json();
     if (data.ok) {
       currentDragSeating = data.seating;
+      // 重置区域选择
+      selectedSeats = [];
       renderDragSeatMap();
       renderUnassignedList();
       updateDragStatus();
+      updateSelectedCount();
     }
   } catch (err) {
     console.error('加载座位安排失败:', err);
@@ -1502,26 +1517,7 @@ function renderUShapeDragMap(venue) {
   return html;
 }
 
-// 渲染单个可拖拽座位
-function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
-  var key = rowLabel + '_' + seatNum;
-  var bgColor = attendee ? '#dbeafe' : '#e0e7ff';
-  var textColor = attendee ? '#1e40af' : '#64748b';
-  var content = attendee ? (attendee.name.length > 3 ? attendee.name.substring(0, 3) + '…' : attendee.name) : seatNum;
-  var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) : esc(rowLabel) + seatNum + '号 - 空座位';
 
-  var style = 'width:' + (vertical ? '40px' : '50px') + ';height:' + (vertical ? '50px' : '40px') + ';border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:600;cursor:pointer;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor;
-
-  var html = '<div class="drag-seat" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
-  html += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
-  html += '>';
-  html += '<div style="font-size:9px">' + content + '</div>';
-  if (attendee) {
-    html += '<div class="clear-seat" style="margin-top:2px;cursor:pointer;display:none;font-size:8px;color:#ef4444" onclick="event.stopPropagation();clearAttendeeSeat(\'' + attendee.id + '\')">清除</div>';
-  }
-  html += '</div>';
-  return html;
-}
 
 // 渲染待安排参会者列表
 function renderUnassignedList() {
@@ -1533,23 +1529,169 @@ function renderUnassignedList() {
 
     document.getElementById('unassignedCount').textContent = unassigned.length;
     var html = '';
+    
+    // 添加全选复选框
+    if (unassigned.length > 0) {
+      var allSelected = unassigned.every(function(a) { return selectedAttendees.indexOf(a.id) > -1; });
+      html += '<label class="select-all-label">';
+      html += '<input type="checkbox" class="attendee-checkbox" id="selectAllAttendees" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAttendees(this.checked)">';
+      html += '<span>全选 (<span id="selectedAttendeesCount">' + selectedAttendees.length + '</span>/' + unassigned.length + ')</span>';
+      html += '</label>';
+    }
+    
     if (unassigned.length === 0) {
       html = '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px">所有参会者已安排座位</div>';
     } else {
       unassigned.forEach(function(a) {
+        var isChecked = selectedAttendees.indexOf(a.id) > -1;
         html += '<div class="draggable-attendee" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:#fff;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s">';
+        html += '<input type="checkbox" class="attendee-checkbox" data-id="' + a.id + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAttendeeSelection(\'' + a.id + '\', this.checked)">';
         html += '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
         html += '<div style="flex:1;min-width:0">';
         html += '<div style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
         html += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.company || '') + '</div>';
         html += '</div></div>';
       });
+      
+      // 添加批量操作区域
+      html += '<div class="batch-actions">';
+      html += '<select id="regionSelectDropdown">';
+      html += '<option value="">选择区域</option>';
+      var regions = savedRegions[currentVenueId] || [];
+      if (regions.length === 0 && currentVenueId) {
+        try {
+          var stored = localStorage.getItem('savedRegions_' + currentVenueId);
+          if (stored) {
+            regions = JSON.parse(stored);
+          }
+        } catch (e) {}
+      }
+      regions.forEach(function(r) {
+        html += '<option value="' + r.id + '">' + esc(r.name) + ' (' + r.seats.length + '座)</option>';
+      });
+      html += '</select>';
+      html += '<button class="btn btn-primary btn-sm" onclick="batchAssignToRegion()">批量分配</button>';
+      html += '</div>';
     }
     document.getElementById('unassignedList').innerHTML = html;
   }).catch(function(e) {
     console.error('加载待安排列表失败:', e);
     document.getElementById('unassignedList').innerHTML = '<div style="text-align:center;color:var(--danger);padding:16px;font-size:12px">加载失败</div>';
   });
+}
+
+// 切换单个参会者选择
+function toggleAttendeeSelection(attendeeId, checked) {
+  var idx = selectedAttendees.indexOf(attendeeId);
+  if (checked && idx === -1) {
+    selectedAttendees.push(attendeeId);
+  } else if (!checked && idx > -1) {
+    selectedAttendees.splice(idx, 1);
+  }
+  updateSelectedAttendeesCount();
+}
+
+// 全选/取消全选
+function toggleAllAttendees(checked) {
+  authFetch('/api/data').then(function(res) { return res.json(); }).then(function(data) {
+    var unassigned = (data.attendees || []).filter(function(a) {
+      return !a.venueId || !a.row || !a.seat;
+    });
+    if (checked) {
+      selectedAttendees = unassigned.map(function(a) { return a.id; });
+    } else {
+      selectedAttendees = [];
+    }
+    renderUnassignedList();
+  });
+}
+
+// 更新选中的参会者计数
+function updateSelectedAttendeesCount() {
+  var countEl = document.getElementById('selectedAttendeesCount');
+  if (countEl) countEl.textContent = selectedAttendees.length;
+}
+
+// 批量分配到区域
+async function batchAssignToRegion() {
+  var regionId = document.getElementById('regionSelectDropdown').value;
+  if (!regionId) return alert('请选择要分配的区域');
+  if (selectedAttendees.length === 0) return alert('请先选择要安排的参会者');
+  
+  // 获取区域信息
+  var regions = savedRegions[currentVenueId] || [];
+  if (regions.length === 0 && currentVenueId) {
+    try {
+      var stored = localStorage.getItem('savedRegions_' + currentVenueId);
+      if (stored) {
+        regions = JSON.parse(stored);
+        savedRegions[currentVenueId] = regions;
+      }
+    } catch (e) {}
+  }
+  var region = regions.find(function(r) { return r.id === regionId; });
+  if (!region) return alert('找不到指定的区域');
+  
+  // 获取该区域的空座位
+  var emptySeats = region.seats.filter(function(key) {
+    return !currentDragSeating.seatOccupancy[key];
+  });
+  
+  if (emptySeats.length === 0) return alert('所选区域没有空座位');
+  
+  var toAssignCount = Math.min(selectedAttendees.length, emptySeats.length);
+  if (!confirm('将从选中的 ' + selectedAttendees.length + ' 个参会者中，随机安排 ' + toAssignCount + ' 人到「' + region.name + '」区域，确定吗？')) return;
+  
+  try {
+    // 打乱参会者
+    var shuffledAttendees = selectedAttendees.slice();
+    for (var i = shuffledAttendees.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = shuffledAttendees[i];
+      shuffledAttendees[i] = shuffledAttendees[j];
+      shuffledAttendees[j] = temp;
+    }
+    
+    // 打乱座位
+    var shuffledSeats = emptySeats.slice();
+    for (var i = shuffledSeats.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = shuffledSeats[i];
+      shuffledSeats[i] = shuffledSeats[j];
+      shuffledSeats[j] = temp;
+    }
+    
+    // 获取完整参会者数据
+    var dataRes = await authFetch('/api/data').then(function(res) { return res.json(); });
+    var allAttendees = dataRes.attendees || [];
+    
+    // 逐个安排
+    var count = 0;
+    for (var i = 0; i < toAssignCount; i++) {
+      var attendeeId = shuffledAttendees[i];
+      var seatKey = shuffledSeats[i];
+      var parts = seatKey.split('_');
+      var row = parts[0];
+      var seat = parts[1];
+      
+      var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/assign-seat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attendeeId: attendeeId, row: row, seat: seat })
+      });
+      var data = await res.json();
+      if (data.ok) count++;
+    }
+    
+    // 清空选中状态
+    selectedAttendees = [];
+    showToast('批量分配完成，已安排 ' + count + ' 人到「' + region.name + '」');
+    loadDragSeating();
+    refreshData();
+    
+  } catch (err) {
+    alert('分配失败: ' + err.message);
+  }
 }
 
 // 处理拖拽开始
@@ -1835,10 +1977,352 @@ async function importNames() {
   }
 }
 
-// 添加鼠标悬停显示清除按钮的样式
+// ==================== 区域选择和随机分配功能 ====================
+
+// 区域选择状态
+var regionSelectMode = false;
+var selectedSeats = []; // 存储座位的 key: "rowLabel_seatNum"
+var savedRegions = {}; // key: venueId, value: [{id, name, seats}]
+var isDrawing = false;
+var drawStart = {x: 0, y: 0};
+var drawBox = null;
+var selectedAttendees = []; // 存储选中的待安排参会者ID
+
+// 添加鼠标悬停显示清除按钮和区域选择的样式
 var dragStyles = document.createElement('style');
-dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); }\n.draggable-attendee:active { cursor: grabbing !important; }\n';
+dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin-bottom:8px; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; }\n.batch-actions button { padding:6px 12px; font-size:12px; }\n';
 document.head.appendChild(dragStyles);
+
+// 切换区域选择模式
+function toggleRegionSelect() {
+  regionSelectMode = !regionSelectMode;
+  var btn = document.getElementById('regionSelectBtn');
+  var assignBtn = document.getElementById('randomAssignBtn');
+  var saveBtn = document.getElementById('saveRegionBtn');
+  var clearBtn = document.getElementById('clearRegionBtn');
+  var statusDiv = document.getElementById('selectionStatus');
+  var regionsPanel = document.getElementById('savedRegionsPanel');
+  var seatMap = document.getElementById('dragSeatMap');
+  
+  if (regionSelectMode) {
+    btn.textContent = '结束区域选择';
+    btn.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#d97706';
+    assignBtn.style.display = 'inline-block';
+    saveBtn.style.display = 'inline-block';
+    clearBtn.style.display = 'inline-block';
+    statusDiv.style.display = 'block';
+    regionsPanel.style.display = 'block';
+    if (seatMap) seatMap.parentElement.parentElement.classList.add('region-select-mode');
+    renderSavedRegions();
+    showToast('区域选择模式已开启，按住鼠标画框选择');
+  } else {
+    btn.textContent = '开始区域选择';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    assignBtn.style.display = 'none';
+    saveBtn.style.display = 'none';
+    clearBtn.style.display = 'none';
+    statusDiv.style.display = 'none';
+    regionsPanel.style.display = 'none';
+    if (seatMap) seatMap.parentElement.parentElement.classList.remove('region-select-mode');
+    clearRegionSelection();
+  }
+}
+
+// 清除区域选择
+function clearRegionSelection() {
+  selectedSeats = [];
+  updateSelectedCount();
+  document.querySelectorAll('.drag-seat.selected').forEach(function(el) {
+    el.classList.remove('selected');
+  });
+}
+
+// 更新已选择计数
+function updateSelectedCount() {
+  document.getElementById('selectedCount').textContent = selectedSeats.length;
+}
+
+// 保存区域
+function saveRegion() {
+  if (selectedSeats.length === 0) return alert('请先选择座位');
+  var name = prompt('请输入区域名称（如：VIP区、嘉宾区）：');
+  if (!name) return;
+  
+  if (!savedRegions[currentVenueId]) savedRegions[currentVenueId] = [];
+  var regionId = 'region_' + Date.now();
+  savedRegions[currentVenueId].push({
+    id: regionId,
+    name: name,
+    seats: selectedSeats.slice()
+  });
+  
+  // 保存到 localStorage
+  try {
+    localStorage.setItem('savedRegions_' + currentVenueId, JSON.stringify(savedRegions[currentVenueId]));
+  } catch (e) {}
+  
+  renderSavedRegions();
+  showToast('区域「' + name + '」已保存');
+}
+
+// 渲染已保存的区域
+function renderSavedRegions() {
+  var container = document.getElementById('savedRegionsList');
+  var regions = savedRegions[currentVenueId] || [];
+  // 尝试从 localStorage 加载
+  if (regions.length === 0 && currentVenueId) {
+    try {
+      var stored = localStorage.getItem('savedRegions_' + currentVenueId);
+      if (stored) {
+        regions = JSON.parse(stored);
+        savedRegions[currentVenueId] = regions;
+      }
+    } catch (e) {}
+  }
+  
+  var html = '';
+  regions.forEach(function(region) {
+    html += '<div class="region-tag" onclick="selectRegion(\'' + region.id + '\')" title="点击选择此区域">';
+    html += '<span class="region-tag-name">' + esc(region.name) + '</span>';
+    html += '<span class="region-tag-count">' + region.seats.length + '座</span>';
+    html += '<span class="region-tag-delete" onclick="event.stopPropagation();deleteRegion(\'' + region.id + '\')" title="删除">×</span>';
+    html += '</div>';
+  });
+  
+  if (regions.length === 0) {
+    html = '<span style="color:var(--text2);font-size:12px">暂无保存的区域</span>';
+  }
+  container.innerHTML = html;
+}
+
+// 选择保存的区域
+function selectRegion(regionId) {
+  var regions = savedRegions[currentVenueId] || [];
+  var region = regions.find(function(r) { return r.id === regionId; });
+  if (!region) return;
+  
+  selectedSeats = region.seats.slice();
+  updateSelectedCount();
+  // 更新显示
+  document.querySelectorAll('.drag-seat').forEach(function(el) {
+    var key = el.dataset.key;
+    if (selectedSeats.indexOf(key) > -1) {
+      el.classList.add('selected');
+    } else {
+      el.classList.remove('selected');
+    }
+  });
+  showToast('已选择区域：' + region.name);
+}
+
+// 删除区域
+function deleteRegion(regionId) {
+  if (!confirm('确定要删除此区域吗？')) return;
+  var regions = savedRegions[currentVenueId] || [];
+  savedRegions[currentVenueId] = regions.filter(function(r) { return r.id !== regionId; });
+  try {
+    localStorage.setItem('savedRegions_' + currentVenueId, JSON.stringify(savedRegions[currentVenueId]));
+  } catch (e) {}
+  renderSavedRegions();
+  showToast('区域已删除');
+}
+
+// 修改 renderDragSeat，增加点击选择
+function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
+  var key = rowLabel + '_' + seatNum;
+  var bgColor = attendee ? '#dbeafe' : '#e0e7ff';
+  var textColor = attendee ? '#1e40af' : '#64748b';
+  var content = attendee ? (attendee.name.length > 3 ? attendee.name.substring(0, 3) + '…' : attendee.name) : seatNum;
+  var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) : esc(rowLabel) + seatNum + '号 - 空座位';
+  
+  var selectedClass = selectedSeats.indexOf(key) > -1 ? ' selected' : '';
+  var style = 'width:' + (vertical ? '40px' : '50px') + ';height:' + (vertical ? '50px' : '40px') + ';border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:600;cursor:pointer;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor;
+  
+  var html = '<div class="drag-seat' + selectedClass + '" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
+  html += ' onmousedown="handleSeatMouseDown(event)"';
+  html += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+  html += '>';
+  html += '<div style="font-size:9px">' + content + '</div>';
+  if (attendee) {
+    html += '<div class="clear-seat" style="margin-top:2px;cursor:pointer;display:none;font-size:8px;color:#ef4444" onclick="event.stopPropagation();clearAttendeeSeat(\'' + attendee.id + '\')">清除</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// 修改 renderDragSeatMap 增加画框覆盖层
+var originalRenderDragSeatMap = renderDragSeatMap;
+renderDragSeatMap = function() {
+  originalRenderDragSeatMap();
+  // 添加画框覆盖层
+  var container = document.getElementById('dragSeatMap');
+  if (container && !container.querySelector('#dragBoxOverlay')) {
+    var overlay = document.createElement('div');
+    overlay.id = 'dragBoxOverlay';
+    container.style.position = 'relative';
+    container.appendChild(overlay);
+  }
+};
+
+// 处理鼠标按下开始画框
+function handleSeatMouseDown(event) {
+  if (!regionSelectMode) return;
+  event.preventDefault();
+  var seatEl = event.currentTarget;
+  var key = seatEl.dataset.key;
+  
+  if (event.button === 0) { // 左键
+    if (!event.ctrlKey && !event.shiftKey) {
+      // 无修饰键：开始画框
+      isDrawing = true;
+      drawStart.x = event.clientX;
+      drawStart.y = event.clientY;
+      
+      // 创建画框元素
+      var container = document.getElementById('dragSeatMap');
+      var rect = container.getBoundingClientRect();
+      
+      drawBox = document.createElement('div');
+      drawBox.className = 'drawBox';
+      drawBox.style.left = (event.clientX - rect.left) + 'px';
+      drawBox.style.top = (event.clientY - rect.top) + 'px';
+      container.querySelector('#dragBoxOverlay').appendChild(drawBox);
+    } else {
+      // 有修饰键：单个选择/取消
+      var idx = selectedSeats.indexOf(key);
+      if (idx > -1) {
+        selectedSeats.splice(idx, 1);
+        seatEl.classList.remove('selected');
+      } else {
+        selectedSeats.push(key);
+        seatEl.classList.add('selected');
+      }
+      updateSelectedCount();
+    }
+  }
+}
+
+// 全局鼠标移动
+document.addEventListener('mousemove', function(event) {
+  if (!isDrawing || !drawBox || !regionSelectMode) return;
+  
+  var container = document.getElementById('dragSeatMap');
+  if (!container) return;
+  var rect = container.getBoundingClientRect();
+  
+  var x1 = Math.min(drawStart.x, event.clientX);
+  var y1 = Math.min(drawStart.y, event.clientY);
+  var x2 = Math.max(drawStart.x, event.clientX);
+  var y2 = Math.max(drawStart.y, event.clientY);
+  
+  drawBox.style.left = (x1 - rect.left) + 'px';
+  drawBox.style.top = (y1 - rect.top) + 'px';
+  drawBox.style.width = (x2 - x1) + 'px';
+  drawBox.style.height = (y2 - y1) + 'px';
+  
+  // 检查哪些座位在框内
+  document.querySelectorAll('.drag-seat').forEach(function(el) {
+    var seatRect = el.getBoundingClientRect();
+    var seatCenterX = seatRect.left + seatRect.width / 2;
+    var seatCenterY = seatRect.top + seatRect.height / 2;
+    
+    var inBox = seatCenterX >= x1 && seatCenterX <= x2 && seatCenterY >= y1 && seatCenterY <= y2;
+    var key = el.dataset.key;
+    var alreadySelected = selectedSeats.indexOf(key) > -1;
+    
+    if (inBox && !alreadySelected) {
+      selectedSeats.push(key);
+      el.classList.add('selected');
+    } else if (!inBox && alreadySelected) {
+      var idx = selectedSeats.indexOf(key);
+      if (idx > -1) selectedSeats.splice(idx, 1);
+      el.classList.remove('selected');
+    }
+  });
+  
+  updateSelectedCount();
+});
+
+// 全局鼠标抬起
+document.addEventListener('mouseup', function(event) {
+  if (isDrawing && drawBox) {
+    drawBox.remove();
+    drawBox = null;
+  }
+  isDrawing = false;
+});
+
+// 区域随机分配
+async function randomAssignToRegion() {
+  if (selectedSeats.length === 0) return alert('请先选择座位区域或选择已保存的区域');
+  
+  // 获取未分配的参会者
+  var dataRes = await authFetch('/api/data').then(function(res) { return res.json(); });
+  var unassigned = (dataRes.attendees || []).filter(function(a) {
+    return !a.venueId || !a.row || !a.seat;
+  });
+  
+  if (unassigned.length === 0) return alert('没有待安排的参会者');
+  
+  var selectedEmptySeats = selectedSeats.filter(function(key) {
+    return !currentDragSeating.seatOccupancy[key];
+  });
+  
+  if (selectedEmptySeats.length === 0) return alert('所选区域没有空座位');
+  
+  // 确认
+  if (!confirm('将从 ' + unassigned.length + ' 个未安排的参会者中，随机安排 ' + Math.min(selectedEmptySeats.length, unassigned.length) + ' 人到所选区域，确定吗？')) return;
+  
+  try {
+    // 先打乱待安排的人
+    var shuffled = unassigned.slice();
+    for (var i = shuffled.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = shuffled[i];
+      shuffled[i] = shuffled[j];
+      shuffled[j] = temp;
+    }
+    
+    // 打乱座位
+    var shuffledSeats = selectedEmptySeats.slice();
+    for (var i = shuffledSeats.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = shuffledSeats[i];
+      shuffledSeats[i] = shuffledSeats[j];
+      shuffledSeats[j] = temp;
+    }
+    
+    // 逐个安排
+    var count = 0;
+    var maxCount = Math.min(shuffled.length, shuffledSeats.length);
+    for (var i = 0; i < maxCount; i++) {
+      var att = shuffled[i];
+      var seatKey = shuffledSeats[i];
+      var parts = seatKey.split('_');
+      var row = parts[0];
+      var seat = parts[1];
+      
+      var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/assign-seat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attendeeId: att.id, row: row, seat: seat })
+      });
+      var data = await res.json();
+      if (data.ok) count++;
+    }
+    
+    showToast('区域随机分配完成，已安排 ' + count + ' 人');
+    loadDragSeating();
+    refreshData();
+    
+  } catch (err) {
+    alert('分配失败: ' + err.message);
+  }
+}
 
 document.getElementById('qrUrl').value = window.location.origin + '/';
 refreshData();
