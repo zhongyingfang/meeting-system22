@@ -1584,7 +1584,14 @@ app.post('/api/attendees/import', requireAuth, (req, res) => {
     });
   }
 
-  const cleaned = attendees.map(a => cleanAttendee({ ...a, venueId }));
+  const cleaned = attendees.map(a => {
+    const attendee = cleanAttendee({ ...a, venueId });
+    // 生成ID
+    if (!attendee.id) {
+      attendee.id = 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    }
+    return attendee;
+  });
   const duplicates = [];
   const conflicts = [];
   const valid = [];
@@ -1635,6 +1642,11 @@ app.post('/api/attendees/import', requireAuth, (req, res) => {
 app.post('/api/attendees', requireAuth, (req, res) => {
   const data = readData();
   const attendee = cleanAttendee(req.body);
+
+  // 生成ID
+  if (!attendee.id) {
+    attendee.id = 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  }
 
   // 检查重复
   const duplicate = findDuplicateAttendee(data, attendee);

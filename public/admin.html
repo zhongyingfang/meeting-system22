@@ -339,21 +339,6 @@ async function openSeatCard() {
     </div>
   </div>
 
-  <div class="card" id="importCard" style="display:none">
-    <h2>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-      导入参会者到当前会场
-    </h2>
-    <div class="import-area">
-      <textarea id="importText" placeholder="每行一条，格式：姓名,排名(如第三排),座位号,单位,职务&#10;&#10;示例：&#10;张三,沙发第一排,1,数产集团,总经理&#10;李四,第三排,5,科技公司,副总&#10;王五,第十四排,20,创新科技,技术总监"></textarea>
-      <div class="import-tip">格式：姓名,排名,座位号,单位(选填),职务(选填)。排名需与会场布局一致（如"第三排""沙发第一排"）</div>
-    </div>
-    <div class="btn-group">
-      <button class="btn btn-success" onclick="importAttendees('append')">追加导入</button>
-      <button class="btn btn-danger" onclick="importAttendees('replace')">覆盖导入</button>
-    </div>
-  </div>
-
   <div class="card" id="addCard" style="display:none">
     <h2>添加单个参会者</h2>
     <div class="add-form">
@@ -366,21 +351,6 @@ async function openSeatCard() {
       <div class="form-group"><label>单位</label><input type="text" id="addCompany" placeholder="单位"></div>
       <div class="form-group"><label>职务</label><input type="text" id="addTitle" placeholder="职务"></div>
       <button class="btn btn-primary" onclick="addPerson()" style="align-self:flex-end">添加</button>
-    </div>
-  </div>
-
-  <div class="card" id="listCard" style="display:none">
-    <h2>
-      参会者列表
-      <span style="font-size:12px;color:var(--text2);font-weight:400;margin-left:auto" id="totalCount"></span>
-    </h2>
-    <div class="btn-group" style="margin-top:0;margin-bottom:10px">
-      <button class="btn btn-outline btn-sm" onclick="exportCSV()">导出 CSV</button>
-      <button class="btn btn-danger btn-sm" onclick="clearVenue()">清空本会场</button>
-    </div>
-    <div style="overflow-x:auto">
-      <table><thead><tr><th>#</th><th>姓名</th><th>座位</th><th>单位</th><th>职务</th><th>操作</th></tr></thead>
-      <tbody id="attendeeList"></tbody></table>
     </div>
   </div>
 
@@ -1056,7 +1026,6 @@ async function selectVenue(id) {
     });
   }
 
-  document.getElementById('importCard').style.display = '';
   document.getElementById('addCard').style.display = '';
   document.getElementById('listCard').style.display = '';
   renderAttendees(attendees);
@@ -1066,14 +1035,16 @@ function renderAttendees(list) {
   document.getElementById('totalCount').textContent = '共 ' + list.length + ' 人';
   var tbody = document.getElementById('attendeeList');
   if (list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:24px">暂无参会者</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:24px">暂无参会者</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(function(a, i) {
     return '<tr><td>' + (i+1) + '</td><td><strong>' + esc(a.name) + '</strong></td>' +
       '<td><span class="badge">' + esc(a.row) + ' ' + a.seat + '座</span></td>' +
       '<td>' + esc(a.company || '-') + '</td><td>' + esc(a.title || '-') + '</td>' +
-      '<td><button class="btn btn-danger btn-sm" onclick="deletePerson(\'' + esc(a.name).replace(/'/g, "\\'") + '\')">删除</button></td></tr>';
+      '<td style="display:flex;gap:4px">' +
+      '<button class="btn btn-outline btn-sm" onclick="editAttendeeFromList(\'' + (a.id || '').replace(/'/g, "\\'") + '\')">编辑</button>' +
+      '<button class="btn btn-danger btn-sm" onclick="deleteAttendeeFromList(\'' + (a.id || '').replace(/'/g, "\\'") + '\',\'' + esc(a.name).replace(/'/g, "\\'") + '\')">删除</button></td></tr>';
   }).join('');
 }
 
@@ -1165,6 +1136,38 @@ async function addPerson() {
     refreshData();
   } else {
     alert('添加失败: ' + (data.error || '未知错误'));
+  }
+}
+
+async function editAttendeeFromList(attendeeId) {
+  if (!attendeeId) return alert('参会者信息不完整，无法编辑');
+  
+  var dataRes = await authFetch('/api/data');
+  var data = await dataRes.json();
+  var attendee = (data.attendees || []).find(function(a) { return a.id === attendeeId; });
+  if (!attendee) return alert('找不到该参会者');
+  
+  editingAttendeeId = attendeeId;
+  document.getElementById('editAttendeeName').value = attendee.name || '';
+  document.getElementById('editAttendeeCompany').value = attendee.company || '';
+  document.getElementById('editAttendeeTitle').value = attendee.title || '';
+  document.getElementById('editAttendeeModal').classList.add('show');
+}
+
+async function deleteAttendeeFromList(attendeeId, attendeeName) {
+  if (!confirm('确定删除 ' + attendeeName + '？')) return;
+  
+  var url = attendeeId ? 
+    '/api/attendees?id=' + encodeURIComponent(attendeeId) : 
+    '/api/attendees?name=' + encodeURIComponent(attendeeName) + '&venueId=' + encodeURIComponent(currentVenueId);
+  
+  var res = await authFetch(url, { method: 'DELETE' });
+  var data = await res.json();
+  if (data.ok) {
+    showToast('已删除');
+    refreshData();
+  } else {
+    alert('删除失败: ' + (data.error || '未知错误'));
   }
 }
 
