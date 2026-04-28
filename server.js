@@ -103,18 +103,36 @@ const MAX_BACKUPS = 10; // 最多保留备份数
 function readConfig() {
   try {
     const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    let needsSave = false;
     // 如果是明文密码，自动转换为 bcrypt 哈希
     if (config.adminPassword && !config.adminPassword.startsWith('$2')) {
       const hashed = bcrypt.hashSync(config.adminPassword, SALT_ROUNDS);
       config.adminPassword = hashed;
-      writeConfig(config);
+      needsSave = true;
       structuredLog('system', { message: '密码已自动加密存储' });
+    }
+    // 如果主办方密码不存在，添加默认的
+    if (!config.organizerPassword) {
+      config.organizerPassword = bcrypt.hashSync('organizer888', SALT_ROUNDS);
+      needsSave = true;
+      structuredLog('system', { message: '主办方密码已添加' });
+    }
+    // 如果主办方密码是明文，自动加密
+    else if (config.organizerPassword && !config.organizerPassword.startsWith('$2')) {
+      const hashed = bcrypt.hashSync(config.organizerPassword, SALT_ROUNDS);
+      config.organizerPassword = hashed;
+      needsSave = true;
+      structuredLog('system', { message: '主办方密码已自动加密存储' });
+    }
+    if (needsSave) {
+      writeConfig(config);
     }
     return config;
   } catch {
     // 默认密码 admin888，自动哈希
     const defaultConfig = {
       adminPassword: bcrypt.hashSync('admin888', SALT_ROUNDS),
+      organizerPassword: bcrypt.hashSync('organizer888', SALT_ROUNDS),
       tokenTtl: TOKEN_TTL
     };
     writeConfig(defaultConfig);
@@ -134,9 +152,9 @@ if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
-// ==================== Token 管理（带过期） ====================
+// ==================== Token 管理（带过期和角色） ====================
 
-// 存储格式：Map<token, { createdAt: number }>
+// 存储格式：Map<token, { createdAt: number, role: 'admin' | 'organizer' }>
 const validTokens = new Map();
 
 // 定期清理过期 token（每小时执行一次）
@@ -324,7 +342,7 @@ app.get('/api/site-config', (req, res) => {
 });
 
 // 修改系统标题（需认证）
-app.put('/api/site-config', requireAuth, (req, res) => {
+app.put('/api/site-config', requireAdmin, (req, res) => {
   const config = readConfig();
   const { siteTitle, siteSubtitle } = req.body;
   if (siteTitle !== undefined) config.siteTitle = siteTitle.trim();
@@ -333,21 +351,47 @@ app.put('/api/site-config', requireAuth, (req, res) => {
   res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle });
 });
 
+// 修改主办方密码（管理员专属）
+app.put('/api/organizer-password', requireAdmin, (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 4) {
+    return res.status(400).json({ error: '密码长度至少为4位' });
+  }
+  
+  const config = readConfig();
+  config.organizerPassword = bcrypt.hashSync(newPassword, SALT_ROUNDS);
+  writeConfig(config);
+  
+  res.json({ ok: true, message: '主办方密码已更新' });
+});
+
 // ==================== 认证 API ====================
 
 // 登录 API（带速率限制和密码哈希验证）
 app.post('/api/login', (req, res) => {
-  const { password } = req.body;
+  const { password, role } = req.body;
   if (!password) {
     return res.status(400).json({ error: '缺少密码参数' });
   }
+  if (!role) {
+    return res.status(400).json({ error: '请选择登录角色' });
+  }
 
   const config = readConfig();
-  // 使用 bcrypt 验证密码
-  if (bcrypt.compareSync(password, config.adminPassword)) {
+  let valid = false;
+  let loginRole = role;
+  
+  // 验证密码
+  if (role === 'admin' && bcrypt.compareSync(password, config.adminPassword)) {
+    valid = true;
+  } else if (role === 'organizer' && config.organizerPassword && bcrypt.compareSync(password, config.organizerPassword)) {
+    valid = true;
+  }
+  
+  if (valid) {
     const token = crypto.randomBytes(32).toString('hex');
-    validTokens.set(token, { createdAt: Date.now() });
-    res.json({ ok: true, token });
+    validTokens.set(token, { createdAt: Date.now(), role: loginRole });
+    res.json({ ok: true, token, role: loginRole });
   } else {
     res.status(401).json({ error: '密码错误' });
   }
@@ -373,7 +417,24 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: '登录已过期，请重新登录' });
   }
 
+  // 保存角色信息到 request 对象供后续使用
+  req.userRole = meta.role;
   return next();
+}
+
+// 管理员专属权限中间件
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.userRole !== 'admin') {
+      return res.status(403).json({ error: '权限不足，此功能仅管理员可用' });
+    }
+    next();
+  });
+}
+
+// 获取当前用户角色的辅助函数
+function getCurrentRole(req) {
+  return req.userRole || 'unknown';
 }
 
 // ==================== 公开 API ====================
@@ -405,11 +466,12 @@ app.get('/api/data', (req, res) => {
 app.get('/api/stats', (req, res) => {
   const data = readData();
   const totalSeats = data.venues.reduce((s, v) => s + (v.totalSeats || 0), 0);
+  const assignedAttendees = data.attendees.filter(a => a.venueId && a.row && a.seat).length;
   res.json({
     venueCount: data.venues.length,
     totalSeats: totalSeats,
-    totalAttendees: data.attendees.length,
-    remainingSeats: totalSeats - data.attendees.length
+    totalAttendees: assignedAttendees,
+    remainingSeats: totalSeats - assignedAttendees
   });
 });
 
@@ -535,7 +597,7 @@ app.get('/api/search', (req, res) => {
 });
 
 // 获取查询统计
-app.get('/api/search-stats', requireAuth, (req, res) => {
+app.get('/api/search-stats', requireAdmin, (req, res) => {
   const now = Date.now();
   const oneHourAgo = now - 60 * 60 * 1000;
   const recentQueries = searchStats.queryLog.filter(q => q.timestamp > oneHourAgo);
@@ -560,7 +622,7 @@ app.get('/api/search-stats', requireAuth, (req, res) => {
 });
 
 // 数据统计 API
-app.get('/api/statistics', requireAuth, (req, res) => {
+app.get('/api/statistics', requireAdmin, (req, res) => {
   const data = readData();
 
   // 按单位统计
@@ -608,7 +670,7 @@ app.get('/api/statistics', requireAuth, (req, res) => {
 });
 
 // 导出座位安排表（Excel 格式 - 可视化布局图）
-app.get('/api/export-seating', requireAuth, (req, res) => {
+app.get('/api/export-seating', requireAdmin, (req, res) => {
   try {
     const data = readData();
     const wb = XLSX.utils.book_new();
@@ -683,7 +745,7 @@ app.get('/api/export-seating', requireAuth, (req, res) => {
 // 导出座位安排表（SVG 矢量图，适合喷绘）
 
 // 导出座位安排表（SVG 矢量图，适合喷绘）
-app.get('/api/export-seating-svg', requireAuth, (req, res) => {
+app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
   try {
     const data = readData();
     const config = readConfig();
@@ -1172,7 +1234,7 @@ function escXml(str) {
 }
 
 // 自动分析已上传表格的布局（从 uploaded.xlsx 重新解析）
-app.post('/api/analyze-layout', requireAuth, (req, res) => {
+app.post('/api/analyze-layout', requireAdmin, (req, res) => {
   try {
     const uploadedPath = path.join(__dirname, 'uploads', 'uploaded.xlsx');
     if (!fs.existsSync(uploadedPath)) {
@@ -1202,7 +1264,7 @@ app.post('/api/analyze-layout', requireAuth, (req, res) => {
 });
 
 // 生成布局预览图
-app.post('/api/generate-preview', requireAuth, (req, res) => {
+app.post('/api/generate-preview', requireAdmin, (req, res) => {
   try {
     const data = readData();
     const config = readConfig();
@@ -1550,7 +1612,7 @@ app.post('/api/attendees', requireAuth, (req, res) => {
 });
 
 // 修改会场名称/描述
-app.put('/api/venues/:id', requireAuth, (req, res) => {
+app.put('/api/venues/:id', requireAdmin, (req, res) => {
   const data = readData();
   const venue = data.venues.find(v => v.id === req.params.id);
   if (!venue) return res.status(404).json({ error: '场馆不存在' });
@@ -1562,7 +1624,7 @@ app.put('/api/venues/:id', requireAuth, (req, res) => {
 });
 
 // 应用增量变动
-app.post('/api/apply-diffs', requireAuth, (req, res) => {
+app.post('/api/apply-diffs', requireAdmin, (req, res) => {
   const { diffs } = req.body;
   if (!diffs || !Array.isArray(diffs)) {
     return res.status(400).json({ error: '缺少变动数据' });
@@ -1627,11 +1689,13 @@ app.post('/api/apply-diffs', requireAuth, (req, res) => {
 
 // 删除参会者
 app.delete('/api/attendees', requireAuth, (req, res) => {
-  const { name, venueId } = req.query;
+  const { name, venueId, id } = req.query;
   const data = readData();
   const beforeCount = data.attendees.length;
 
-  if (name && venueId) {
+  if (id) {
+    data.attendees = data.attendees.filter(a => a.id !== id);
+  } else if (name && venueId) {
     data.attendees = data.attendees.filter(a => !(a.name === name && a.venueId === venueId));
   } else if (venueId) {
     data.attendees = data.attendees.filter(a => a.venueId !== venueId);
@@ -1644,17 +1708,44 @@ app.delete('/api/attendees', requireAuth, (req, res) => {
   
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   auditLog('DELETE_ATTENDEES', ip, {
+    id: id || null,
     name: name || null,
     venueId: venueId || null,
     deletedCount,
-    scope: name && venueId ? 'single' : venueId ? 'venue' : 'all'
+    scope: id ? 'single_id' : name && venueId ? 'single' : venueId ? 'venue' : 'all'
   });
   
   res.json({ ok: true, deleted: deletedCount });
 });
 
+// 更新参会者信息
+app.put('/api/attendees/:id', requireAuth, (req, res) => {
+  const data = readData();
+  const attendee = data.attendees.find(a => a.id === req.params.id);
+  
+  if (!attendee) {
+    return res.status(404).json({ error: '参会者不存在' });
+  }
+  
+  const { name, company, title } = req.body;
+  if (name) attendee.name = name.trim();
+  if (company !== undefined) attendee.company = company.trim();
+  if (title !== undefined) attendee.title = title.trim();
+  
+  writeData(data);
+  
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  auditLog('UPDATE_ATTENDEE', ip, {
+    id: req.params.id,
+    oldName: req.body.oldName || null,
+    newName: name || null
+  });
+  
+  res.json({ ok: true, attendee });
+});
+
 // 重新从服务端 Excel 导入布局
-app.post('/api/import-excel', requireAuth, (req, res) => {
+app.post('/api/import-excel', requireAdmin, (req, res) => {
   const excelPath = path.join(__dirname, '..', '座位排表.xlsx');
   if (!fs.existsSync(excelPath)) {
     return res.status(404).json({ error: '未找到 座位排表.xlsx' });
@@ -1706,7 +1797,7 @@ function validateExcelFile(fileData) {
 }
 
 // 自动检测已上传 Excel 文件每个 Sheet 的布局类型
-app.post('/api/detect-sheet-modes', requireAuth, (req, res) => {
+app.post('/api/detect-sheet-modes', requireAdmin, (req, res) => {
   const { fileData } = req.body;
   
   try {
@@ -1726,7 +1817,7 @@ app.post('/api/detect-sheet-modes', requireAuth, (req, res) => {
   }
 });
 
-app.post('/api/upload-excel', requireAuth, (req, res) => {
+app.post('/api/upload-excel', requireAdmin, (req, res) => {
   const { fileData, keepManual, mode, sheetModes } = req.body;
   
   try {
@@ -1768,7 +1859,7 @@ app.post('/api/upload-excel', requireAuth, (req, res) => {
 });
 
 // 对比 Excel：上传新 Excel 与当前系统数据对比，返回差异
-app.post('/api/compare-excel', requireAuth, (req, res) => {
+app.post('/api/compare-excel', requireAdmin, (req, res) => {
   const { fileData, mode, sheetModes } = req.body;
   
   try {
@@ -2235,7 +2326,7 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
 // ==================== 备份管理 API ====================
 
 // 获取备份列表
-app.get('/api/backups', requireAuth, (req, res) => {
+app.get('/api/backups', requireAdmin, (req, res) => {
   if (!fs.existsSync(BACKUP_DIR)) {
     return res.json({ backups: [] });
   }
@@ -2256,7 +2347,7 @@ app.get('/api/backups', requireAuth, (req, res) => {
 });
 
 // 获取访问日志
-app.get('/api/logs', requireAuth, (req, res) => {
+app.get('/api/logs', requireAdmin, (req, res) => {
   const lines = parseInt(req.query.lines) || 100;
   if (!fs.existsSync(accessLogFile)) {
     return res.json({ logs: [] });
@@ -2272,7 +2363,7 @@ app.get('/api/logs', requireAuth, (req, res) => {
 });
 
 // 获取审计日志
-app.get('/api/audit-logs', requireAuth, (req, res) => {
+app.get('/api/audit-logs', requireAdmin, (req, res) => {
   const lines = parseInt(req.query.lines) || 100;
   if (!fs.existsSync(auditLogFile)) {
     return res.json({ logs: [] });
@@ -2290,7 +2381,7 @@ app.get('/api/audit-logs', requireAuth, (req, res) => {
 });
 
 // 清空访问日志
-app.delete('/api/logs', requireAuth, (req, res) => {
+app.delete('/api/logs', requireAdmin, (req, res) => {
   try {
     fs.writeFileSync(accessLogFile, '', 'utf-8');
     res.json({ ok: true });
@@ -2300,7 +2391,7 @@ app.delete('/api/logs', requireAuth, (req, res) => {
 });
 
 // 恢复备份
-app.post('/api/backups/restore', requireAuth, (req, res) => {
+app.post('/api/backups/restore', requireAdmin, (req, res) => {
   const { filename } = req.body;
   if (!filename) {
     return res.status(400).json({ error: '缺少 filename 参数' });
