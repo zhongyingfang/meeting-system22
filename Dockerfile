@@ -23,7 +23,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --production && npm cache clean --force
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
