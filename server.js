@@ -204,6 +204,54 @@ function releaseLock() {
 function loadDataFromFile() {
   try {
     dataCache = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+    
+    // ==================== 数据自动清理 ====================
+    let needsCleanup = false;
+    const venueIds = new Set((dataCache.venues || []).map(v => v.id));
+    const now = Date.now();
+    
+    // 1. 清理和修复参会者数据
+    const cleanedAttendees = (dataCache.attendees || []).filter(a => {
+      let keep = true;
+      
+      // 1.1 如果没有 id，生成一个
+      if (!a.id) {
+        a.id = 'att-' + now + '-' + Math.random().toString(36).substr(2, 9);
+        needsCleanup = true;
+        console.log(`[数据清理] 为参会者 ${a.name || '未命名'} 生成了 id: ${a.id}`);
+      }
+      
+      // 1.2 如果有 venueId，但这个会场不存在了
+      if (a.venueId && !venueIds.has(a.venueId)) {
+        // 检查是否同时有 row 和 seat
+        if (a.row && a.seat) {
+          // 这是一个指向不存在会场的参会者，把它变成未分配状态
+          console.log(`[数据清理] 参会者 ${a.name || a.id} 的 venueId=${a.venueId} 不存在，已设为未分配状态`);
+          delete a.venueId;
+          delete a.row;
+          delete a.seat;
+          needsCleanup = true;
+        }
+      }
+      
+      return keep;
+    });
+    
+    if (dataCache.attendees.length !== cleanedAttendees.length) {
+      dataCache.attendees = cleanedAttendees;
+      needsCleanup = true;
+    }
+    
+    // 2. 确保必要字段存在
+    if (!dataCache.venues) dataCache.venues = [];
+    if (!dataCache.attendees) dataCache.attendees = [];
+    
+    // 如果有数据被清理，写回文件
+    if (needsCleanup) {
+      console.log('[数据清理] 检测到数据问题，已自动修复并保存');
+      writeData(dataCache, true); // 跳过备份，因为这是自动清理
+    }
+    
     dataCacheVersion++;
     return dataCache;
   } catch {
