@@ -647,22 +647,34 @@ def load_attendees_from_finder():
         if not attendees:
             return None, "座位查询系统中暂无参会者数据"
         
+        # 获取会场ID集合
+        valid_venue_ids = set(v['id'] for v in venues)
+        
         # 获取会场信息
         venue_names = {}
         for v in venues:
             venue_names[v['id']] = v.get('name', v['id'])
         
-        # 按会场分组
+        # 按会场分组，只处理有效的会场ID
         venue_attendees = {}
         for a in attendees:
             vid = a.get('venueId', 'unknown')
+            # 只保留有效的会场ID，或者将无效的会场ID映射到第一个有效会场
+            if vid not in valid_venue_ids:
+                if valid_venue_ids:
+                    vid = next(iter(valid_venue_ids))
+                else:
+                    continue
             if vid not in venue_attendees:
                 venue_attendees[vid] = []
             venue_attendees[vid].append(a)
         
+        # 确保只返回有效的会场
+        valid_venues = [v for v in venues if v['id'] in venue_attendees]
+        
         return {
             'attendees': attendees,
-            'venues': venues,
+            'venues': valid_venues,
             'venue_names': venue_names,
             'venue_attendees': venue_attendees
         }, None
