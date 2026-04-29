@@ -406,6 +406,21 @@ async function openSeatCard() {
       <div style="width:280px;flex-shrink:0">
         <div style="background:#f8fafc;border-radius:10px;padding:12px;max-height:500px;overflow-y:auto">
           <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">待安排参会者 (<span id="unassignedCount">0</span>人)</div>
+          <!-- 搜索和筛选控件 -->
+          <div id="unassignedFilters" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+            <div style="margin-bottom:6px;">
+              <input type="text" id="filterNameInput" placeholder="搜索姓名..." style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px;" oninput="handleNameFilterChange(this.value)">
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+              <select id="filterCompanySelect" style="flex:1;min-width:100px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">
+                <option value="">全部单位</option>
+              </select>
+              <select id="filterTitleSelect" style="flex:1;min-width:100px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">
+                <option value="">全部职级</option>
+              </select>
+            </div>
+            <button class="btn btn-outline btn-sm" id="clearFiltersBtn" style="padding:4px 8px;font-size:10px;display:none" onclick="resetFilters()">清除筛选</button>
+          </div>
           <div id="unassignedList" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
       </div>
@@ -1507,7 +1522,7 @@ async function loadDragSeating() {
       // 重置区域选择
       selectedSeats = [];
       renderDragSeatMap();
-      renderUnassignedList();
+      renderUnassignedList(true);
       updateDragStatus();
       updateSelectedCount();
       // 如果在区域选择模式，高亮区域
@@ -1666,115 +1681,147 @@ function renderUShapeDragMap(venue) {
 
 
 // 渲染待安排参会者列表
-function renderUnassignedList() {
+function renderUnassignedList(forceRefresh) {
   document.getElementById('unassignedCount').textContent = '...';
-  authFetch('/api/data').then(function(res) { return res.json(); }).then(function(data) {
-    var unassigned = (data.attendees || []).filter(function(a) {
-      return !a.venueId || !a.row || !a.seat;
-    });
-
-    // 应用筛选
-    var filteredUnassigned = unassigned;
-    if (filterCompany) {
-      filteredUnassigned = filteredUnassigned.filter(function(a) {
-        return a.company && a.company.toLowerCase().indexOf(filterCompany.toLowerCase()) > -1;
-      });
-    }
-    if (filterTitle) {
-      filteredUnassigned = filteredUnassigned.filter(function(a) {
-        return a.title && a.title.toLowerCase().indexOf(filterTitle.toLowerCase()) > -1;
-      });
-    }
-
-    // 收集可用的单位和职级选项
-    var companies = Array.from(new Set(unassigned.filter(function(a) { return a.company; }).map(function(a) { return a.company; })));
-    var titles = Array.from(new Set(unassigned.filter(function(a) { return a.title; }).map(function(a) { return a.title; })));
-
-    document.getElementById('unassignedCount').textContent = filteredUnassigned.length + (filteredUnassigned.length !== unassigned.length ? '/' + unassigned.length : '');
-    var html = '';
-    
-    // 添加筛选控件
-    html += '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">';
-    html += '<div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:600">筛选参会者</div>';
-    html += '<div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap">';
-    
-    // 单位筛选
-    html += '<select id="filterCompanySelect" style="flex:1;min-width:100px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">';
-    html += '<option value="">全部单位</option>';
-    companies.forEach(function(c) {
-      html += '<option value="' + esc(c) + '"' + (filterCompany === c ? ' selected' : '') + '>' + esc(c) + '</option>';
-    });
-    html += '</select>';
-    
-    // 职级筛选
-    html += '<select id="filterTitleSelect" style="flex:1;min-width:100px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">';
-    html += '<option value="">全部职级</option>';
-    titles.forEach(function(t) {
-      html += '<option value="' + esc(t) + '"' + (filterTitle === t ? ' selected' : '') + '>' + esc(t) + '</option>';
-    });
-    html += '</select>';
-    html += '</div>';
-    
-    // 重置筛选按钮
-    if (filterCompany || filterTitle) {
-      html += '<button class="btn btn-outline btn-sm" style="padding:4px 8px;font-size:10px;" onclick="resetFilters()">清除筛选</button>';
-    }
-    html += '</div>';
-    
-    // 添加全选复选框
-    if (filteredUnassigned.length > 0) {
-      var allSelected = filteredUnassigned.every(function(a) { return selectedAttendees.indexOf(a.id) > -1; });
-      html += '<label class="select-all-label">';
-      html += '<input type="checkbox" class="attendee-checkbox" id="selectAllAttendees" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAttendees(this.checked)">';
-      html += '<span>全选 (<span id="selectedAttendeesCount">' + selectedAttendees.length + '</span>/' + filteredUnassigned.length + ')</span>';
-      html += '</label>';
-    }
-    
-    if (filteredUnassigned.length === 0) {
-      html = html + '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px">没有符合筛选条件的参会者</div>';
-    } else {
-      filteredUnassigned.forEach(function(a) {
-        var isChecked = selectedAttendees.indexOf(a.id) > -1;
-        html += '<div class="draggable-attendee" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:#fff;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s">';
-        html += '<input type="checkbox" class="attendee-checkbox" data-id="' + a.id + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAttendeeSelection(\'' + a.id + '\', this.checked)">';
-        html += '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
-        html += '<div style="flex:1;min-width:0">';
-        html += '<div style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
-        html += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.company || '') + (a.title ? ' · ' + esc(a.title) : '') + '</div>';
-        html += '</div>';
-        html += '<div style="display:flex;gap:4px;flex-shrink:0">';
-        html += '<button class="btn btn-outline btn-sm" onclick="editUnassignedAttendee(\'' + a.id + '\')" style="padding:3px 6px;font-size:10px">编辑</button>';
-        html += '<button class="btn btn-danger btn-sm" onclick="deleteUnassignedAttendee(\'' + a.id + '\',\'' + esc(a.name).replace(/'/g, "\\'") + '\')" style="padding:3px 6px;font-size:10px">删除</button>';
-        html += '</div>';
-        html += '</div>';
+  
+  // 如果强制刷新或没有缓存，则从服务器获取数据
+  if (forceRefresh || !cachedUnassignedData) {
+    authFetch('/api/data').then(function(res) { return res.json(); }).then(function(data) {
+      var unassigned = (data.attendees || []).filter(function(a) {
+        return !a.venueId || !a.row || !a.seat;
       });
       
-      // 添加批量操作区域
-      html += '<div class="batch-actions">';
-      html += '<select id="regionSelectDropdown" style="min-width:180px; max-height:400px;">';
-      html += '<option value="">选择区域</option>';
-      var regions = savedRegions[currentVenueId] || [];
-      if (regions.length === 0 && currentVenueId) {
-        try {
-          var stored = localStorage.getItem('savedRegions_' + currentVenueId);
-          if (stored) {
-            regions = JSON.parse(stored);
-          }
-        } catch (e) {}
-      }
-      console.log('待分配区域列表 - 当前会场ID:', currentVenueId, '区域数量:', regions.length, '区域:', regions);
-      regions.forEach(function(r) {
-        html += '<option value="' + r.id + '">' + esc(r.name) + ' (' + r.seats.length + '座)</option>';
-      });
-      html += '</select>';
-      html += '<button class="btn btn-primary btn-sm" onclick="batchAssignToRegion()">批量分配</button>';
+      // 缓存数据
+      cachedUnassignedData = {
+        unassigned: unassigned,
+        companies: Array.from(new Set(unassigned.filter(function(a) { return a.company; }).map(function(a) { return a.company; }))),
+        titles: Array.from(new Set(unassigned.filter(function(a) { return a.title; }).map(function(a) { return a.title; })))
+      };
+      
+      // 更新筛选选项
+      updateFilterOptions();
+      renderUnassignedListFromCache();
+    }).catch(function(e) {
+      console.error('加载待安排列表失败:', e);
+      document.getElementById('unassignedList').innerHTML = '<div style="text-align:center;color:var(--danger);padding:16px;font-size:12px">加载失败</div>';
+    });
+  } else {
+    // 使用缓存数据
+    renderUnassignedListFromCache();
+  }
+}
+
+// 更新筛选选项
+function updateFilterOptions() {
+  if (!cachedUnassignedData) return;
+  
+  var companySelect = document.getElementById('filterCompanySelect');
+  var titleSelect = document.getElementById('filterTitleSelect');
+  
+  // 保存当前选中值
+  var currentCompany = companySelect ? companySelect.value : '';
+  var currentTitle = titleSelect ? titleSelect.value : '';
+  
+  // 更新单位选项
+  if (companySelect) {
+    companySelect.innerHTML = '<option value="">全部单位</option>';
+    cachedUnassignedData.companies.forEach(function(c) {
+      companySelect.innerHTML += '<option value="' + esc(c) + '"' + (filterCompany === c || currentCompany === c ? ' selected' : '') + '>' + esc(c) + '</option>';
+    });
+  }
+  
+  // 更新职级选项
+  if (titleSelect) {
+    titleSelect.innerHTML = '<option value="">全部职级</option>';
+    cachedUnassignedData.titles.forEach(function(t) {
+      titleSelect.innerHTML += '<option value="' + esc(t) + '"' + (filterTitle === t || currentTitle === t ? ' selected' : '') + '>' + esc(t) + '</option>';
+    });
+  }
+}
+
+// 从缓存渲染待安排参会者列表
+function renderUnassignedListFromCache() {
+  if (!cachedUnassignedData) return;
+  
+  var unassigned = cachedUnassignedData.unassigned;
+
+  // 应用筛选
+  var filteredUnassigned = unassigned;
+  if (filterName) {
+    filteredUnassigned = filteredUnassigned.filter(function(a) {
+      return a.name && a.name.toLowerCase().indexOf(filterName.toLowerCase()) > -1;
+    });
+  }
+  if (filterCompany) {
+    filteredUnassigned = filteredUnassigned.filter(function(a) {
+      return a.company && a.company.toLowerCase().indexOf(filterCompany.toLowerCase()) > -1;
+    });
+  }
+  if (filterTitle) {
+    filteredUnassigned = filteredUnassigned.filter(function(a) {
+      return a.title && a.title.toLowerCase().indexOf(filterTitle.toLowerCase()) > -1;
+    });
+  }
+
+  document.getElementById('unassignedCount').textContent = filteredUnassigned.length + (filteredUnassigned.length !== unassigned.length ? '/' + unassigned.length : '');
+  var html = '';
+  
+  // 添加全选复选框
+  if (filteredUnassigned.length > 0) {
+    var allSelected = filteredUnassigned.every(function(a) { return selectedAttendees.indexOf(a.id) > -1; });
+    html += '<label class="select-all-label">';
+    html += '<input type="checkbox" class="attendee-checkbox" id="selectAllAttendees" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAttendees(this.checked)">';
+    html += '<span>全选 (<span id="selectedAttendeesCount">' + selectedAttendees.length + '</span>/' + filteredUnassigned.length + ')</span>';
+    html += '</label>';
+  }
+  
+  if (filteredUnassigned.length === 0) {
+    html += '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px">没有符合筛选条件的参会者</div>';
+  } else {
+    filteredUnassigned.forEach(function(a) {
+      var isChecked = selectedAttendees.indexOf(a.id) > -1;
+      html += '<div class="draggable-attendee" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:#fff;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s">';
+      html += '<input type="checkbox" class="attendee-checkbox" data-id="' + a.id + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAttendeeSelection(\'' + a.id + '\', this.checked)">';
+      html += '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
+      html += '<div style="flex:1;min-width:0">';
+      html += '<div style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.company || '') + (a.title ? ' · ' + esc(a.title) : '') + '</div>';
       html += '</div>';
+      html += '<div style="display:flex;gap:4px;flex-shrink:0">';
+      html += '<button class="btn btn-outline btn-sm" onclick="editUnassignedAttendee(\'' + a.id + '\')" style="padding:3px 6px;font-size:10px">编辑</button>';
+      html += '<button class="btn btn-danger btn-sm" onclick="deleteUnassignedAttendee(\'' + a.id + '\',\'' + esc(a.name).replace(/'/g, "\\'") + '\')" style="padding:3px 6px;font-size:10px">删除</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+    
+    // 添加批量操作区域
+    html += '<div class="batch-actions">';
+    html += '<select id="regionSelectDropdown" style="min-width:180px; max-height:400px;">';
+    html += '<option value="">选择区域</option>';
+    var regions = savedRegions[currentVenueId] || [];
+    if (regions.length === 0 && currentVenueId) {
+      try {
+        var stored = localStorage.getItem('savedRegions_' + currentVenueId);
+        if (stored) {
+          regions = JSON.parse(stored);
+        }
+      } catch (e) {}
     }
-    document.getElementById('unassignedList').innerHTML = html;
-  }).catch(function(e) {
-    console.error('加载待安排列表失败:', e);
-    document.getElementById('unassignedList').innerHTML = '<div style="text-align:center;color:var(--danger);padding:16px;font-size:12px">加载失败</div>';
-  });
+    console.log('待分配区域列表 - 当前会场ID:', currentVenueId, '区域数量:', regions.length, '区域:', regions);
+    regions.forEach(function(r) {
+      html += '<option value="' + r.id + '">' + esc(r.name) + ' (' + r.seats.length + '座)</option>';
+    });
+    html += '</select>';
+    html += '<button class="btn btn-primary btn-sm" onclick="batchAssignToRegion()">批量分配</button>';
+    html += '</div>';
+  }
+  document.getElementById('unassignedList').innerHTML = html;
+  
+  // 更新清除筛选按钮状态
+  var clearBtn = document.getElementById('clearFiltersBtn');
+  if (clearBtn) {
+    clearBtn.style.display = (filterName || filterCompany || filterTitle) ? 'inline-block' : 'none';
+  }
 }
 
 // 切换单个参会者选择
@@ -1797,6 +1844,11 @@ function toggleAllAttendees(checked) {
     
     // 应用筛选
     var filteredUnassigned = unassigned;
+    if (filterName) {
+      filteredUnassigned = filteredUnassigned.filter(function(a) {
+        return a.name && a.name.toLowerCase().indexOf(filterName.toLowerCase()) > -1;
+      });
+    }
     if (filterCompany) {
       filteredUnassigned = filteredUnassigned.filter(function(a) {
         return a.company && a.company.toLowerCase().indexOf(filterCompany.toLowerCase()) > -1;
@@ -1872,7 +1924,7 @@ async function saveEditAttendee() {
     if (data.ok) {
       showToast('参会者信息已更新');
       closeEditAttendeeModal();
-      renderUnassignedList();
+      renderUnassignedList(true);
       refreshData();
     } else {
       alert('更新失败: ' + (data.error || '未知错误'));
@@ -1893,7 +1945,7 @@ async function deleteUnassignedAttendee(attendeeId, attendeeName) {
     var data = await res.json();
     if (data.ok) {
       showToast('已删除参会者');
-      renderUnassignedList();
+      renderUnassignedList(true);
       refreshData();
     } else {
       alert('删除失败: ' + (data.error || '未知错误'));
@@ -1901,6 +1953,21 @@ async function deleteUnassignedAttendee(attendeeId, attendeeName) {
   } catch (err) {
     alert('删除失败: ' + err.message);
   }
+}
+
+// 处理姓名搜索变化（使用防抖）
+function handleNameFilterChange(value) {
+  filterName = value;
+  
+  // 清除之前的计时器
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+  }
+  
+  // 设置新的计时器，延迟300ms执行搜索
+  searchDebounceTimer = setTimeout(function() {
+    renderUnassignedList();
+  }, 300);
 }
 
 // 处理筛选条件变化
@@ -1914,8 +1981,21 @@ function handleFilterChange() {
 
 // 重置筛选条件
 function resetFilters() {
+  filterName = '';
   filterCompany = '';
   filterTitle = '';
+  
+  // 清空搜索框
+  var nameInput = document.getElementById('filterNameInput');
+  if (nameInput) nameInput.value = '';
+  
+  // 重置下拉框
+  var companySelect = document.getElementById('filterCompanySelect');
+  if (companySelect) companySelect.value = '';
+  
+  var titleSelect = document.getElementById('filterTitleSelect');
+  if (titleSelect) titleSelect.value = '';
+  
   renderUnassignedList();
 }
 
@@ -2298,6 +2378,9 @@ var selectedAttendees = []; // 存储选中的待安排参会者ID
 // 筛选相关状态
 var filterCompany = ''; // 按单位筛选
 var filterTitle = ''; // 按职级/职务筛选
+var filterName = ''; // 按姓名搜索
+var searchDebounceTimer = null; // 搜索防抖计时器
+var cachedUnassignedData = null; // 待安排参会者数据缓存
 
 // 区域颜色列表 - 为不同区域分配不同颜色
 var regionColors = [
