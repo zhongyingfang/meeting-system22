@@ -779,17 +779,27 @@ def load_chinese_font():
     """加载中文字体"""
     font_paths = []
     
+    # 优先检查本地字体目录
+    local_fonts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+    if os.path.exists(local_fonts_dir):
+        try:
+            for filename in os.listdir(local_fonts_dir):
+                if filename.lower().endswith(('.ttf', '.otf', '.ttc')):
+                    font_paths.append(os.path.join(local_fonts_dir, filename))
+        except Exception as e:
+            pass  # 静默失败，继续尝试系统字体
+    
     # Windows系统字体路径
     if sys.platform == 'win32':
-        font_paths = [
+        font_paths.extend([
             'C:\\Windows\\Fonts\\msyh.ttf',    # 微软雅黑（支持最多特殊字符）
             'C:\\Windows\\Fonts\\simhei.ttf',  # 黑体
             'C:\\Windows\\Fonts\\simsun.ttc',  # 宋体
-        ]
+        ])
     # Linux/Docker系统字体路径
     else:
         # DejaVu 和 Noto Sans CJK 支持最广的 Unicode 字符（优先使用）
-        font_paths = [
+        font_paths.extend([
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',            # DejaVu Sans - 支持最广泛的 Unicode
             '/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf',  # DejaVu Sans Condensed
             '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',     # Noto Sans CJK (OpenType) - subfontIndex=2 为简体中文
@@ -799,31 +809,42 @@ def load_chinese_font():
             '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',             # 文泉驿微米黑
             '/usr/share/fonts/truetype/arphic/uming.ttc',                 # AR PL UMing
             '/usr/share/fonts/truetype/arphic/ukai.ttc',                  # AR PL UKai
-        ]
+        ])
     
     # 尝试加载字体
     for font_path in font_paths:
-        if os.path.exists(font_path):
-            try:
-                font_name = os.path.splitext(os.path.basename(font_path))[0]
-                # 对于TTC文件，指定简体中文字体索引（subfontIndex=2 为 SC 简体中文）
-                if font_path.endswith('.ttc'):
-                    pdfmetrics.registerFont(TTFont(font_name, font_path, subfontIndex=2))
-                    print(f"已加载字体: {font_path} (TTC索引=2 简体中文)")
-                else:
-                    pdfmetrics.registerFont(TTFont(font_name, font_path))
-                    print(f"已加载字体: {font_path}")
+        if not os.path.exists(font_path):
+            continue
+        
+        try:
+            # 检查文件可读性
+            if not os.access(font_path, os.R_OK):
+                continue
+                
+            font_name = os.path.splitext(os.path.basename(font_path))[0]
+            # 对于TTC文件，尝试多个子字体索引
+            if font_path.lower().endswith('.ttc'):
+                # 尝试多个子字体索引，避免单个索引失败
+                for subfont_idx in [0, 1, 2, 3]:
+                    try:
+                        pdfmetrics.registerFont(TTFont(font_name, font_path, subfontIndex=subfont_idx))
+                        return font_name
+                    except Exception:
+                        continue
+            else:
+                # 普通TTF/OTF文件
+                pdfmetrics.registerFont(TTFont(font_name, font_path))
                 return font_name
-            except Exception as e:
-                print(f"加载字体失败: {font_path}: {e}")
+        except Exception as e:
+            continue  # 静默失败，尝试下一个字体
     
     # 如果没有找到中文字体，返回默认字体
-    print("未找到中文字体，使用默认 Helvetica")
     return "Helvetica"
 
 # 创建必要的目录
 os.makedirs("templates", exist_ok=True)
 os.makedirs("output", exist_ok=True)
+os.makedirs("fonts", exist_ok=True)
 
 def create_namecard_template():
     """创建默认的座位牌HTML模板"""
@@ -990,16 +1011,39 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
         c.setFillColorRGB(0, 0, 0)  # 默认黑色
     
     # 选择字体：优先使用自定义字体，然后使用系统字体
+    font_name = 'Helvetica'  # 默认字体作为最终回退
+    
+    # 检查自定义字体是否已注册
     if custom_font_name:
-        font_name = custom_font_name
-    else:
-        font_name = chinese_font
+        try:
+            # 尝试设置自定义字体
+            c.setFont(custom_font_name, template_vars['font_size'])
+            font_name = custom_font_name
+        except Exception:
+            # 自定义字体失败，尝试中文字体
+            custom_font_name = None
     
-    # 处理字体粗细
+    # 如果没有自定义字体，尝试中文字体
+    if not custom_font_name and chinese_font != 'Helvetica':
+        try:
+            c.setFont(chinese_font, template_vars['font_size'])
+            font_name = chinese_font
+        except Exception:
+            # 中文字体也失败，使用默认Helvetica
+            font_name = 'Helvetica'
+            c.setFont(font_name, template_vars['font_size'])
+    elif not custom_font_name:
+        # 已经是默认Helvetica
+        c.setFont(font_name, template_vars['font_size'])
+    
+    # 处理字体粗细（仅对Helvetica有效）
     if template_vars['font_weight'] == 'bold' and font_name == 'Helvetica':
-        font_name = 'Helvetica-Bold'
-    
-    c.setFont(font_name, template_vars['font_size'])
+        try:
+            font_name = 'Helvetica-Bold'
+            c.setFont(font_name, template_vars['font_size'])
+        except Exception:
+            # Helvetica-Bold不可用，继续使用普通Helvetica
+            pass
     
     # 获取字间距
     char_spacing = template_vars.get('char_spacing', 0)
@@ -1176,35 +1220,35 @@ def generate_pdf(names, template_vars, output_path):
         font_path = font_files[selected_system_font]
         custom_font_name = selected_system_font
         try:
-            # 处理TTC文件
-            if font_path.endswith('.ttc'):
-                pdfmetrics.registerFont(TTFont(custom_font_name, font_path, subfontIndex=2))
+            # 处理TTC文件，尝试多个子字体索引
+            if font_path.lower().endswith('.ttc'):
+                for subfont_idx in [0, 1, 2, 3]:
+                    try:
+                        pdfmetrics.registerFont(TTFont(custom_font_name, font_path, subfontIndex=subfont_idx))
+                        break
+                    except Exception:
+                        continue
             else:
                 pdfmetrics.registerFont(TTFont(custom_font_name, font_path))
-            print(f"已加载挂载字体: {font_path}")
         except Exception as e:
-            print(f"注册挂载字体失败: {e}")
             custom_font_name = None
     elif custom_font_path and custom_font_name:
         # 使用已保存的自定义字体临时文件
         try:
             pdfmetrics.registerFont(TTFont(custom_font_name, custom_font_path))
-            print(f"已加载自定义字体: {custom_font_path}")
         except Exception as e:
-            print(f"注册自定义字体失败: {e}")
             custom_font_name = None
     elif custom_font:
         # 保存上传的字体到临时文件（作为备选方案）
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.' + custom_font.name.split('.')[-1]) as temp_file:
-            temp_file.write(custom_font.getbuffer())
-            custom_font_path = temp_file.name
-            custom_font_name = os.path.splitext(os.path.basename(custom_font.name))[0]
-        
-        # 注册自定义字体
         try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.' + custom_font.name.split('.')[-1]) as temp_file:
+                temp_file.write(custom_font.getbuffer())
+                custom_font_path = temp_file.name
+                custom_font_name = os.path.splitext(os.path.basename(custom_font.name))[0]
+            
+            # 注册自定义字体
             pdfmetrics.registerFont(TTFont(custom_font_name, custom_font_path))
         except Exception as e:
-            print(f"注册自定义字体失败: {e}")
             custom_font_name = None
     
     # 处理背景图片
