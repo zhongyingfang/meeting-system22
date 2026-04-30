@@ -1501,6 +1501,7 @@ async function applyNewExcel() {
 
 var currentDragSeating = null;
 var draggedAttendee = null;
+var draggedSeatKey = null;
 
 // 修改 selectVenue 函数以显示拖拽卡片
 var originalSelectVenue = selectVenue;
@@ -2092,6 +2093,37 @@ function handleAttendeeDragStart(event) {
 function handleAttendeeDragEnd(event) {
   event.currentTarget.style.opacity = '1';
   draggedAttendee = null;
+  draggedSeatKey = null;
+  document.querySelectorAll('.drag-seat').forEach(function(el) { el.classList.remove('drag-over'); });
+}
+
+// 处理已安排座位的拖拽开始
+function handleSeatDragStart(event) {
+  if (regionSelectMode) {
+    event.preventDefault();
+    return;
+  }
+  var seatEl = event.currentTarget;
+  var key = seatEl.dataset.key;
+  var attendee = currentDragSeating.seatOccupancy[key];
+  if (!attendee) return;
+  
+  event.dataTransfer.setData('text/plain', attendee.id + '|' + key);
+  event.dataTransfer.effectAllowed = 'move';
+  draggedAttendee = { id: attendee.id, name: attendee.name };
+  draggedSeatKey = key;
+  
+  seatEl.style.opacity = '0.4';
+  setTimeout(function() {
+    seatEl.style.opacity = '0.4';
+  }, 0);
+}
+
+// 处理已安排座位的拖拽结束
+function handleSeatDragEnd(event) {
+  event.currentTarget.style.opacity = '1';
+  draggedAttendee = null;
+  draggedSeatKey = null;
   document.querySelectorAll('.drag-seat').forEach(function(el) { el.classList.remove('drag-over'); });
 }
 
@@ -2124,9 +2156,14 @@ async function handleDrop(event) {
   var seat = seatEl.dataset.seat;
   var key = seatEl.dataset.key;
 
+  if (draggedSeatKey === key) return;
+
   var existingAttendee = currentDragSeating.seatOccupancy[key];
   if (existingAttendee) {
-    if (!confirm('座位已被 ' + existingAttendee.name + ' 占用，是否交换座位？')) return;
+    var confirmMsg = draggedSeatKey
+      ? '座位已被 ' + existingAttendee.name + ' 占用，是否将「' + draggedAttendee.name + '」与「' + existingAttendee.name + '」交换座位？'
+      : '座位已被 ' + existingAttendee.name + ' 占用，是否交换座位？';
+    if (!confirm(confirmMsg)) return;
   }
 
   try {
@@ -2137,7 +2174,8 @@ async function handleDrop(event) {
     });
     var data = await res.json();
     if (data.ok) {
-      showToast('座位安排成功');
+      var msg = draggedSeatKey ? '座位交换成功' : '座位安排成功';
+      showToast(msg);
       loadDragSeating();
       refreshData();
     } else {
@@ -2401,7 +2439,7 @@ function getRegionColor(regionIndex) {
 
 // 添加鼠标悬停显示清除按钮和区域选择的样式
 var dragStyles = document.createElement('style');
-dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.region-tag-color-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin-bottom:8px; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; min-width:150px; }\n#regionSelectDropdown { min-width:150px; max-height:300px; overflow-y:auto; }\n';
+dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); border-color:#f59e0b !important; box-shadow:0 0 8px rgba(245,158,11,0.4); }\n.drag-seat.seat-dragging { opacity:0.4; transform:scale(0.95); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.region-tag-color-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin-bottom:8px; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; min-width:150px; }\n#regionSelectDropdown { min-width:150px; max-height:300px; overflow-y:auto; }\n';
 document.head.appendChild(dragStyles);
 
 // 切换区域选择模式
@@ -2587,20 +2625,25 @@ function highlightRegionsOnSeatMap() {
   });
 }
 
-// 修改 renderDragSeat，增加点击选择和区域颜色支持
+// 修改 renderDragSeat，增加点击选择、区域颜色支持和座位拖拽
 function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
   var key = rowLabel + '_' + seatNum;
   var bgColor = attendee ? '#dbeafe' : '#e0e7ff';
   var textColor = attendee ? '#1e40af' : '#64748b';
   var content = attendee ? (attendee.name.length > 3 ? attendee.name.substring(0, 3) + '…' : attendee.name) : seatNum;
-  var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) : esc(rowLabel) + seatNum + '号 - 空座位';
+  var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（可拖拽换座）' : esc(rowLabel) + seatNum + '号 - 空座位';
   
   var selectedClass = selectedSeats.indexOf(key) > -1 ? ' selected' : '';
-  var style = 'width:' + (vertical ? '40px' : '50px') + ';height:' + (vertical ? '50px' : '40px') + ';border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:600;cursor:pointer;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor;
+  var cursorStyle = attendee ? 'cursor:grab;' : 'cursor:pointer;';
+  var style = 'width:' + (vertical ? '40px' : '50px') + ';height:' + (vertical ? '50px' : '40px') + ';border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:600;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor + ';' + cursorStyle;
   
   var html = '<div class="drag-seat' + selectedClass + '" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
   html += ' onmousedown="handleSeatMouseDown(event)"';
   html += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+  if (attendee) {
+    html += ' draggable="true"';
+    html += ' ondragstart="handleSeatDragStart(event)" ondragend="handleSeatDragEnd(event)"';
+  }
   html += '>';
   html += '<div style="font-size:9px">' + content + '</div>';
   if (attendee) {
