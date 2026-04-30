@@ -1671,6 +1671,33 @@ app.post('/api/attendees', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// 删除会场
+app.delete('/api/venues/:id', requireAdmin, (req, res) => {
+  const data = readData();
+  const venue = data.venues.find(v => v.id === req.params.id);
+  if (!venue) return res.status(404).json({ error: '场馆不存在' });
+
+  const attendeeCount = data.attendees.filter(a => a.venueId === venue.id).length;
+
+  data.attendees = data.attendees.map(a => {
+    if (a.venueId === venue.id) {
+      return { ...a, venueId: '', row: '', seat: '' };
+    }
+    return a;
+  });
+
+  data.venues = data.venues.filter(v => v.id !== req.params.id);
+
+  writeData(data);
+  auditLog('DELETE_VENUE', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+    venueId: venue.id,
+    venueName: venue.name,
+    clearedAttendees: attendeeCount
+  });
+
+  res.json({ ok: true, clearedAttendees: attendeeCount });
+});
+
 // 修改会场名称/描述
 app.put('/api/venues/:id', requireAdmin, (req, res) => {
   const data = readData();

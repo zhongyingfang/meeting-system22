@@ -41,7 +41,9 @@
     padding: 8px 16px; border-radius: 8px; border: 2px solid var(--border);
     background: #fff; cursor: pointer; font-size: 13px; font-weight: 600; transition: all .2s;
   }
-  .venue-tab:hover { border-color: var(--primary-light); }
+  .venue-tab:hover .venue-delete-btn { display: inline-flex; }
+  .venue-delete-btn { display: none; margin-left: 6px; width: 18px; height: 18px; border-radius: 50%; background: #ef4444; color: #fff; font-size: 11px; font-weight: 700; align-items: center; justify-content: center; cursor: pointer; line-height: 1; transition: all .2s; vertical-align: middle; }
+  .venue-delete-btn:hover { background: #dc2626; transform: scale(1.1); }
   .venue-tab.active { border-color: var(--primary); background: #e0e7ff; color: var(--primary); }
 
   .import-area textarea {
@@ -995,10 +997,15 @@ async function generatePreview() {
 function renderVenueTabs() {
   var html = '';
   var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'auto': '自动' };
+  var isAdmin = userRole === 'admin';
   allData.venues.forEach(function(v) {
     var vm = v.layout || v.mode || 'theater';
     html += '<div class="venue-tab' + (v.id === currentVenueId ? ' active' : '') + '" data-id="' + v.id + '" onclick="selectVenue(\'' + v.id + '\')">' +
-      esc(v.name) + ' <span style="font-size:11px;opacity:0.7">(' + (modeLabel[vm] || vm) + ')</span></div>';
+      esc(v.name) + ' <span style="font-size:11px;opacity:0.7">(' + (modeLabel[vm] || vm) + ')</span>';
+    if (isAdmin) {
+      html += '<span class="venue-delete-btn" onclick="event.stopPropagation();deleteVenue(\'' + v.id + '\',\'' + esc(v.name).replace(/'/g, "\\'") + '\')" title="删除会场">×</span>';
+    }
+    html += '</div>';
   });
   document.getElementById('venueTabs').innerHTML = html;
 }
@@ -1086,6 +1093,27 @@ async function saveVenueName() {
   var data = await res.json();
   if (data.ok) { showToast('会场信息已更新'); refreshData(); }
   else alert('保存失败: ' + (data.error || '未知错误'));
+}
+
+async function deleteVenue(venueId, venueName) {
+  if (!confirm('确定删除会场「' + venueName + '」吗？\n\n该会场的所有参会者座位将被清除，但参会者信息会保留。')) return;
+
+  try {
+    var res = await authFetch('/api/venues/' + encodeURIComponent(venueId), { method: 'DELETE' });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('会场「' + venueName + '」已删除，' + (data.clearedAttendees || 0) + ' 个参会者座位已清除');
+      venueAttendees = {};
+      if (currentVenueId === venueId) {
+        currentVenueId = null;
+      }
+      refreshData();
+    } else {
+      alert('删除失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('删除失败: ' + err.message);
+  }
 }
 
 
