@@ -14,3 +14,7 @@ data/*
 README.md
 *.md
 .env
+SteamLibrary
+meeting-system-*.zip
+uploads
+.steam

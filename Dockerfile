@@ -1,5 +1,9 @@
 FROM python:3.10-slim
 
+# 设置apt国内镜像源（清华源）
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
@@ -23,10 +27,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --production && npm cache clean --force
+# 设置npm国内镜像源（淘宝源）
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install --production && npm cache clean --force
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 设置pip国内镜像源（清华源）
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 COPY . .
 
