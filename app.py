@@ -682,28 +682,30 @@ def load_attendees_from_finder():
         return None, f"读取座位查询系统数据失败: {e}"
 
 # 字符预处理：替换特殊字符为可显示字符
+def _safe_print(s):
+    try:
+        print(s)
+    except UnicodeEncodeError:
+        sys.stdout.buffer.write(s.encode('utf-8'))
+        sys.stdout.buffer.write(b'\n')
+        sys.stdout.buffer.flush()
+
 def preprocess_special_chars(text):
     """预处理文本中的特殊字符，确保能在PDF中正常显示"""
     if not text:
         return text
     
-    # 打印原始字符的Unicode编码用于调试
-    print(f"[字符预处理] 输入: '{text}'")
-    for i, char in enumerate(text):
-        print(f"  字符 {i}: '{char}' (U+{ord(char):04X})")
+    _safe_print(f"[字符预处理] 输入: {repr(text)}")
     
-    # 特殊字符映射表 - 尝试用居中的间隔符
+    # 特殊字符映射表
     char_mapping = {
-        # 间隔号、点号类 - 使用位置较好的字符
-        '\u00B7': '-',      # MIDDLE DOT → 连字符（位置居中）
-        '\u2022': '-',      # BULLET
-        '\u2219': '-',      # DOT OPERATOR
-        '\u22C5': '-',      # DOT OPERATOR
-        '\u30FB': '-',      # KATAKANA MIDDLE DOT (U+30FB)
-        '·': '-',           # 任何点号都替换为连字符
+        '\u00B7': '-',
+        '\u2022': '-',
+        '\u2219': '-',
+        '\u22C5': '-',
+        '\u30FB': '-',
+        '·': '-',
         '•': '-',
-        
-        # 全角符号转半角
         '．': '-',
         '。': '-',
         '，': ',',
@@ -712,8 +714,6 @@ def preprocess_special_chars(text):
         '：': ':',
         '？': '?',
         '！': '!',
-        
-        # 空格类
         '\u00A0': ' ',
         '\u2000': ' ',
         '\u2001': ' ',
@@ -729,8 +729,6 @@ def preprocess_special_chars(text):
         '\u202F': ' ',
         '\u205F': ' ',
         '\u3000': ' ',
-        
-        # 其他常见特殊字符
         '—': '-',
         '–': '-',
         '―': '-',
@@ -741,36 +739,26 @@ def preprocess_special_chars(text):
         '”': '"',
     }
     
-    # 应用映射
     result = []
     for char in text:
         if char in char_mapping:
-            mapped_char = char_mapping[char]
-            result.append(mapped_char)
-            if char != mapped_char:
-                print(f"  映射: '{char}' (U+{ord(char):04X}) → '{mapped_char}' (U+{ord(mapped_char):04X})")
+            result.append(char_mapping[char])
         else:
-            # 检查是否是基本ASCII或CJK字符
             if ord(char) < 128:
-                # ASCII 字符，直接保留
                 result.append(char)
             elif 0x4E00 <= ord(char) <= 0x9FFF:
-                # CJK 统一汉字，保留
                 result.append(char)
             elif 0x3400 <= ord(char) <= 0x4DBF:
-                # CJK 扩展 A，保留
                 result.append(char)
             elif 0x20000 <= ord(char) <= 0x2A6DF:
-                # CJK 扩展 B，保留
                 result.append(char)
             else:
-                # 其他未知字符 - 激进替换！
-                print(f"  警告: 未知字符 '{char}' (U+{ord(char):04X})，替换为 '-'")
+                _safe_print(f"  警告: 未知字符 (U+{ord(char):04X})，替换为 '-'")
                 result.append('-')
     
     final_text = ''.join(result)
     if final_text != text:
-        print(f"[字符预处理] 原始: {repr(text)} → 处理后: {repr(final_text)}")
+        _safe_print(f"[字符预处理] {repr(text)} → {repr(final_text)}")
     
     return final_text
 
@@ -1992,24 +1980,45 @@ def main():
                     )
                     
                     # 显示预览图片（使用PDF的第一页）
+                    preview_img_generated = False
                     try:
                         from pdf2image import convert_from_path
-                        # 根据操作系统指定 Poppler 路径
                         if sys.platform == 'win32':
                             poppler_path = r"C:\Program Files\poppler\Library\bin"
                             images = convert_from_path(preview_path, first_page=1, last_page=1, poppler_path=poppler_path, dpi=300)
                         else:
-                            # Linux/Docker 环境下 poppler 在系统 PATH 中
                             images = convert_from_path(preview_path, first_page=1, last_page=1, dpi=300)
                         if images:
                             import io
                             buf = io.BytesIO()
                             images[0].save(buf, format='PNG')
                             buf.seek(0)
-                            # 让预览图片自动跟随浏览器页面缩放
                             st.image(buf, caption="座位牌预览", use_container_width=True)
-                    except Exception as e:
-                        st.info(f"预览图片生成失败：{str(e)}，您可以下载PDF查看效果")
+                            preview_img_generated = True
+                    except Exception:
+                        pass
+                    
+                    # pdf2image 失败时，降级使用 PyMuPDF
+                    if not preview_img_generated:
+                        try:
+                            import fitz  # PyMuPDF
+                            doc = fitz.open(preview_path)
+                            page = doc[0]
+                            mat = fitz.Matrix(2.0, 2.0)
+                            pix = page.get_pixmap(matrix=mat)
+                            import io
+                            buf = io.BytesIO()
+                            buf.write(pix.tobytes("png"))
+                            buf.seek(0)
+                            from PIL import Image
+                            img = Image.open(buf)
+                            buf2 = io.BytesIO()
+                            img.save(buf2, format='PNG')
+                            buf2.seek(0)
+                            st.image(buf2, caption="座位牌预览", use_container_width=True)
+                            doc.close()
+                        except Exception as e:
+                            st.info(f"预览图片生成失败：{str(e)}，您可以下载PDF查看效果")
                 except Exception as e:
                     st.error(f"预览生成失败: {e}")
                     import traceback

@@ -327,6 +327,11 @@ function renderSeatMap(venue, person) {
     return renderUShapeSeatMap(venue, pRow, pSeat);
   }
 
+  // 自定义布局专用渲染
+  if (venue.layout === 'custom' && venue.customRows && venue.customRows.length > 0) {
+    return renderCustomSeatMap(venue, pRow, pSeat);
+  }
+
   // 判断是否为标准模式（与后端 /api/generate-preview 逻辑一致）
   var isStandardMode = venue.layout === 'standard' || venue.mode === 'standard';
 
@@ -600,6 +605,120 @@ function renderUShapeSeatMap(venue, pRow, pSeat) {
   html += '</div></div><div class="legend">' +
     '<div class="legend-item"><div class="legend-dot" style="background:#dde3ed"></div>座位</div>' +
     '<div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>您的座位</div></div></div>';
+  return html;
+}
+
+// 自定义布局座位图渲染（显示大门、LED屏等会场布置）
+function renderCustomSeatMap(venue, pRow, pSeat) {
+  var cr = venue.customRows;
+  if (!cr || cr.length === 0) {
+    return '<div class="seat-map-wrap"><div class="seat-map-title">座位分布图 - 全貌</div><div style="text-align:center;color:var(--text2);padding:20px">暂无会场布局数据</div></div>';
+  }
+
+  var canvasW = venue.canvasWidth || 800;
+  var canvasH = venue.canvasHeight || 600;
+
+  // 计算最密集排的每座像素数
+  var minSeatPx = Infinity;
+  cr.forEach(function(row) {
+    var size = row.direction === 'horizontal'
+      ? (row.width || 100) / Math.max(row.seatCount, 1)
+      : (row.height || 50) / Math.max(row.seatCount, 1);
+    minSeatPx = Math.min(minSeatPx, size);
+  });
+
+  // 目标每座至少16px（查询页只需显示，不需拖拽）
+  var MIN_SEAT_PX = 16;
+  var scale = Math.max(1, MIN_SEAT_PX / Math.max(minSeatPx, 0.5));
+  scale = Math.min(scale, 6);
+
+  var containerW = Math.round(canvasW * scale);
+  var containerH = Math.round(canvasH * scale);
+
+  // 计算可用宽度（预留卡片内边距），超出时用 CSS transform 缩放
+  var maxWidth = Math.max(240, Math.min(window.innerWidth - 80, 720));
+  var cssScale = Math.min(1, maxWidth / containerW);
+  var outerW = Math.round(containerW * cssScale);
+  var outerH = Math.round(containerH * cssScale);
+
+  var html = '<div class="seat-map-wrap"><div class="seat-map-title">' +
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
+    '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+    '座位分布图 - 全貌</div>' +
+    '<div style="position:relative;width:' + outerW + 'px;height:' + outerH + 'px;overflow:hidden">' +
+    '<div style="position:absolute;top:0;left:0;transform:scale(' + cssScale + ');transform-origin:0 0;width:' + containerW + 'px;height:' + containerH + 'px">';
+
+  // 渲染舞台（LED屏等）
+  if (venue.customStage) {
+    var st = venue.customStage;
+    var stX = Math.round((st.x || 0) * scale);
+    var stY = Math.round((st.y || 0) * scale);
+    var stW = Math.round((st.width || 100) * scale);
+    var stH = Math.round((st.height || 80) * scale);
+    var stFontSize = Math.max(9, Math.min(13, stH / 5));
+    html += '<div style="position:absolute;left:' + stX + 'px;top:' + stY + 'px;width:' + stW + 'px;height:' + stH + 'px;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + stFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15)">' + esc(st.label || '舞台') + '</div>';
+  }
+
+  // 渲染大门
+  if (venue.customGates && venue.customGates.length > 0) {
+    venue.customGates.forEach(function(gate) {
+      var gX = Math.round((gate.x || 0) * scale);
+      var gY = Math.round((gate.y || 0) * scale);
+      var gW = Math.round((gate.width || 80) * scale);
+      var gH = Math.round((gate.height || 120) * scale);
+      var gFontSize = Math.max(8, Math.min(11, gH / 6));
+      html += '<div style="position:absolute;left:' + gX + 'px;top:' + gY + 'px;width:' + gW + 'px;height:' + gH + 'px;background:linear-gradient(135deg,#10b981,#059669);border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + gFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15)">' + esc(gate.label || '门') + '</div>';
+    });
+  }
+
+  // 渲染座位排
+  var sorted = cr.slice().sort(function(a, b) { return (a.rowNum || 0) - (b.rowNum || 0); });
+  sorted.forEach(function(row) {
+    var rx = Math.round((row.x || 0) * scale);
+    var ry = Math.round((row.y || 0) * scale);
+    var rw = Math.round((row.width || 100) * scale);
+    var rh = Math.round((row.height || 50) * scale);
+    var seatCount = row.seatCount || 0;
+    var rowLabel = (row.label || '').replace(/\s+/g, '');
+    var isTargetRow = (rowLabel === pRow);
+
+    if (row.direction === 'horizontal') {
+      var seatW = Math.max(14, Math.floor(rw / seatCount));
+      // 行标签
+      var labelLeft = Math.max(0, rx - 46);
+      html += '<div style="position:absolute;left:' + labelLeft + 'px;top:' + ry + 'px;width:42px;height:' + rh + 'px;display:flex;align-items:center;justify-content:flex-end;font-size:9px;color:#ef4444;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(row.label) + '">' + esc(row.label) + '</div>';
+      // 座位
+      for (var i = 0; i < seatCount; i++) {
+        var sx = rx + i * seatW;
+        var sn = i + 1;
+        var isHit = isTargetRow && sn === pSeat;
+        var seatW2 = Math.max(seatW - 2, 12);
+        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="position:absolute;left:' + sx + 'px;top:' + ry + 'px;width:' + seatW2 + 'px;height:' + rh + 'px;border-radius:3px 3px 5px 5px;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, Math.min(10, seatW2 * 0.45)) + 'px;font-weight:600" title="' + esc(row.label) + sn + '号">' + (isHit ? sn : '') + '</div>';
+      }
+    } else {
+      // 竖列座位
+      var seatH = Math.max(14, Math.floor(rh / seatCount));
+      // 行标签（上方）
+      var labelTop = Math.max(0, ry - 15);
+      html += '<div style="position:absolute;left:' + rx + 'px;top:' + labelTop + 'px;width:' + rw + 'px;height:14px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#ef4444;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(row.label) + '">' + esc(row.label) + '</div>';
+      for (var i = 0; i < seatCount; i++) {
+        var sy = ry + i * seatH;
+        var sn = i + 1;
+        var isHit = isTargetRow && sn === pSeat;
+        var seatH2 = Math.max(seatH - 2, 12);
+        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="position:absolute;left:' + rx + 'px;top:' + sy + 'px;width:' + rw + 'px;height:' + seatH2 + 'px;border-radius:3px 3px 5px 5px;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, Math.min(10, rw * 0.45)) + 'px;font-weight:600" title="' + esc(row.label) + sn + '号">' + (isHit ? sn : '') + '</div>';
+      }
+    }
+  });
+
+  html += '</div></div>' +
+    '<div class="legend">' +
+    '<div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>舞台/LED</div>' +
+    '<div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>大门</div>' +
+    '<div class="legend-item"><div class="legend-dot" style="background:#dde3ed"></div>座位</div>' +
+    '<div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>您的座位</div>' +
+    '</div></div>';
   return html;
 }
 

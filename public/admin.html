@@ -15,7 +15,7 @@
   .header { background: linear-gradient(135deg, var(--primary-dark), var(--primary)); color: #fff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
   .header h1 { font-size: 18px; }
   .header a { color: #fff; text-decoration: none; font-size: 13px; opacity: .85; }
-  .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
   .card { background: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,.06); margin-bottom: 16px; }
   .card h2 { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
   .btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; }
@@ -126,6 +126,28 @@
   }
   .modal-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: var(--text); }
   .modal-card .btn-group { justify-content: flex-end; }
+
+  /* 自定义布局编辑器 */
+  .custom-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px; background: #f8fafc; border-radius: 8px; margin-bottom: 12px; }
+  .custom-toolbar label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #64748b; white-space: nowrap; }
+  .custom-toolbar input[type="number"] { width: 56px; padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 4px; text-align: center; }
+  .custom-toolbar input[type="range"] { width: 80px; }
+  .custom-toolbar .btn { font-size: 12px; padding: 4px 10px; }
+  #customRowTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #customRowTable th, #customRowTable td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+  #customRowTable th { font-size: 11px; color: #94a3b8; font-weight: 600; }
+  #customRowTable tr:hover { background: #f8fafc; }
+  #customRowTable tr.row-selected { background: #e0e7ff; }
+  #customRowTable .label-editable { cursor: pointer; color: var(--primary); font-weight: 600; }
+  #customRowTable .label-editable:hover { text-decoration: underline; }
+  #customRowTable .row-actions button { padding: 2px 8px; font-size: 11px; margin-right: 4px; }
+  #customCanvasContainer { position: relative; overflow: auto; border: 2px solid #e2e8f0; border-radius: 8px; background: #fff; cursor: crosshair; margin-bottom: 12px; }
+  .custom-dialog-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+  .custom-dialog { background: #fff; border-radius: 12px; padding: 20px 24px; width: 90%; max-width: 380px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+  .custom-dialog h4 { font-size: 16px; font-weight: 700; margin-bottom: 14px; }
+  .custom-dialog .form-group { margin-bottom: 12px; }
+  .custom-dialog .form-group label { font-size: 12px; color: #64748b; display: block; margin-bottom: 4px; }
+  .custom-dialog .form-group input, .custom-dialog .form-group select { width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -278,6 +300,68 @@ async function openSeatCard() {
     </div>
   </div>
 
+  <!-- 自定义会场布局 -->
+  <div class="card admin-only" id="customLayoutCard">
+    <h2>自定义会场布局 <span style="font-size:11px;color:var(--text2);font-weight:400">Beta</span></h2>
+    <div id="customLayoutBody">
+      <!-- Step 1: 上传布局图 -->
+      <div id="customUploadStep">
+        <div class="upload-area" id="customImageDrop" style="position:relative" onclick="document.getElementById('customImageInput').click()"
+             ondragover="event.preventDefault();this.style.borderColor='#1a56db';this.style.background='#f0f4ff'"
+             ondragleave="this.style.borderColor='';this.style.background=''"
+             ondrop="event.preventDefault();this.style.borderColor='';this.style.background='';var f=event.dataTransfer.files[0];if(f){document.getElementById('customImageInput').files=event.dataTransfer.files;handleCustomImageSelect(document.getElementById('customImageInput'))}">
+          <input type="file" id="customImageInput" accept="image/*" hidden onchange="handleCustomImageSelect(this)">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <span>点击或拖拽上传手绘布局图</span>
+          <span class="hint">支持 JPG/PNG/GIF/WebP，最大 10MB</span>
+        </div>
+        <div id="customImagePreview" style="display:none">
+          <img id="customImagePreviewImg" style="max-width:100%;max-height:300px;border-radius:8px;border:1px solid var(--border)">
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" onclick="resetCustomImage()">重新选择</button>
+            <button class="btn btn-primary btn-sm" onclick="startCustomEditor()">开始编辑布局</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: 网格编辑器 -->
+      <div id="customEditorStep" style="display:none">
+        <div class="custom-toolbar">
+          <label>绘制类型:</label>
+          <button class="btn btn-outline btn-sm draw-type-btn active" data-type="row" onclick="setCustomDrawType('row')">排/列</button>
+          <button class="btn btn-outline btn-sm draw-type-btn" data-type="stage" onclick="setCustomDrawType('stage')">舞台</button>
+          <button class="btn btn-outline btn-sm draw-type-btn" data-type="gate" onclick="setCustomDrawType('gate')">大门</button>
+          <button class="btn btn-outline btn-sm draw-type-btn" data-type="aisle" onclick="setCustomDrawType('aisle')">过道</button>
+          <label>网格: <input type="number" id="gridCellW" value="50" min="10" max="200"> × <input type="number" id="gridCellH" value="50" min="10" max="200"> px</label>
+          <label>图透明度: <input type="range" id="gridOpacity" value="0.7" min="0.1" max="1" step="0.1"></label>
+          <label>会场名称: <input type="text" id="customVenueName" placeholder="如：主会场" style="width:100px"></label>
+          <button class="btn btn-outline btn-sm" onclick="cancelCustomLayout()">取消</button>
+          <button class="btn btn-primary btn-sm" onclick="previewCustomLayout()">预览布局</button>
+          <button class="btn btn-success btn-sm" onclick="saveCustomLayout()">导入会场</button>
+        </div>
+        <div id="customCanvasContainer">
+          <canvas id="customLayoutCanvas"></canvas>
+        </div>
+        <div style="margin-top:12px">
+          <h4>已定义的元素 (<span id="customRowCount">0</span>) <span style="font-size:11px;color:#94a3b8;font-weight:400">提示：在画布上拖拽框选区域，双击名称可编辑</span></h4>
+          <table id="customRowTable">
+            <thead><tr><th>名称</th><th>类型</th><th>座位数</th><th>位置 (x,y,w,h)</th><th>操作</th></tr></thead>
+            <tbody id="customRowsTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Step 3: 预览 -->
+      <div id="customPreviewStep" style="display:none">
+        <div style="margin-bottom:8px;display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" onclick="backToCustomEditor()">返回编辑</button>
+          <button class="btn btn-success btn-sm" onclick="saveCustomLayout()">确认导入</button>
+        </div>
+        <div id="customPreviewContent" style="overflow:auto;text-align:center"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- 系统设置卡片 -->
   <div class="card admin-only">
     <h2>
@@ -349,7 +433,7 @@ async function openSeatCard() {
         <label>排 *</label>
         <select id="addRow"></select>
       </div>
-      <div class="form-group"><label>座位号 *</label><input type="number" id="addSeat" min="1" placeholder="号"></div>
+      <div class="form-group"><label>开始座位号 *</label><input type="number" id="addSeat" min="1" value="1" placeholder="号"></div>
       <div class="form-group"><label>单位</label><input type="text" id="addCompany" placeholder="单位"></div>
       <div class="form-group"><label>职务</label><input type="text" id="addTitle" placeholder="职务"></div>
       <button class="btn btn-primary" onclick="addPerson()" style="align-self:flex-end">添加</button>
@@ -387,6 +471,10 @@ async function openSeatCard() {
       <button class="btn btn-outline btn-sm" onclick="clearRegionSelection()" style="display:none" id="clearRegionBtn">清除选择</button>
       <button class="btn btn-outline btn-sm" onclick="refreshDragSeating()">刷新</button>
       <button class="btn btn-danger btn-sm" onclick="clearAllSeats()">清空会场座位</button>
+      <div style="position:relative;display:inline-flex;align-items:center;gap:4px">
+        <input type="text" id="searchAssignedInput" placeholder="搜索已安排座位..." style="width:180px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none" oninput="searchAssignedAttendees(this.value)" onfocus="searchAssignedAttendees(this.value)" onblur="setTimeout(function(){ document.getElementById('searchAssignedDropdown').style.display='none'; }, 200)">
+        <div id="searchAssignedDropdown" style="display:none;position:absolute;top:100%;left:0;width:280px;max-height:300px;overflow-y:auto;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:200;margin-top:4px"></div>
+      </div>
     </div>
     <div id="selectionStatus" style="margin-bottom:8px;font-size:13px;color:var(--text2);display:none">
       已选择 <span id="selectedCount">0</span> 个座位
@@ -396,34 +484,31 @@ async function openSeatCard() {
       <div style="font-size:12px;color:var(--text2);margin-bottom:6px;font-weight:600">已保存区域</div>
       <div id="savedRegionsList" style="display:flex;gap:6px;flex-wrap:wrap"></div>
     </div>
-    <div id="dragContainer" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+    <div id="dragContainer" style="display:flex;flex-direction:column;gap:12px">
       <!-- 座位图区域 -->
-      <div style="flex:1;min-width:400px">
-        <div style="background:#f8fafc;border-radius:10px;padding:16px;overflow-x:auto">
+      <div style="width:100%">
+        <div style="background:#f8fafc;border-radius:10px;padding:16px;overflow:visible">
           <div style="text-align:center;font-size:14px;font-weight:600;color:var(--text2);margin-bottom:12px" id="dragVenueName"></div>
-          <div id="dragSeatMap"></div>
+          <div id="dragSeatMap" style="overflow-x:auto"></div>
         </div>
       </div>
       <!-- 参会者列表 -->
-      <div style="width:280px;flex-shrink:0">
-        <div style="background:#f8fafc;border-radius:10px;padding:12px;max-height:500px;overflow-y:auto">
+      <div id="attendeePanel" style="width:100%">
+        <div style="background:#f8fafc;border-radius:10px;padding:12px">
           <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">待安排参会者 (<span id="unassignedCount">0</span>人)</div>
           <!-- 搜索和筛选控件 -->
-          <div id="unassignedFilters" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
-            <div style="margin-bottom:6px;">
-              <input type="text" id="filterNameInput" placeholder="搜索姓名..." style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px;" oninput="handleNameFilterChange(this.value)">
-            </div>
-            <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-              <select id="filterCompanySelect" style="flex:1;min-width:100px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">
-                <option value="">全部单位</option>
-              </select>
-              <select id="filterTitleSelect" style="flex:1;min-width:100px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">
-                <option value="">全部职级</option>
-              </select>
-            </div>
+          <div id="unassignedFilters" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="filterNameInput" placeholder="搜索姓名..." style="width:160px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px;flex-shrink:0" oninput="handleNameFilterChange(this.value)">
+            <select id="filterCompanySelect" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">
+              <option value="">全部单位</option>
+            </select>
+            <select id="filterTitleSelect" style="width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="handleFilterChange()">
+              <option value="">全部职级</option>
+            </select>
             <button class="btn btn-outline btn-sm" id="clearFiltersBtn" style="padding:4px 8px;font-size:10px;display:none" onclick="resetFilters()">清除筛选</button>
           </div>
-          <div id="unassignedList" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div id="unassignedList" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px"></div>
+          <div id="unassignedBatch" style="display:flex;align-items:center;gap:10px;padding-top:8px;border-top:1px solid var(--border);margin-top:8px;flex-wrap:wrap"></div>
         </div>
       </div>
     </div>
@@ -996,7 +1081,7 @@ async function generatePreview() {
 
 function renderVenueTabs() {
   var html = '';
-  var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'auto': '自动' };
+  var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'custom': '自定义', 'auto': '自动' };
   var isAdmin = userRole === 'admin';
   allData.venues.forEach(function(v) {
     var vm = v.layout || v.mode || 'theater';
@@ -1031,7 +1116,7 @@ async function selectVenue(id) {
     venueAttendees[id] = attendees;
   }
 
-  var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场' };
+  var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'custom': '自定义会场' };
   var currentMode = venue.layout || venue.mode || 'theater';
   document.getElementById('venueInfo').innerHTML =
     '<strong>' + esc(venue.description) + '</strong> ' +
@@ -1551,7 +1636,7 @@ async function loadDragSeating() {
       // 重置区域选择
       selectedSeats = [];
       renderDragSeatMap();
-      renderUnassignedList(true);
+      await renderUnassignedList(true);
       updateDragStatus();
       updateSelectedCount();
       // 如果在区域选择模式，高亮区域
@@ -1571,11 +1656,18 @@ function renderDragSeatMap() {
   document.getElementById('dragVenueName').textContent = venue.name || '';
 
   var html = '';
-  var stage = venue.stageName || '舞台';
-  html += '<div style="background:linear-gradient(135deg,var(--primary-dark),var(--primary));color:#fff;text-align:center;padding:8px;border-radius:6px 6px 24px 24px;font-size:12px;font-weight:600;letter-spacing:4px;margin-bottom:10px">' + esc(stage) + '</div>';
+  var isCustom = venue.layout === 'custom' && venue.customRows && venue.customRows.length > 0;
+
+  // 自定义布局不显示自动生成的舞台标示（由布局自身包含）
+  if (!isCustom) {
+    var stage = venue.stageName || '舞台';
+    html += '<div style="background:linear-gradient(135deg,var(--primary-dark),var(--primary));color:#fff;text-align:center;padding:8px;border-radius:6px 6px 24px 24px;font-size:12px;font-weight:600;letter-spacing:4px;margin-bottom:10px">' + esc(stage) + '</div>';
+  }
 
   if (venue.layout === 'u-shape') {
     html += renderUShapeDragMap(venue);
+  } else if (isCustom) {
+    html += renderCustomDragMap(venue);
   } else {
     html += renderStandardDragMap(venue);
   }
@@ -1602,22 +1694,61 @@ function renderStandardDragMap(venue) {
     return '<div style="text-align:center;color:var(--text2);padding:20px">会场暂无座位布局，请先上传 Excel</div>';
   }
 
+  // 计算约束：容器可用宽度（减掉排标签60px和padding）
+  var container = document.getElementById('dragSeatMap');
+  var availW = (container && container.clientWidth) ? container.clientWidth - 80 : 520;
+  availW = Math.max(300, availW);
+  
+  // 找出最大座位数的一行
+  var maxSeatsInRow = 1;
+  venue.rows.forEach(function(row) {
+    var total = 0;
+    if (row.seatGroups) {
+      row.seatGroups.forEach(function(group) { total += group.length; });
+    }
+    if (total > maxSeatsInRow) maxSeatsInRow = total;
+  });
+  
+  // 座位宽度：在内容需求和可用空间之间取平衡
+  // 先用内容估算理想宽度，再用容器宽度约束
+  var globalMaxLen = 1;
+  venue.rows.forEach(function(row) {
+    if (row.seatGroups) {
+      row.seatGroups.forEach(function(group) {
+        group.forEach(function(seatNum) {
+          var key = row.label + '_' + seatNum;
+          var attendee = currentDragSeating.seatOccupancy[key];
+          var txt = attendee ? attendee.name : String(seatNum);
+          if (txt.length > globalMaxLen) globalMaxLen = txt.length;
+        });
+      });
+    }
+  });
+  var idealSW = Math.min(80, globalMaxLen * 14);
+  var maxSW = Math.max(28, Math.floor(availW / maxSeatsInRow) - 2);
+  var globalSW = Math.min(idealSW, maxSW);
+  var seatH = Math.min(44, Math.max(32, globalSW * 0.8));
+  
+  // 全场统一字号：以最长名字在本行最小座位宽度上能完整横排显示为基准
+  var venueFontSize = Math.max(7, Math.floor(Math.min((globalSW - 4) / Math.max(globalMaxLen, 1), seatH * 0.7, 14)));
+
   venue.rows.forEach(function(row) {
     html += '<div style="display:flex;align-items:center;justify-content:center;margin-bottom:4px">';
-    html += '<div style="width:60px;font-size:11px;color:var(--text2);text-align:right;padding-right:8px;white-space:nowrap">' + esc(row.label) + '</div>';
+    html += '<div style="width:60px;font-size:11px;color:var(--text2);text-align:right;padding-right:8px;white-space:nowrap;flex-shrink:0">' + esc(row.label) + '</div>';
+    html += '<div style="display:flex;align-items:center;flex-wrap:nowrap">';
     if (row.seatGroups) {
       row.seatGroups.forEach(function(group, groupIdx) {
         if (groupIdx > 0) {
-          html += '<div style="width:24px"></div>';
+          html += '<div style="width:16px;flex-shrink:0"></div>';
         }
         group.forEach(function(seatNum) {
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
-          html += renderDragSeat(row.label, seatNum, attendee);
+          html += renderDragSeat(row.label, seatNum, attendee, false, { seatW: globalSW, seatH: seatH, globalFontSize: venueFontSize });
         });
       });
     }
-    html += '</div>';
+    html += '</div></div>';
 
     if (row.hasAisleAfter) {
       html += '<div style="height:16px;display:flex;align-items:center;justify-content:center;margin:4px 0"><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div><span style="padding:0 8px;font-size:8px;color:#94a3b8;font-weight:600">过道</span><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div></div>';
@@ -1646,12 +1777,52 @@ function renderUShapeDragMap(venue) {
   });
   rightRows.reverse();
 
+  // 容器宽度约束
+  var container = document.getElementById('dragSeatMap');
+  var availW = (container && container.clientWidth) ? container.clientWidth - 80 : 520;
+  availW = Math.max(300, availW);
+  
+  // 统一计算最大内容长度
+  var allRows = [].concat(leftRows, rightRows);
+  if (bottomRow) allRows.push(bottomRow);
+  var maxContentLen = 1;
+  var maxSeatsInCol = 1;
+  var maxSeatsBottom = 1;
+  allRows.forEach(function(row) {
+    var total = 0;
+    if (row.seatGroups) {
+      row.seatGroups.forEach(function(group) {
+        total += group.length;
+        group.forEach(function(seatNum) {
+          var key = row.label + '_' + seatNum;
+          var attendee = currentDragSeating.seatOccupancy[key];
+          var txt = attendee ? attendee.name : String(seatNum);
+          if (txt.length > maxContentLen) maxContentLen = txt.length;
+        });
+      });
+    }
+    if (row === bottomRow && total > maxSeatsBottom) maxSeatsBottom = total;
+    if (total > maxSeatsInCol) maxSeatsInCol = total;
+  });
+  
+  // 底部横排座位
+  var bottomSW = Math.min(80, Math.max(32, Math.floor(availW / Math.max(maxSeatsBottom, 1)) - 2, maxContentLen * 12));
+  
+  // 竖列：宽44px，高度按座位数+内容约束
+  var colSW = 44;
+  var colSH = Math.min(50, Math.max(36, maxContentLen * 12));
+
+  // 全场统一字号：取底部横排和竖列中较小的字体
+  var colFontSize = Math.max(7, Math.floor(Math.min((colSW - 4) / Math.max(maxContentLen, 1), colSH * 0.7, 14)));
+  var bottomFontSize = Math.max(7, Math.floor(Math.min((bottomSW - 4) / Math.max(maxContentLen, 1), 44 * 0.7, 14)));
+  var ushapeFontSize = Math.min(colFontSize, bottomFontSize);
+
   html += '<div style="display:flex;flex-direction:column;align-items:center">';
-  html += '<div style="display:flex;align-items:flex-start">';
+  html += '<div style="display:flex;align-items:flex-start;flex-wrap:nowrap">';
 
   // 左侧
   if (leftRows.length > 0) {
-    html += '<div style="display:flex;flex-direction:row;gap:4px">';
+    html += '<div style="display:flex;flex-direction:row;gap:4px;flex-shrink:0">';
     leftRows.forEach(function(row) {
       html += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">';
       html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:2px">' + esc(row.label) + '</div>';
@@ -1659,7 +1830,7 @@ function renderUShapeDragMap(venue) {
         row.seatGroups[0].forEach(function(seatNum) {
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
-          html += renderDragSeat(row.label, seatNum, attendee, true);
+          html += renderDragSeat(row.label, seatNum, attendee, true, { seatW: colSW, seatH: colSH, globalFontSize: ushapeFontSize });
         });
       }
       html += '</div>';
@@ -1667,11 +1838,11 @@ function renderUShapeDragMap(venue) {
     html += '</div>';
   }
 
-  html += '<div style="width:80px"></div>';
+  html += '<div style="width:80px;flex-shrink:0"></div>';
 
   // 右侧
   if (rightRows.length > 0) {
-    html += '<div style="display:flex;flex-direction:row;gap:4px">';
+    html += '<div style="display:flex;flex-direction:row;gap:4px;flex-shrink:0">';
     rightRows.forEach(function(row) {
       html += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">';
       html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:2px">' + esc(row.label) + '</div>';
@@ -1679,7 +1850,7 @@ function renderUShapeDragMap(venue) {
         row.seatGroups[0].forEach(function(seatNum) {
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
-          html += renderDragSeat(row.label, seatNum, attendee, true);
+          html += renderDragSeat(row.label, seatNum, attendee, true, { seatW: colSW, seatH: colSH, globalFontSize: ushapeFontSize });
         });
       }
       html += '</div>';
@@ -1689,33 +1860,311 @@ function renderUShapeDragMap(venue) {
 
   html += '</div>';
 
-  // 底部
+  // 底部 — 横排
   if (bottomRow) {
     html += '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:8px">';
-    html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-right:4px">' + esc(bottomRow.label) + '</div>';
+    html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-right:4px;flex-shrink:0">' + esc(bottomRow.label) + '</div>';
+    html += '<div style="display:flex;align-items:center;flex-wrap:nowrap">';
     if (bottomRow.seatGroups && bottomRow.seatGroups[0]) {
       bottomRow.seatGroups[0].forEach(function(seatNum) {
         var key = bottomRow.label + '_' + seatNum;
         var attendee = currentDragSeating.seatOccupancy[key];
-        html += renderDragSeat(bottomRow.label, seatNum, attendee);
+        html += renderDragSeat(bottomRow.label, seatNum, attendee, false, { seatW: bottomSW, seatH: 44, globalFontSize: ushapeFontSize });
       });
     }
-    html += '</div>';
+    html += '</div></div>';
   }
 
   html += '</div>';
   return html;
 }
 
+// 渲染自定义布局会场拖拽图（使用customRows的位置数据）
+function renderCustomDragMap(venue) {
+  var cr = venue.customRows;
+  if (!cr || cr.length === 0) {
+    return '<div style="text-align:center;color:var(--text2);padding:20px">暂无自定义布局数据</div>';
+  }
+
+  var canvasW = venue.canvasWidth || 800;
+  var canvasH = venue.canvasHeight || 600;
+
+  // === 第一步：计算内容边界（包含舞台、大门、座位） ===
+  var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  cr.forEach(function(row) {
+    minX = Math.min(minX, row.x || 0);
+    minY = Math.min(minY, row.y || 0);
+    maxX = Math.max(maxX, (row.x || 0) + (row.width || 100));
+    maxY = Math.max(maxY, (row.y || 0) + (row.height || 50));
+  });
+  // 加入舞台和大门到边界（用户自己绘制的舞台和大门需要显示）
+  if (venue.customStage && Object.keys(venue.customStage).length > 0) {
+    var st = venue.customStage;
+    minX = Math.min(minX, st.x || 0);
+    minY = Math.min(minY, st.y || 0);
+    maxX = Math.max(maxX, (st.x || 0) + (st.width || 200));
+    maxY = Math.max(maxY, (st.y || 0) + (st.height || 80));
+  }
+  if (venue.customGates && venue.customGates.length > 0) {
+    venue.customGates.forEach(function(gate) {
+      minX = Math.min(minX, gate.x || 0);
+      minY = Math.min(minY, gate.y || 0);
+      maxX = Math.max(maxX, (gate.x || 0) + (gate.width || 80));
+      maxY = Math.max(maxY, (gate.y || 0) + (gate.height || 120));
+    });
+  }
+  if (venue.customAisles && venue.customAisles.length > 0) {
+    venue.customAisles.forEach(function(aisle) {
+      minX = Math.min(minX, aisle.x || 0);
+      minY = Math.min(minY, aisle.y || 0);
+      maxX = Math.max(maxX, (aisle.x || 0) + (aisle.width || 60));
+      maxY = Math.max(maxY, (aisle.y || 0) + (aisle.height || 40));
+    });
+  }
+  var contentW = maxX - minX;
+  var contentH = maxY - minY;
+
+  // === 第二步：计算缩放比例 ===
+  // 自适应容器宽度，使用 dragSeatMap 实际可用宽度
+  var container = document.getElementById('dragSeatMap');
+  var availCW = (container && container.clientWidth) ? container.clientWidth - 20 : 520;
+  availCW = Math.max(300, availCW);
+  var MAX_CONTAINER_W = Math.min(availCW, 600);
+  var MAX_CONTAINER_H = 400;
+  var PADDING = 20;
+  
+  var scaleW = (MAX_CONTAINER_W - PADDING * 2) / Math.max(contentW, 1);
+  var scaleH = (MAX_CONTAINER_H - PADDING * 2) / Math.max(contentH, 1);
+  var scale = Math.min(scaleW, scaleH);
+  
+  // 确保最小可见性，座位至少18px宽/高
+  var minSeatPx = Infinity;
+  cr.forEach(function(row) {
+    var size = row.direction === 'horizontal'
+      ? (row.width || 100) / Math.max(row.seatCount, 1)
+      : (row.height || 50) / Math.max(row.seatCount, 1);
+    minSeatPx = Math.min(minSeatPx, size);
+  });
+  var MIN_SEAT_PX = 18;
+  var minScale = MIN_SEAT_PX / Math.max(minSeatPx, 0.5);
+  scale = Math.max(scale, minScale);
+  
+  // === 第三步：计算基准偏移 ===
+  var finalContentW = contentW * scale;
+  var finalContentH = contentH * scale;
+  var containerW = Math.round(finalContentW + PADDING * 2);
+  var containerH = Math.round(finalContentH + PADDING * 2);
+  
+  // 基准点，确保所有内容居中显示
+  var baseX = PADDING - minX * scale;
+  var baseY = PADDING - minY * scale;
+
+  var html = '';
+
+  // 容器：相对定位，内容完整可见
+  html += '<div style="position:relative;width:' + containerW + 'px;height:' + containerH + 'px;margin:0 auto">';
+
+  // 渲染舞台（只在用户自定义了舞台时才渲染）
+  if (venue.customStage && Object.keys(venue.customStage).length > 0) {
+    var st = venue.customStage;
+    var stX = Math.round(baseX + (st.x || 0) * scale);
+    var stY = Math.round(baseY + (st.y || 0) * scale);
+    var stW = Math.round((st.width || 100) * scale);
+    var stH = Math.round((st.height || 80) * scale);
+    var stFontSize = Math.max(10, Math.min(14, stH / 5));
+    html += '<div style="position:absolute;left:' + stX + 'px;top:' + stY + 'px;width:' + stW + 'px;height:' + stH + 'px;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + stFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15)">' + esc(st.label || '舞台') + '</div>';
+  }
+
+  // 渲染大门（只在用户自定义了大门时才渲染）
+  if (venue.customGates && venue.customGates.length > 0) {
+    venue.customGates.forEach(function(gate) {
+      var gX = Math.round(baseX + (gate.x || 0) * scale);
+      var gY = Math.round(baseY + (gate.y || 0) * scale);
+      var gW = Math.round((gate.width || 80) * scale);
+      var gH = Math.round((gate.height || 120) * scale);
+      var gFontSize = Math.max(9, Math.min(12, gH / 6));
+      html += '<div style="position:absolute;left:' + gX + 'px;top:' + gY + 'px;width:' + gW + 'px;height:' + gH + 'px;background:linear-gradient(135deg,#10b981,#059669);border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + gFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15)">' + esc(gate.label || '门') + '</div>';
+    });
+  }
+
+  // 渲染过道（只在用户自定义了过道时才渲染）
+  if (venue.customAisles && venue.customAisles.length > 0) {
+    venue.customAisles.forEach(function(aisle) {
+      var aX = Math.round(baseX + (aisle.x || 0) * scale);
+      var aY = Math.round(baseY + (aisle.y || 0) * scale);
+      var aW = Math.round((aisle.width || 60) * scale);
+      var aH = Math.round((aisle.height || 40) * scale);
+      var aFontSize = Math.max(8, Math.min(11, aH / 3));
+      var aisleLabel = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
+      html += '<div style="position:absolute;left:' + aX + 'px;top:' + aY + 'px;width:' + aW + 'px;height:' + aH + 'px;background:#fbbf24;border:2px dashed #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#d97706;font-size:' + aFontSize + 'px;font-weight:700;z-index:1">' + esc(aisleLabel) + '</div>';
+    });
+  }
+
+  // 渲染座位排
+  // 全场统一字号：找出最小座位宽度和全局最长名字
+  var customMinSW = Infinity;
+  var customGlobalMaxLen = 1;
+  cr.forEach(function(row) {
+    var rw2 = Math.round((row.width || 100) * scale);
+    var rh2 = Math.round((row.height || 50) * scale);
+    var sc = row.seatCount || 0;
+    var aisles2 = (row.aislePositions || []).length;
+    var gap = aisles2 * Math.max(16, (row.direction === 'horizontal' ? rw2 : rh2) * 0.04);
+    var seatPx;
+    if (row.direction === 'horizontal') {
+      seatPx = Math.max(20, Math.floor((rw2 - gap) / Math.max(sc, 1)));
+    } else {
+      seatPx = Math.max(20, Math.floor((rh2 - gap) / Math.max(sc, 1)));
+    }
+    if (seatPx < customMinSW) customMinSW = seatPx;
+    var startS = row.startSeat || 1;
+    for (var si = 0; si < sc; si++) {
+      var sn = startS + si;
+      var k2 = (row.label || '') + '_' + sn;
+      var att = currentDragSeating.seatOccupancy[k2];
+      var txt = att ? att.name : String(sn);
+      if (txt.length > customGlobalMaxLen) customGlobalMaxLen = txt.length;
+    }
+  });
+  var customGlobalFontSize = Math.max(7, Math.floor(Math.min((customMinSW - 4) / Math.max(customGlobalMaxLen, 1), 30 * 0.7, 14)));
+  var sorted = cr.slice().sort(function(a, b) { return (a.rowNum || 0) - (b.rowNum || 0); });
+  sorted.forEach(function(row) {
+    var rx = Math.round(baseX + (row.x || 0) * scale);
+    var ry = Math.round(baseY + (row.y || 0) * scale);
+    var rw = Math.round((row.width || 100) * scale);
+    var rh = Math.round((row.height || 50) * scale);
+    var seatCount = row.seatCount || 0;
+    var rowLabel = row.label || '';
+    var startSeat = row.startSeat || 1;
+    // 获取过道位置
+    var aisles = (row.aislePositions || []).slice();
+    aisles.sort(function(a, b) { return a - b; });
+    var aisleGapPx = Math.max(16, (row.direction === 'horizontal' ? rw : rh) * 0.04);
+    var totalAisleGap = aisles.length * aisleGapPx;
+    
+    // 本行座位的像素尺寸
+    var rowSeatW, rowSeatH;
+    if (row.direction === 'horizontal') {
+      rowSeatW = Math.max(20, Math.floor((rw - totalAisleGap) / seatCount));
+      rowSeatH = rh;
+    } else {
+      rowSeatW = rw;
+      rowSeatH = Math.max(20, Math.floor((rh - totalAisleGap) / seatCount));
+    }
+    
+    // 辅助函数：渲染单个座位（使用全场统一字号）
+    function renderSeat(sx, sy, sw, sh, seatNum, isV) {
+      var key = rowLabel + '_' + seatNum;
+      var attendee = currentDragSeating.seatOccupancy[key];
+      var bg = attendee ? '#dbeafe' : '#e0e7ff';
+      var tc = attendee ? '#1e40af' : '#64748b';
+      var name = attendee ? attendee.name : '';
+      var content = name || seatNum;
+      var contentStr = String(content);
+      var contentLen = contentStr.length;
+      var MIN_FONT = 7;
+      var isVertical = false;
+      var fontSize;
+
+      if (name && contentLen > 0) {
+        var horzNeed = Math.ceil((sw - 4) / contentLen);
+        if (customGlobalFontSize <= horzNeed) {
+          fontSize = customGlobalFontSize;
+        } else {
+          isVertical = true;
+          var vertNeed = Math.ceil((sh - 2) / contentLen);
+          if (customGlobalFontSize <= vertNeed) {
+            fontSize = customGlobalFontSize;
+          } else {
+            fontSize = Math.max(MIN_FONT, Math.floor(Math.min((sh - 2) / contentLen, sw * 0.8, 14)));
+          }
+        }
+      } else {
+        fontSize = Math.max(MIN_FONT, Math.min(Math.floor(sw * 0.6), Math.floor(sh * 0.4), 12));
+      }
+      
+      var tooltip = esc(rowLabel) + seatNum + '号' + (attendee ? ' - ' + esc(attendee.name) + '（可拖拽换座）' : ' - 空座位');
+      var selClass = selectedSeats.indexOf(key) > -1 ? ' selected' : '';
+      var seatHtml = '<div class="drag-seat' + selClass + '" style="position:absolute;left:' + sx + 'px;top:' + sy + 'px;width:' + (sw - 2) + 'px;height:' + sh + 'px" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
+      seatHtml += ' onmousedown="handleSeatMouseDown(event)"';
+      if (attendee) {
+        seatHtml += ' draggable="true" ondragstart="handleSeatDragStart(event)" ondragend="handleSeatDragEnd(event)"';
+      }
+      seatHtml += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+      seatHtml += '>';
+      seatHtml += '<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:' + bg + ';color:' + tc + ';font-size:' + fontSize + 'px;font-weight:600;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;overflow:hidden;line-height:1.05">';
+      if (isVertical) {
+        for (var ci = 0; ci < contentLen; ci++) {
+          seatHtml += '<span>' + esc(contentStr.charAt(ci)) + '</span>';
+        }
+      } else {
+        seatHtml += '<span style="max-width:100%;white-space:nowrap">' + esc(contentStr) + '</span>';
+      }
+      if (attendee) {
+        seatHtml += '<span class="clear-seat" style="display:none;font-size:7px;color:#ef4444;position:absolute;bottom:1px;cursor:pointer" onclick="event.stopPropagation();clearAttendeeSeat(\'' + attendee.id + '\')">清除</span>';
+      }
+      seatHtml += '</div></div>';
+      return seatHtml;
+    }
+
+    function renderAisleGap(ax, ay, aw, ah) {
+      return '<div style="position:absolute;left:' + ax + 'px;top:' + ay + 'px;width:' + aw + 'px;height:' + ah + 'px;background:#fbbf24;border:2px dashed #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#d97706;font-weight:700;z-index:1">过道</div>';
+    }
+
+    if (row.direction === 'horizontal') {
+      var availW = rw - totalAisleGap;
+      var seatW = Math.max(20, Math.floor(availW / seatCount));
+      var labelLeft = Math.max(0, rx - 56);
+      html += '<div style="position:absolute;left:' + labelLeft + 'px;top:' + ry + 'px;width:52px;height:' + rh + 'px;display:flex;align-items:center;justify-content:flex-end;font-size:10px;color:#ef4444;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(rowLabel) + '">' + esc(rowLabel) + '</div>';
+      var cursorX = rx;
+      for (var i = 0; i < seatCount; i++) {
+        var seatNum = startSeat + i;
+        // 检查此座位前是否有过道
+        for (var a = 0; a < aisles.length; a++) {
+          if (aisles[a] === i) {
+            html += renderAisleGap(Math.round(cursorX), ry, aisleGapPx, rh);
+            cursorX += aisleGapPx;
+          }
+        }
+        var sx = Math.round(cursorX);
+        cursorX += seatW;
+        html += renderSeat(sx, ry, seatW, rh, seatNum, false);
+      }
+    } else {
+      var availH2 = rh - totalAisleGap;
+      var seatH = Math.max(20, Math.floor(availH2 / seatCount));
+      var labelTop = Math.max(0, ry - 18);
+      html += '<div style="position:absolute;left:' + rx + 'px;top:' + labelTop + 'px;width:' + rw + 'px;height:16px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#ef4444;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(rowLabel) + '">' + esc(rowLabel) + '</div>';
+      var cursorY = ry;
+      for (var i = 0; i < seatCount; i++) {
+        var seatNum = startSeat + i;
+        for (var a = 0; a < aisles.length; a++) {
+          if (aisles[a] === i) {
+            html += renderAisleGap(rx, Math.round(cursorY), rw, aisleGapPx);
+            cursorY += aisleGapPx;
+          }
+        }
+        var sy = Math.round(cursorY);
+        cursorY += seatH;
+        html += renderSeat(rx, sy, rw, seatH, seatNum, false);
+      }
+    }
+  });
+
+  html += '</div>';
+  return html;
+}
 
 
 // 渲染待安排参会者列表
-function renderUnassignedList(forceRefresh) {
+async function renderUnassignedList(forceRefresh) {
   document.getElementById('unassignedCount').textContent = '...';
   
   // 如果强制刷新或没有缓存，则从服务器获取数据
   if (forceRefresh || !cachedUnassignedData) {
-    authFetch('/api/data').then(function(res) { return res.json(); }).then(function(data) {
+    try {
+      var res = await authFetch('/api/data');
+      var data = await res.json();
       var unassigned = (data.attendees || []).filter(function(a) {
         return !a.venueId || !a.row || !a.seat;
       });
@@ -1730,10 +2179,10 @@ function renderUnassignedList(forceRefresh) {
       // 更新筛选选项
       updateFilterOptions();
       renderUnassignedListFromCache();
-    }).catch(function(e) {
+    } catch (e) {
       console.error('加载待安排列表失败:', e);
       document.getElementById('unassignedList').innerHTML = '<div style="text-align:center;color:var(--danger);padding:16px;font-size:12px">加载失败</div>';
-    });
+    }
   } else {
     // 使用缓存数据
     renderUnassignedListFromCache();
@@ -1793,40 +2242,43 @@ function renderUnassignedListFromCache() {
   }
 
   document.getElementById('unassignedCount').textContent = filteredUnassigned.length + (filteredUnassigned.length !== unassigned.length ? '/' + unassigned.length : '');
-  var html = '';
   
-  // 添加全选复选框
-  if (filteredUnassigned.length > 0) {
-    var allSelected = filteredUnassigned.every(function(a) { return selectedAttendees.indexOf(a.id) > -1; });
-    html += '<label class="select-all-label">';
-    html += '<input type="checkbox" class="attendee-checkbox" id="selectAllAttendees" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAttendees(this.checked)">';
-    html += '<span>全选 (<span id="selectedAttendeesCount">' + selectedAttendees.length + '</span>/' + filteredUnassigned.length + ')</span>';
-    html += '</label>';
-  }
+  // === 渲染参会者卡片条 ===
+  var cardsHtml = '';
   
   if (filteredUnassigned.length === 0) {
-    html += '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px">没有符合筛选条件的参会者</div>';
+    cardsHtml = '<div style="text-align:center;color:var(--text2);padding:16px;font-size:12px;width:100%">没有符合筛选条件的参会者</div>';
   } else {
     filteredUnassigned.forEach(function(a) {
       var isChecked = selectedAttendees.indexOf(a.id) > -1;
-      html += '<div class="draggable-attendee" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:#fff;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s">';
-      html += '<input type="checkbox" class="attendee-checkbox" data-id="' + a.id + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAttendeeSelection(\'' + a.id + '\', this.checked)">';
-      html += '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
-      html += '<div style="flex:1;min-width:0">';
-      html += '<div style="font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
-      html += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.company || '') + (a.title ? ' · ' + esc(a.title) : '') + '</div>';
-      html += '</div>';
-      html += '<div style="display:flex;gap:4px;flex-shrink:0">';
-      html += '<button class="btn btn-outline btn-sm" onclick="editUnassignedAttendee(\'' + a.id + '\')" style="padding:3px 6px;font-size:10px">编辑</button>';
-      html += '<button class="btn btn-danger btn-sm" onclick="deleteUnassignedAttendee(\'' + a.id + '\',\'' + esc(a.name).replace(/'/g, "\\'") + '\')" style="padding:3px 6px;font-size:10px">删除</button>';
-      html += '</div>';
-      html += '</div>';
+      var cardBg = isChecked ? '#eff6ff' : '#fff';
+      var cardBorder = isChecked ? '#3b82f6' : 'var(--border)';
+      cardsHtml += '<div class="draggable-attendee attendee-card" draggable="true" data-id="' + a.id + '" data-name="' + esc(a.name) + '" ondragstart="handleAttendeeDragStart(event)" ondragend="handleAttendeeDragEnd(event)" style="background:' + cardBg + ';padding:10px 12px;border-radius:8px;border:2px solid ' + cardBorder + ';cursor:grab;font-size:12px;display:flex;align-items:center;gap:8px;transition:all 0.2s;flex-shrink:0;min-width:150px;max-width:180px;position:relative" onclick="toggleAttendeeCardSelection(\'' + a.id + '\', this)">';
+      cardsHtml += '<div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">' + esc(a.name.charAt(0)) + '</div>';
+      cardsHtml += '<div style="flex:1;min-width:0">';
+      cardsHtml += '<div style="font-weight:600;color:var(--text);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</div>';
+      cardsHtml += '<div style="font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">' + esc(a.company || '') + (a.title ? ' · ' + esc(a.title) : '') + '</div>';
+      cardsHtml += '</div>';
+      cardsHtml += '<div style="display:flex;gap:3px;flex-shrink:0;flex-direction:column">';
+      cardsHtml += '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();editUnassignedAttendee(\'' + a.id + '\')" style="padding:2px 5px;font-size:9px">编辑</button>';
+      cardsHtml += '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteUnassignedAttendee(\'' + a.id + '\',\'' + esc(a.name).replace(/'/g, "\\'") + '\')" style="padding:2px 5px;font-size:9px">删除</button>';
+      cardsHtml += '</div>';
+      cardsHtml += '</div>';
     });
+  }
+  document.getElementById('unassignedList').innerHTML = cardsHtml;
+
+  // === 渲染批量操作栏 ===
+  var batchHtml = '';
+  if (filteredUnassigned.length > 0) {
+    var allSelected = filteredUnassigned.every(function(a) { return selectedAttendees.indexOf(a.id) > -1; });
+    batchHtml += '<label class="select-all-label" style="margin:0">';
+    batchHtml += '<input type="checkbox" class="attendee-checkbox" id="selectAllAttendees" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAttendees(this.checked)">';
+    batchHtml += '<span>全选 (<span id="selectedAttendeesCount">' + selectedAttendees.length + '</span>/' + filteredUnassigned.length + ')</span>';
+    batchHtml += '</label>';
     
-    // 添加批量操作区域
-    html += '<div class="batch-actions">';
-    html += '<select id="regionSelectDropdown" style="min-width:180px; max-height:400px;">';
-    html += '<option value="">选择区域</option>';
+    batchHtml += '<select id="regionSelectDropdown" style="min-width:150px;max-height:300px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;">';
+    batchHtml += '<option value="">选择区域</option>';
     var regions = savedRegions[currentVenueId] || [];
     if (regions.length === 0 && currentVenueId) {
       try {
@@ -1836,21 +2288,35 @@ function renderUnassignedListFromCache() {
         }
       } catch (e) {}
     }
-    console.log('待分配区域列表 - 当前会场ID:', currentVenueId, '区域数量:', regions.length, '区域:', regions);
     regions.forEach(function(r) {
-      html += '<option value="' + r.id + '">' + esc(r.name) + ' (' + r.seats.length + '座)</option>';
+      batchHtml += '<option value="' + r.id + '">' + esc(r.name) + ' (' + r.seats.length + '座)</option>';
     });
-    html += '</select>';
-    html += '<button class="btn btn-primary btn-sm" onclick="batchAssignToRegion()">批量分配</button>';
-    html += '</div>';
+    batchHtml += '</select>';
+    batchHtml += '<button class="btn btn-primary btn-sm" onclick="batchAssignToRegion()">批量分配</button>';
+    batchHtml += '<button class="btn btn-danger btn-sm" onclick="batchDeleteAttendees()">批量删除</button>';
   }
-  document.getElementById('unassignedList').innerHTML = html;
+  document.getElementById('unassignedBatch').innerHTML = batchHtml;
   
   // 更新清除筛选按钮状态
   var clearBtn = document.getElementById('clearFiltersBtn');
   if (clearBtn) {
     clearBtn.style.display = (filterName || filterCompany || filterTitle) ? 'inline-block' : 'none';
   }
+}
+
+// 点击卡片切换选中状态
+function toggleAttendeeCardSelection(attendeeId, cardEl) {
+  var idx = selectedAttendees.indexOf(attendeeId);
+  if (idx === -1) {
+    selectedAttendees.push(attendeeId);
+    cardEl.style.background = '#eff6ff';
+    cardEl.style.borderColor = '#3b82f6';
+  } else {
+    selectedAttendees.splice(idx, 1);
+    cardEl.style.background = '#fff';
+    cardEl.style.borderColor = 'var(--border)';
+  }
+  updateSelectedAttendeesCount();
 }
 
 // 切换单个参会者选择
@@ -1967,6 +2433,23 @@ async function saveEditAttendee() {
 async function deleteUnassignedAttendee(attendeeId, attendeeName) {
   if (!confirm('确定要删除参会者 "' + attendeeName + '" 吗？')) return;
   
+  // 立即从缓存中移除并更新UI
+  if (cachedUnassignedData && cachedUnassignedData.unassigned) {
+    var idx = cachedUnassignedData.unassigned.findIndex(function(a) { return a.id === attendeeId; });
+    if (idx > -1) {
+      cachedUnassignedData.unassigned.splice(idx, 1);
+      cachedUnassignedData.companies = Array.from(new Set(cachedUnassignedData.unassigned.filter(function(a) { return a.company; }).map(function(a) { return a.company; })));
+      cachedUnassignedData.titles = Array.from(new Set(cachedUnassignedData.unassigned.filter(function(a) { return a.title; }).map(function(a) { return a.title; })));
+      renderUnassignedListFromCache();
+    }
+  }
+  // 从选中列表中移除
+  var selIdx = selectedAttendees.indexOf(attendeeId);
+  if (selIdx > -1) {
+    selectedAttendees.splice(selIdx, 1);
+    updateSelectedCount();
+  }
+  
   try {
     var res = await authFetch('/api/attendees?id=' + encodeURIComponent(attendeeId), {
       method: 'DELETE'
@@ -1974,13 +2457,18 @@ async function deleteUnassignedAttendee(attendeeId, attendeeName) {
     var data = await res.json();
     if (data.ok) {
       showToast('已删除参会者');
-      renderUnassignedList(true);
-      refreshData();
+      await loadDragSeating();
+      await refreshData();
     } else {
       alert('删除失败: ' + (data.error || '未知错误'));
+      // 删除失败，重新加载数据恢复状态
+      await loadDragSeating();
+      await refreshData();
     }
   } catch (err) {
     alert('删除失败: ' + err.message);
+    await loadDragSeating();
+    await refreshData();
   }
 }
 
@@ -2109,6 +2597,87 @@ async function batchAssignToRegion() {
     alert('分配失败: ' + err.message);
   }
 }
+
+// 批量删除未安排参会者
+async function batchDeleteAttendees() {
+  if (selectedAttendees.length === 0) return alert('请先选择要删除的参会者');
+  
+  var count = selectedAttendees.length;
+  if (!confirm('确定要删除选中的 ' + count + ' 个参会者吗？此操作不可恢复。')) return;
+  
+  try {
+    // 使用批量删除API
+    var res = await authFetch('/api/attendees/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: selectedAttendees })
+    });
+    var data = await res.json();
+    
+    if (data.ok) {
+      selectedAttendees = [];
+      showToast('批量删除完成，已删除 ' + data.deleted + ' 个参会者');
+      await loadDragSeating();
+      await refreshData();
+    } else {
+      alert('删除失败: ' + (data.error || '未知错误'));
+      await loadDragSeating();
+      await refreshData();
+    }
+  } catch (err) {
+    alert('删除失败: ' + err.message);
+    await loadDragSeating();
+    await refreshData();
+  }
+}
+
+var dragAutoScrollTimer = null;
+var dragScrollSpeed = 15;
+var dragScrollThreshold = 120;
+
+function startDragAutoScroll(event) {
+  if (dragAutoScrollTimer) return;
+  dragAutoScrollTimer = setInterval(function() {
+    if (!draggedAttendee) {
+      stopDragAutoScroll();
+      return;
+    }
+  }, 50);
+  document.addEventListener('dragover', handleDocumentDragOver);
+}
+
+function stopDragAutoScroll() {
+  if (dragAutoScrollTimer) {
+    clearInterval(dragAutoScrollTimer);
+    dragAutoScrollTimer = null;
+  }
+  document.removeEventListener('dragover', handleDocumentDragOver);
+}
+
+function handleDocumentDragOver(event) {
+  if (!draggedAttendee) return;
+  var y = event.clientY;
+  var vh = window.innerHeight;
+  
+  if (y < dragScrollThreshold) {
+    var ratio = (dragScrollThreshold - y) / dragScrollThreshold;
+    window.scrollBy(0, -Math.round(dragScrollSpeed * ratio));
+  } else if (y > vh - dragScrollThreshold) {
+    var ratio = (y - (vh - dragScrollThreshold)) / dragScrollThreshold;
+    window.scrollBy(0, Math.round(dragScrollSpeed * ratio));
+  }
+}
+
+// 初始化自动滚动
+document.addEventListener('dragstart', function(e) {
+  if (e.target.closest('.draggable-attendee') || e.target.closest('.drag-seat[data-key]')) {
+    startDragAutoScroll();
+  }
+});
+
+document.addEventListener('dragend', function() {
+  stopDragAutoScroll();
+});
 
 // 处理拖拽开始
 function handleAttendeeDragStart(event) {
@@ -2253,6 +2822,13 @@ function updateDragStatus() {
       }
     });
   }
+  // 自定义布局：从 customRows 统计
+  if (venue.customRows && (!venue.rows || venue.rows.length === 0 || venue.rows.every(function(r) { return !r.seatGroups || r.seatGroups.length === 0; }))) {
+    totalSeats = 0;
+    venue.customRows.forEach(function(row) {
+      totalSeats += row.seatCount || 0;
+    });
+  }
   Object.values(currentDragSeating.seatOccupancy || {}).forEach(function(a) { if (a) assignedSeats++; });
   document.getElementById('dragStatus').textContent = '已安排 ' + assignedSeats + '/' + totalSeats + ' 个座位';
 }
@@ -2294,6 +2870,135 @@ async function clearAllSeats() {
     }
   } catch (err) {
     alert('清空失败: ' + err.message);
+  }
+}
+
+// 搜索已安排座位的参会者
+var lastSearchHighlighted = null;
+
+function searchAssignedAttendees(query) {
+  var dropdown = document.getElementById('searchAssignedDropdown');
+  if (!dropdown) return;
+  
+  var q = (query || '').trim();
+  if (!q || q.length < 1) {
+    dropdown.style.display = 'none';
+    clearSearchHighlight();
+    return;
+  }
+  
+  var results = [];
+  if (currentDragSeating && currentDragSeating.seatOccupancy) {
+    var occ = currentDragSeating.seatOccupancy;
+    Object.keys(occ).forEach(function(key) {
+      var att = occ[key];
+      if (att && att.name && att.name.toLowerCase().indexOf(q.toLowerCase()) > -1) {
+        var parts = key.split('_');
+        results.push({
+          key: key,
+          row: parts[0] || '',
+          seat: parts[1] || '',
+          name: att.name,
+          company: att.company || '',
+          title: att.title || '',
+          id: att.id
+        });
+      }
+    });
+  }
+  
+  if (results.length === 0) {
+    dropdown.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text2);font-size:12px">未找到匹配的参会者</div>';
+    dropdown.style.display = 'block';
+    return;
+  }
+  
+  // 限制显示数量
+  var maxShow = 15;
+  var hasMore = results.length > maxShow;
+  results = results.slice(0, maxShow);
+  
+  var html = '';
+  results.forEach(function(r, idx) {
+    html += '<div class="search-result-item" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:12px;transition:background 0.15s" onmouseover="this.style.background=\'#f0f4ff\'" onmouseout="this.style.background=\'\'" onclick="locateAssignedSeat(\'' + r.key + '\')">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between">';
+    html += '<div style="display:flex;align-items:center;gap:8px">';
+    html += '<span style="display:inline-flex;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--primary-light),var(--primary));color:#fff;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">' + esc(r.name.charAt(0)) + '</span>';
+    html += '<span style="font-weight:600;color:var(--text)">' + esc(r.name) + '</span>';
+    html += '<span style="color:var(--text2);font-size:11px">' + esc(r.row) + '排 ' + esc(r.seat) + '号</span>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:4px;flex-shrink:0">';
+    html += '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();locateAssignedSeat(\'' + r.key + '\')" style="padding:2px 6px;font-size:10px" title="定位座位">📍</button>';
+    html += '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();clearAssignedSeatById(\'' + r.id + '\')" style="padding:2px 6px;font-size:10px" title="清除座位">✕</button>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  
+  if (hasMore) {
+    html += '<div style="padding:8px;text-align:center;color:var(--text2);font-size:11px">还有更多结果，请输入更精确的搜索词</div>';
+  }
+  
+  dropdown.innerHTML = html;
+  dropdown.style.display = 'block';
+}
+
+function locateAssignedSeat(seatKey) {
+  var dropdown = document.getElementById('searchAssignedDropdown');
+  if (dropdown) dropdown.style.display = 'none';
+  
+  clearSearchHighlight();
+  
+  var seatEl = document.querySelector('.drag-seat[data-key="' + seatKey + '"]');
+  if (seatEl) {
+    // 先确保座位图容器可见
+    var seatMap = document.getElementById('dragSeatMap');
+    if (seatMap) seatMap.style.overflowX = 'auto';
+    
+    seatEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    
+    // 高亮效果
+    seatEl.classList.add('search-highlight');
+    seatEl.style.animation = 'searchPulse 0.6s ease-in-out 3';
+    lastSearchHighlighted = seatEl;
+    
+    // 3秒后自动清除高亮
+    setTimeout(function() {
+      if (lastSearchHighlighted === seatEl) {
+        clearSearchHighlight();
+      }
+    }, 3000);
+  }
+}
+
+function clearSearchHighlight() {
+  if (lastSearchHighlighted) {
+    lastSearchHighlighted.classList.remove('search-highlight');
+    lastSearchHighlighted.style.animation = '';
+    lastSearchHighlighted = null;
+  }
+}
+
+async function clearAssignedSeatById(attendeeId) {
+  if (!confirm('确定要清除该参会者的座位吗？')) return;
+  var dropdown = document.getElementById('searchAssignedDropdown');
+  if (dropdown) dropdown.style.display = 'none';
+  
+  try {
+    var res = await authFetch('/api/attendees/' + encodeURIComponent(attendeeId) + '/clear-seat', {
+      method: 'PUT'
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('座位已清除');
+      await loadDragSeating();
+      await refreshData();
+      document.getElementById('searchAssignedInput').value = '';
+    } else {
+      alert('清除失败: ' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('清除失败: ' + err.message);
   }
 }
 
@@ -2467,7 +3172,7 @@ function getRegionColor(regionIndex) {
 
 // 添加鼠标悬停显示清除按钮和区域选择的样式
 var dragStyles = document.createElement('style');
-dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); border-color:#f59e0b !important; box-shadow:0 0 8px rgba(245,158,11,0.4); }\n.drag-seat.seat-dragging { opacity:0.4; transform:scale(0.95); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.region-tag-color-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin-bottom:8px; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; min-width:150px; }\n#regionSelectDropdown { min-width:150px; max-height:300px; overflow-y:auto; }\n';
+dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); border-color:#f59e0b !important; box-shadow:0 0 8px rgba(245,158,11,0.4); }\n.drag-seat.seat-dragging { opacity:0.4; transform:scale(0.95); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.region-tag-color-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin:0; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; min-width:150px; }\n#regionSelectDropdown { min-width:150px; max-height:300px; overflow-y:auto; }\n.attendee-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,0.1); }\n.attendee-card:active { cursor:grabbing !important; transform:scale(0.97); }\n#unassignedList::-webkit-scrollbar { height:6px; }\n#unassignedList::-webkit-scrollbar-track { background:#f1f5f9; border-radius:3px; }\n#unassignedList::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:3px; }\n#unassignedList::-webkit-scrollbar-thumb:hover { background:#94a3b8; }\n@keyframes searchPulse { 0%,100% { box-shadow:0 0 0 0 rgba(245,158,11,0.7); } 50% { box-shadow:0 0 0 8px rgba(245,158,11,0); } }\n.search-highlight { border-color:#f59e0b !important; background:#fff3cd !important; }\n';
 document.head.appendChild(dragStyles);
 
 // 切换区域选择模式
@@ -2654,16 +3359,53 @@ function highlightRegionsOnSeatMap() {
 }
 
 // 修改 renderDragSeat，增加点击选择、区域颜色支持和座位拖拽
-function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
+function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
   var key = rowLabel + '_' + seatNum;
   var bgColor = attendee ? '#dbeafe' : '#e0e7ff';
   var textColor = attendee ? '#1e40af' : '#64748b';
-  var content = attendee ? (attendee.name.length > 3 ? attendee.name.substring(0, 3) + '…' : attendee.name) : seatNum;
+  opts = opts || {};
+  var name = attendee ? attendee.name : '';
+  var seatW = opts.seatW || (vertical ? 40 : 50);
+  var seatH = opts.seatH || (vertical ? 50 : 40);
+  var content = attendee ? attendee.name : String(seatNum);
+  var contentStr = String(content);
+  var contentLen = contentStr.length;
+  var globalFontSize = opts.globalFontSize;
+  
+  var isVertical = false;
+  var displayFontSize;
+  var MIN_FONT = 7;
+  
+  if (globalFontSize !== undefined && name && contentLen > 0) {
+    var horzNeed = Math.ceil((seatW - 4) / contentLen);
+    if (globalFontSize <= horzNeed) {
+      displayFontSize = globalFontSize;
+    } else {
+      isVertical = true;
+      var vertNeed = Math.ceil((seatH - 2) / contentLen);
+      if (globalFontSize <= vertNeed) {
+        displayFontSize = globalFontSize;
+      } else {
+        displayFontSize = Math.max(MIN_FONT, Math.floor(Math.min((seatH - 2) / contentLen, seatW * 0.8, 14)));
+      }
+    }
+  } else if (name && contentLen > 0) {
+    var horzFS = Math.floor(Math.min((seatW - 4) / contentLen, seatH * 0.7, 14));
+    if (horzFS >= 9 || vertical) {
+      displayFontSize = Math.max(MIN_FONT, horzFS);
+    } else {
+      isVertical = true;
+      displayFontSize = Math.max(MIN_FONT, Math.floor(Math.min((seatH - 2) / contentLen, seatW * 0.8, 14)));
+    }
+  } else {
+    displayFontSize = Math.max(MIN_FONT, Math.min(Math.floor(seatW * 0.6), Math.floor(seatH * 0.4), 12));
+  }
+  
   var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（可拖拽换座）' : esc(rowLabel) + seatNum + '号 - 空座位';
   
   var selectedClass = selectedSeats.indexOf(key) > -1 ? ' selected' : '';
   var cursorStyle = attendee ? 'cursor:grab;' : 'cursor:pointer;';
-  var style = 'width:' + (vertical ? '40px' : '50px') + ';height:' + (vertical ? '50px' : '40px') + ';border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:600;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor + ';' + cursorStyle;
+  var style = 'width:' + seatW + 'px;height:' + seatH + 'px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:600;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor + ';position:relative;' + cursorStyle;
   
   var html = '<div class="drag-seat' + selectedClass + '" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
   html += ' onmousedown="handleSeatMouseDown(event)"';
@@ -2673,9 +3415,17 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical) {
     html += ' ondragstart="handleSeatDragStart(event)" ondragend="handleSeatDragEnd(event)"';
   }
   html += '>';
-  html += '<div style="font-size:9px">' + content + '</div>';
+  html += '<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:' + displayFontSize + 'px;line-height:1.05">';
+  if (isVertical) {
+    for (var ci = 0; ci < contentLen; ci++) {
+      html += '<span>' + esc(contentStr.charAt(ci)) + '</span>';
+    }
+  } else {
+    html += '<span style="max-width:100%;overflow:hidden;white-space:nowrap">' + esc(contentStr) + '</span>';
+  }
+  html += '</div>';
   if (attendee) {
-    html += '<div class="clear-seat" style="margin-top:2px;cursor:pointer;display:none;font-size:8px;color:#ef4444" onclick="event.stopPropagation();clearAttendeeSeat(\'' + attendee.id + '\')">清除</div>';
+    html += '<div class="clear-seat" style="position:absolute;bottom:1px;cursor:pointer;display:none;font-size:7px;color:#ef4444" onclick="event.stopPropagation();clearAttendeeSeat(\'' + attendee.id + '\')">清除</div>';
   }
   html += '</div>';
   return html;
@@ -2836,6 +3586,851 @@ async function randomAssignToRegion() {
     alert('分配失败: ' + err.message);
   }
 }
+
+// ========== 自定义会场布局编辑器 ==========
+var customEditorState = {
+  image: null, imagePath: '', imageElement: null,
+  gridConfig: { cellWidth: 50, cellHeight: 50, offsetX: 0, offsetY: 0 },
+  customRows: [],
+  customStage: null, // { x, y, width, height, label }
+  customGates: [], // [{ x, y, width, height, label }]
+  customAisles: [], // [{ x, y, width, height, label, direction }]
+  drawMode: true,
+  drawType: 'row', // 'row', 'stage', 'gate', 'aisle'
+  drawing: false,
+  drawStart: null,
+  drawCurrent: null,
+  selectedRowIndex: -1,
+  imageOpacity: 0.7
+};
+
+// Step 1: 图片选择
+function handleCustomImageSelect(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { alert('图片文件过大，最大支持 10MB'); return; }
+  if (!file.type.startsWith('image/')) { alert('请选择图片文件'); return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      customEditorState.image = null;
+      customEditorState.imageElement = img;
+      document.getElementById('customImagePreviewImg').src = e.target.result;
+      document.getElementById('customImageDrop').style.display = 'none';
+      document.getElementById('customImagePreview').style.display = 'block';
+      // 上传到服务器
+      uploadCustomImage(e.target.result);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function uploadCustomImage(dataUrl) {
+  authFetch('/api/custom-layout/upload-image', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageData: dataUrl })
+  }).then(r => r.json()).then(data => {
+    if (data.success) {
+      customEditorState.imagePath = data.imagePath;
+    } else {
+      alert('图片上传失败: ' + (data.error || '未知错误'));
+    }
+  }).catch(err => { alert('图片上传失败: ' + err.message); });
+}
+
+function resetCustomImage() {
+  customEditorState.image = null;
+  customEditorState.imageElement = null;
+  customEditorState.imagePath = '';
+  document.getElementById('customImageInput').value = '';
+  document.getElementById('customImageDrop').style.display = '';
+  document.getElementById('customImagePreview').style.display = 'none';
+}
+
+// 拖拽上传（使用内联事件处理，不再重复绑定）
+
+
+// Step 2: 开始编辑器
+function startCustomEditor() {
+  if (!customEditorState.imageElement) { alert('请先上传布局图'); return; }
+  document.getElementById('customUploadStep').style.display = 'none';
+  document.getElementById('customEditorStep').style.display = 'block';
+  document.getElementById('customPreviewStep').style.display = 'none';
+  customEditorState.customRows = [];
+  customEditorState.customStage = null;
+  customEditorState.customGates = [];
+  customEditorState.customAisles = [];
+  customEditorState.drawMode = true;
+  customEditorState.drawType = 'row';
+  customEditorState.selectedRowIndex = -1;
+  refreshCustomCanvas();
+}
+
+// 设置绘制类型
+function setCustomDrawType(type) {
+  customEditorState.drawType = type;
+  // 更新UI按钮状态
+  document.querySelectorAll('.draw-type-btn').forEach(function(btn) {
+    btn.classList.remove('active');
+  });
+  document.querySelector('.draw-type-btn[data-type="' + type + '"]').classList.add('active');
+}
+
+function checkCustomCanvasSize() {
+  var img = customEditorState.imageElement;
+  if (!img) return;
+  var container = document.getElementById('customCanvasContainer');
+  var maxW = Math.min(container.clientWidth - 4, 1200);
+  customEditorState.image = { width: maxW, height: maxW * (img.height / img.width) };
+}
+
+function refreshCustomCanvas() {
+  var canvas = document.getElementById('customLayoutCanvas');
+  var state = customEditorState;
+  var img = state.imageElement;
+  if (!img || !canvas) return;
+  checkCustomCanvasSize();
+  var cw = state.image.width;
+  var ch = state.image.height;
+  canvas.width = cw;
+  canvas.height = ch;
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.globalAlpha = state.imageOpacity;
+  ctx.drawImage(img, 0, 0, cw, ch);
+  ctx.globalAlpha = 1;
+
+  // 绘制网格
+  var gw = parseInt(document.getElementById('gridCellW').value) || 50;
+  var gh = parseInt(document.getElementById('gridCellH').value) || 50;
+  state.gridConfig.cellWidth = gw;
+  state.gridConfig.cellHeight = gh;
+  ctx.strokeStyle = 'rgba(100,116,139,0.25)';
+  ctx.lineWidth = 0.5;
+  for (var x = 0; x <= cw; x += gw) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ch); ctx.stroke(); }
+  for (var y = 0; y <= ch; y += gh) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke(); }
+
+  // 绘制舞台（如果有）
+  if (state.customStage) {
+    var st = state.customStage;
+    ctx.fillStyle = 'rgba(245,158,11,0.3)';
+    ctx.fillRect(st.x, st.y, st.width, st.height);
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(st.x, st.y, st.width, st.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(st.label, st.x + st.width / 2, st.y + st.height / 2 + 6);
+  }
+
+  // 绘制大门（如果有）
+  if (state.customGates && state.customGates.length) {
+    state.customGates.forEach(function(gate, idx) {
+      ctx.fillStyle = 'rgba(16,185,129,0.3)';
+      ctx.fillRect(gate.x, gate.y, gate.width, gate.height);
+      ctx.strokeStyle = '#059669';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(gate.x, gate.y, gate.width, gate.height);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(gate.label, gate.x + gate.width / 2, gate.y + gate.height / 2 + 4);
+    });
+  }
+
+  // 绘制备道（如果有）
+  if (state.customAisles && state.customAisles.length) {
+    state.customAisles.forEach(function(aisle, idx) {
+      ctx.fillStyle = 'rgba(251,191,36,0.2)';
+      ctx.fillRect(aisle.x, aisle.y, aisle.width, aisle.height);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 4]);
+      ctx.strokeRect(aisle.x, aisle.y, aisle.width, aisle.height);
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#d97706';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      var canvasAisleLabel = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
+      ctx.fillText(canvasAisleLabel, aisle.x + aisle.width / 2, aisle.y + aisle.height / 2 + 4);
+    });
+  }
+
+  // 绘制已有的行区域
+  state.customRows.forEach(function(row, idx) {
+    var isSel = idx === state.selectedRowIndex;
+    ctx.fillStyle = 'rgba(26,86,219,' + (isSel ? '0.25' : '0.12') + ')';
+    ctx.fillRect(row.x, row.y, row.width, row.height);
+    ctx.strokeStyle = isSel ? '#1a56db' : '#3b82f6';
+    ctx.lineWidth = isSel ? 2.5 : 1.5;
+    ctx.strokeRect(row.x, row.y, row.width, row.height);
+    // 计算过道位置（座位编号后的索引集合）
+    var aisles = (row.aislePositions || []).slice();
+    aisles.sort(function(a, b) { return a - b; });
+    var seatCount = row.seatCount;
+    var startSeat = row.startSeat || 1;
+    // 构建座位到真实编号的映射（连续编号，过道不占用编号）
+    var aisleGapPx = Math.max(20, (row.direction === 'horizontal' ? row.width : row.height) * 0.04);
+    var totalAisleGap = aisles.length * aisleGapPx;
+    // 座位预览
+    if (row.direction === 'horizontal') {
+      var availW = row.width - totalAisleGap;
+      var seatW = Math.min(40, (availW - (seatCount - 1) * 6) / seatCount);
+      var gap = (availW - seatCount * seatW) / Math.max(seatCount - 1, 1);
+      if (gap > 10) gap = 6;
+      var cursorX = row.x;
+      var realSeatNum = startSeat;
+      for (var i = 0; i < seatCount; i++) {
+        // 检查当前座位前是否有过道
+        for (var a = 0; a < aisles.length; a++) {
+          if (aisles[a] === realSeatNum - startSeat) {
+            cursorX += aisleGapPx;
+            // 绘制过道标记
+            ctx.fillStyle = 'rgba(251,191,36,0.25)';
+            ctx.fillRect(cursorX - aisleGapPx, row.y, aisleGapPx, Math.min(row.height, 24));
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(cursorX - aisleGapPx, row.y, aisleGapPx, Math.min(row.height, 24));
+            ctx.setLineDash([]);
+          }
+        }
+        var sx = cursorX;
+        cursorX += seatW + gap;
+        ctx.fillStyle = 'rgba(219,234,254,0.7)';
+        ctx.fillRect(sx, row.y, seatW, Math.min(row.height, 24));
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(sx, row.y, seatW, Math.min(row.height, 24));
+        ctx.fillStyle = '#64748b';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(realSeatNum, sx + seatW / 2, row.y + 16);
+        realSeatNum++;
+      }
+    } else {
+      // 竖列：同理，在高度方向插入过道
+      var availH = row.height - totalAisleGap;
+      var seatH = Math.min(40, (availH - (seatCount - 1) * 6) / seatCount);
+      var gap = (availH - seatCount * seatH) / Math.max(seatCount - 1, 1);
+      if (gap > 10) gap = 6;
+      var cursorY = row.y;
+      var realSeatNum = startSeat;
+      for (var i = 0; i < seatCount; i++) {
+        for (var a = 0; a < aisles.length; a++) {
+          if (aisles[a] === realSeatNum - startSeat) {
+            cursorY += aisleGapPx;
+            ctx.fillStyle = 'rgba(251,191,36,0.25)';
+            ctx.fillRect(row.x, cursorY - aisleGapPx, Math.min(row.width, 24), aisleGapPx);
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(row.x, cursorY - aisleGapPx, Math.min(row.width, 24), aisleGapPx);
+            ctx.setLineDash([]);
+          }
+        }
+        var sy = cursorY;
+        cursorY += seatH + gap;
+        ctx.fillStyle = 'rgba(219,234,254,0.7)';
+        ctx.fillRect(row.x, sy, Math.min(row.width, 24), seatH);
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(row.x, sy, Math.min(row.width, 24), seatH);
+        ctx.fillStyle = '#64748b';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(realSeatNum, row.x + Math.min(row.width, 24) / 2, sy + seatH / 2 + 3);
+        realSeatNum++;
+      }
+    }
+    // 标签
+    ctx.fillStyle = '#ef4444';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(row.label, row.x - 4, row.y + (row.direction === 'horizontal' ? Math.min(row.height, 24) : row.height) / 2 + 4);
+  });
+
+  // 绘制框选区域
+  if (state.drawing && state.drawStart && state.drawCurrent) {
+    var sx = Math.min(state.drawStart.x, state.drawCurrent.x);
+    var sy = Math.min(state.drawStart.y, state.drawCurrent.y);
+    var sw = Math.abs(state.drawCurrent.x - state.drawStart.x);
+    var sh = Math.abs(state.drawCurrent.y - state.drawStart.y);
+    ctx.fillStyle = 'rgba(59,130,246,0.2)';
+    ctx.fillRect(sx, sy, sw, sh);
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.strokeRect(sx, sy, sw, sh);
+    ctx.setLineDash([]);
+  }
+}
+
+// Canvas 鼠标事件 — 吸附网格
+function snapToGrid(val, cellSize) { return Math.round(val / cellSize) * cellSize; }
+
+function getCanvasPos(e) {
+  var canvas = document.getElementById('customLayoutCanvas');
+  var rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+document.getElementById('customLayoutCanvas').addEventListener('mousedown', function(e) {
+  if (!customEditorState.drawMode) return;
+  var pos = getCanvasPos(e);
+  customEditorState.drawing = true;
+  customEditorState.drawStart = {
+    x: snapToGrid(pos.x, parseInt(document.getElementById('gridCellW').value) || 50),
+    y: snapToGrid(pos.y, parseInt(document.getElementById('gridCellH').value) || 50)
+  };
+  customEditorState.drawCurrent = { x: pos.x, y: pos.y };
+});
+
+document.getElementById('customLayoutCanvas').addEventListener('mousemove', function(e) {
+  if (!customEditorState.drawing) return;
+  customEditorState.drawCurrent = getCanvasPos(e);
+  refreshCustomCanvas();
+});
+
+document.getElementById('customLayoutCanvas').addEventListener('mouseup', function(e) {
+  if (!customEditorState.drawing) return;
+  customEditorState.drawing = false;
+  var pos = getCanvasPos(e);
+  var endX = snapToGrid(pos.x, parseInt(document.getElementById('gridCellW').value) || 50);
+  var endY = snapToGrid(pos.y, parseInt(document.getElementById('gridCellH').value) || 50);
+  var sx = Math.min(customEditorState.drawStart.x, endX);
+  var sy = Math.min(customEditorState.drawStart.y, endY);
+  var sw = Math.abs(endX - customEditorState.drawStart.x);
+  var sh = Math.abs(endY - customEditorState.drawStart.y);
+  customEditorState.drawStart = null;
+  customEditorState.drawCurrent = null;
+  refreshCustomCanvas();
+  if (sw < 20 || sh < 16) return;
+
+  var drawType = customEditorState.drawType;
+  if (drawType === 'stage') {
+    showCustomStageDialog(sx, sy, sw, sh);
+  } else if (drawType === 'gate') {
+    showCustomGateDialog(sx, sy, sw, sh);
+  } else if (drawType === 'aisle') {
+    showCustomAisleDialog(sx, sy, sw, sh);
+  } else {
+    // 估算方向
+    var direction = sw >= sh ? 'horizontal' : 'vertical';
+    var gw = parseInt(document.getElementById('gridCellW').value) || 50;
+    var gh = parseInt(document.getElementById('gridCellH').value) || 50;
+    var estimatedSeats = Math.max(1, direction === 'horizontal' ? Math.floor(sw / (gw * 0.8)) : Math.floor(sh / (gh * 0.8)));
+    var defaultLabel = '第' + (customEditorState.customRows.length + 1) + (direction === 'horizontal' ? '排' : '列');
+    showCustomRowDialog(defaultLabel, estimatedSeats, direction, sx, sy, sw, sh);
+  }
+});
+
+// 配置对话框
+function showCustomRowDialog(defaultLabel, estimatedSeats, direction, x, y, w, h, existingAislePositions) {
+  var existing = document.querySelector('.custom-dialog-overlay');
+  if (existing) existing.remove();
+  var aisleHints = '';
+  if (existingAislePositions && existingAislePositions.length > 0) {
+    aisleHints = '<div style="font-size:11px;color:#f59e0b;margin-bottom:8px">当前过道位置：第 ' + existingAislePositions.join(', ') + ' 个座位后</div>';
+  }
+  var overlay = document.createElement('div');
+  overlay.className = 'custom-dialog-overlay';
+  overlay.innerHTML =
+    '<div class="custom-dialog">' +
+    '<h4>添加' + (direction === 'horizontal' ? '横排' : '竖列') + '</h4>' +
+    '<div class="form-group"><label>名称（可自定义）</label><input id="dlgLabel" value="' + defaultLabel + '"></div>' +
+    '<div class="form-group"><label>座位数量</label><input id="dlgCount" type="number" value="' + estimatedSeats + '" min="1" max="100"></div>' +
+    '<div class="form-group"><label>开始座位号</label><input id="dlgStartSeat" type="number" value="1" min="1" max="999"></div>' +
+    '<div class="form-group"><label>方向</label><select id="dlgDir"><option value="horizontal"' + (direction === 'horizontal' ? ' selected' : '') + '>横排</option><option value="vertical"' + (direction === 'vertical' ? ' selected' : '') + '>竖列</option></select></div>' +
+    '<div class="form-group"><label>过道位置（第几个座位后）</label><input id="dlgAisles" placeholder="如：3,7 表示在第3和第7个座位后有过道（可选）"></div>' +
+    aisleHints +
+    '<div class="btn-group" style="justify-content:flex-end">' +
+    '<button class="btn btn-outline btn-sm" onclick="closeCustomDialog()">取消</button>' +
+    '<button class="btn btn-primary btn-sm" onclick="confirmCustomRow(' + x + ',' + y + ',' + w + ',' + h + ')">确定</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+  if (existingAislePositions && existingAislePositions.length > 0) {
+    document.getElementById('dlgAisles').value = existingAislePositions.join(',');
+  }
+  setTimeout(function() { var inp = document.getElementById('dlgLabel'); if (inp) { inp.focus(); inp.select(); } }, 100);
+}
+
+function closeCustomDialog() {
+  var overlay = document.querySelector('.custom-dialog-overlay');
+  if (overlay) overlay.remove();
+}
+
+function confirmCustomRow(x, y, w, h) {
+  var label = document.getElementById('dlgLabel').value.trim();
+  var count = parseInt(document.getElementById('dlgCount').value) || 1;
+  var startSeat = parseInt(document.getElementById('dlgStartSeat').value) || 1;
+  var dir = document.getElementById('dlgDir').value;
+  // 解析过道位置
+  var aislesInput = document.getElementById('dlgAisles').value.trim();
+  var aislePositions = [];
+  if (aislesInput) {
+    aislePositions = aislesInput.split(',').map(function(s) { return parseInt(s.trim()); }).filter(function(n) { return !isNaN(n) && n >= 1 && n < count; });
+    aislePositions.sort(function(a, b) { return a - b; });
+  }
+  if (!label) label = '第' + (customEditorState.customRows.length + 1) + (dir === 'horizontal' ? '排' : '列');
+  var row = {
+    label: label,
+    rowNum: customEditorState.customRows.length + 1,
+    x: x, y: y, width: w, height: h,
+    seatCount: Math.max(1, Math.min(100, count)),
+    startSeat: startSeat,
+    direction: dir,
+    aislePositions: aislePositions
+  };
+  customEditorState.customRows.push(row);
+  closeCustomDialog();
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 行列表渲染
+function renderCustomRowTable() {
+  var tbody = document.querySelector('#customRowTable tbody');
+  var state = customEditorState;
+  document.getElementById('customRowCount').textContent = state.customRows.length;
+  var html = '';
+  state.customRows.forEach(function(row, idx) {
+    var isSel = idx === state.selectedRowIndex;
+    var aisles = row.aislePositions || [];
+    var aislesInfo = '';
+    if (aisles.length > 0) {
+      aislesInfo = ' <span style="font-size:10px;color:#f59e0b;font-weight:600">过道: seat ' + aisles.join(', ') + '后</span>';
+    }
+    html += '<tr class="' + (isSel ? 'row-selected' : '') + '" onclick="selectCustomRow(' + idx + ', event)">';
+    html += '<td><span class="label-editable" onclick="event.stopPropagation();editCustomLabel(' + idx + ')">' + escHtml(row.label) + '</span>' + aislesInfo + '</td>';
+    html += '<td>' + (row.direction === 'horizontal' ? '横排' : '竖列') + '</td>';
+    html += '<td>' + row.seatCount + '</td>';
+    html += '<td style="font-size:11px;color:#94a3b8">' + Math.round(row.x) + ',' + Math.round(row.y) + ',' + Math.round(row.width) + ',' + Math.round(row.height) + '</td>';
+    html += '<td class="row-actions">';
+    html += '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();editCustomRow(' + idx + ')">编辑</button>';
+    html += '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();insertRowAisle(' + idx + ')" style="color:#f59e0b" title="在此排内插入过道">+过道</button>';
+    if (aisles.length > 0) {
+      html += '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();removeRowAisle(' + idx + ',' + (aisles.length - 1) + ')" style="color:#d97706" title="移除最后一个过道">-过道</button>';
+    }
+    html += '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();deleteCustomRow(' + idx + ')" style="color:#ef4444">删除</button>';
+    html += '</td></tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+// 在排内插入过道
+function insertRowAisle(idx) {
+  var row = customEditorState.customRows[idx];
+  var maxPos = row.seatCount - 1;
+  if (maxPos <= 0) { alert('座位数必须至少为2才能插入过道'); return; }
+  // 收集已有过道位置
+  var existing = row.aislePositions || [];
+  // 构建提示
+  var hint = '在第几个座位后面插入过道？（1~' + maxPos + '）';
+  if (existing.length > 0) {
+    hint += '\n已有过道位置：第' + existing.join(', ') + '个座位后';
+  }
+  var pos = prompt(hint, '');
+  if (pos === null) return;
+  pos = parseInt(pos);
+  if (isNaN(pos) || pos < 1 || pos > maxPos) {
+    alert('请输入有效位置：1~' + maxPos);
+    return;
+  }
+  if (existing.indexOf(pos) > -1) {
+    alert('该位置已存在过道');
+    return;
+  }
+  if (!row.aislePositions) row.aislePositions = [];
+  row.aislePositions.push(pos);
+  row.aislePositions.sort(function(a, b) { return a - b; });
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 移除排内指定过道
+function removeRowAisle(idx, aisleIdx) {
+  var row = customEditorState.customRows[idx];
+  if (!row.aislePositions) return;
+  row.aislePositions.splice(aisleIdx, 1);
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+function escHtml(str) { return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function selectCustomRow(idx, e) {
+  customEditorState.selectedRowIndex = (customEditorState.selectedRowIndex === idx) ? -1 : idx;
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+function editCustomLabel(idx) {
+  var row = customEditorState.customRows[idx];
+  var newLabel = prompt('修改排/列名称：', row.label);
+  if (newLabel !== null && newLabel.trim()) {
+    row.label = newLabel.trim();
+    renderCustomRowTable();
+    refreshCustomCanvas();
+  }
+}
+
+function editCustomRow(idx) {
+  var row = customEditorState.customRows[idx];
+  showCustomRowDialog(row.label, row.seatCount, row.direction, row.x, row.y, row.width, row.height, row.aislePositions || []);
+  setTimeout(function() {
+    document.getElementById('dlgStartSeat').value = row.startSeat || 1;
+  }, 50);
+  // 覆盖确认逻辑：编辑而非新增
+  var oldConfirm = window._tmpConfirmCustomRow;
+  window._tmpConfirmCustomRow = function(ex, ey, ew, eh) {
+    var label = document.getElementById('dlgLabel').value.trim();
+    var count = parseInt(document.getElementById('dlgCount').value) || 1;
+    var startSeat = parseInt(document.getElementById('dlgStartSeat').value) || 1;
+    var dir = document.getElementById('dlgDir').value;
+    // 解析过道位置
+    var aislesInput = document.getElementById('dlgAisles').value.trim();
+    var aislePositions = [];
+    if (aislesInput) {
+      aislePositions = aislesInput.split(',').map(function(s) { return parseInt(s.trim()); }).filter(function(n) { return !isNaN(n) && n >= 1 && n < count; });
+      aislePositions.sort(function(a, b) { return a - b; });
+    }
+    if (!label) label = row.label;
+    row.label = label;
+    row.seatCount = Math.max(1, Math.min(100, count));
+    row.startSeat = startSeat;
+    row.direction = dir;
+    row.aislePositions = aislePositions;
+    row.x = ex; row.y = ey; row.width = ew; row.height = eh;
+    closeCustomDialog();
+    renderCustomRowTable();
+    refreshCustomCanvas();
+    window.confirmCustomRow = oldConfirm || confirmCustomRow;
+  };
+  window.confirmCustomRow = window._tmpConfirmCustomRow;
+}
+
+function deleteCustomRow(idx) {
+  if (!confirm('确定删除 "' + customEditorState.customRows[idx].label + '" 吗？')) return;
+  customEditorState.customRows.splice(idx, 1);
+  if (customEditorState.selectedRowIndex === idx) customEditorState.selectedRowIndex = -1;
+  else if (customEditorState.selectedRowIndex > idx) customEditorState.selectedRowIndex--;
+  customEditorState.customRows.forEach(function(r, i) { r.rowNum = i + 1; });
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 舞台对话框
+function showCustomStageDialog(x, y, w, h) {
+  var existing = document.querySelector('.custom-dialog-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.className = 'custom-dialog-overlay';
+  overlay.innerHTML =
+    '<div class="custom-dialog">' +
+    '<h4>添加舞台</h4>' +
+    '<div class="form-group"><label>舞台名称</label><input id="dlgStageLabel" value="舞台"></div>' +
+    '<div class="btn-group" style="justify-content:flex-end">' +
+    '<button class="btn btn-outline btn-sm" onclick="closeCustomDialog()">取消</button>' +
+    '<button class="btn btn-primary btn-sm" onclick="confirmCustomStage(' + x + ',' + y + ',' + w + ',' + h + ')">确定</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+}
+
+function confirmCustomStage(x, y, w, h) {
+  var label = document.getElementById('dlgStageLabel').value.trim() || '舞台';
+  customEditorState.customStage = {
+    x: x, y: y, width: w, height: h, label: label
+  };
+  closeCustomDialog();
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 大门对话框
+function showCustomGateDialog(x, y, w, h) {
+  var existing = document.querySelector('.custom-dialog-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.className = 'custom-dialog-overlay';
+  overlay.innerHTML =
+    '<div class="custom-dialog">' +
+    '<h4>添加大门</h4>' +
+    '<div class="form-group"><label>大门名称</label><input id="dlgGateLabel" value="大门"></div>' +
+    '<div class="btn-group" style="justify-content:flex-end">' +
+    '<button class="btn btn-outline btn-sm" onclick="closeCustomDialog()">取消</button>' +
+    '<button class="btn btn-primary btn-sm" onclick="confirmCustomGate(' + x + ',' + y + ',' + w + ',' + h + ')">确定</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+}
+
+function confirmCustomGate(x, y, w, h) {
+  var label = document.getElementById('dlgGateLabel').value.trim() || '大门';
+  customEditorState.customGates.push({
+    x: x, y: y, width: w, height: h, label: label
+  });
+  closeCustomDialog();
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 删除舞台
+function deleteCustomStage() {
+  if (!confirm('确定删除舞台吗？')) return;
+  customEditorState.customStage = null;
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 删除大门
+function deleteCustomGate(idx) {
+  if (!confirm('确定删除大门 "' + customEditorState.customGates[idx].label + '" 吗？')) return;
+  customEditorState.customGates.splice(idx, 1);
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 过道对话框
+function showCustomAisleDialog(x, y, w, h) {
+  var existing = document.querySelector('.custom-dialog-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.className = 'custom-dialog-overlay';
+  overlay.innerHTML =
+    '<div class="custom-dialog">' +
+    '<h4>添加过道</h4>' +
+    '<div class="form-group"><label>过道名称</label><input id="dlgAisleLabel" value="过道"></div>' +
+    '<div class="form-group"><label>方向</label><select id="dlgAisleDir"><option value="horizontal">横向</option><option value="vertical">纵向</option></select></div>' +
+    '<div class="btn-group" style="justify-content:flex-end">' +
+    '<button class="btn btn-outline btn-sm" onclick="closeCustomDialog()">取消</button>' +
+    '<button class="btn btn-primary btn-sm" onclick="confirmCustomAisle(' + x + ',' + y + ',' + w + ',' + h + ')">确定</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+  var direction = w >= h ? 'horizontal' : 'vertical';
+  document.getElementById('dlgAisleDir').value = direction;
+}
+
+function confirmCustomAisle(x, y, w, h) {
+  var label = document.getElementById('dlgAisleLabel').value.trim() || '过道';
+  var direction = document.getElementById('dlgAisleDir').value;
+  customEditorState.customAisles.push({
+    x: x, y: y, width: w, height: h, label: label, direction: direction
+  });
+  closeCustomDialog();
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 删除过道
+function deleteCustomAisle(idx) {
+  if (!confirm('确定删除过道 "' + customEditorState.customAisles[idx].label + '" 吗？')) return;
+  customEditorState.customAisles.splice(idx, 1);
+  renderCustomRowTable();
+  refreshCustomCanvas();
+}
+
+// 工具栏事件
+document.getElementById('gridCellW').addEventListener('input', refreshCustomCanvas);
+document.getElementById('gridCellH').addEventListener('input', refreshCustomCanvas);
+document.getElementById('gridOpacity').addEventListener('input', function() {
+  customEditorState.imageOpacity = parseFloat(this.value);
+  refreshCustomCanvas();
+});
+
+// 预览
+function previewCustomLayout() {
+  if (!customEditorState.customRows.length) { alert('请至少定义一个排或列'); return; }
+  document.getElementById('customEditorStep').style.display = 'none';
+  document.getElementById('customPreviewStep').style.display = 'block';
+  var venueName = document.getElementById('customVenueName').value.trim() || '自定义会场';
+  // 调用服务端预览
+  authFetch('/api/generate-preview', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customPreview: { venueName: venueName, customRows: customEditorState.customRows, customStage: customEditorState.customStage, customGates: customEditorState.customGates, customAisles: customEditorState.customAisles, gridConfig: customEditorState.gridConfig, canvasWidth: customEditorState.image ? customEditorState.image.width : 800, canvasHeight: customEditorState.image ? customEditorState.image.height : 600 } })
+  }).then(r => r.json()).then(data => {
+    renderCustomPreview(data);
+  }).catch(err => {
+    // 如果服务端预览不可用，使用前端直接渲染
+    renderCustomPreviewLocal();
+  });
+}
+
+function renderCustomPreview(data) {
+  var container = document.getElementById('customPreviewContent');
+  if (data && data.data && data.data.venues && data.data.venues.length) {
+    var v = data.data.venues[0];
+    container.innerHTML = '<svg width="' + v.width + '" height="' + v.height + '" style="max-width:100%;border:1px solid #e2e8f0;border-radius:8px">' + v.svgContent + '</svg>';
+  } else {
+    renderCustomPreviewLocal();
+  }
+}
+
+function renderCustomPreviewLocal() {
+  var container = document.getElementById('customPreviewContent');
+  var rows = customEditorState.customRows;
+  if (!rows.length) { container.innerHTML = '<p>没有定义排/列</p>'; return; }
+  
+  // 自适应座位尺寸：确保每个座位至少 80x50px
+  var pSW = 80, pSH = 50, pSG = 10, pRG = 14;
+  var aisleGap = 50; // 过道宽度
+  var maxSeats = 0;
+  var maxTotalSeats = 0;
+  rows.forEach(function(r) { 
+    maxSeats = Math.max(maxSeats, r.seatCount); 
+    var aisles = (r.aislePositions || []).length;
+    maxTotalSeats = Math.max(maxTotalSeats, r.seatCount + aisles);
+  });
+  
+  // 为座位号和排标签留出额外空间
+  var extraLeft = 100;
+  var extraTop = 60;
+  
+  // 限制最大总数宽度为 2400px（超过则缩小）
+  var totalW = maxTotalSeats * (pSW + pSG) + extraLeft + 100;
+  if (totalW > 2400) {
+    pSW = Math.max(50, Math.floor((2400 - extraLeft - 100) / maxTotalSeats - pSG));
+    pSH = Math.max(32, Math.floor(pSW * 0.625));
+    aisleGap = Math.max(30, Math.floor(pSW * 0.7));
+    totalW = maxTotalSeats * (pSW + pSG) + extraLeft + 100;
+  }
+  
+  var sorted = rows.slice().sort(function(a, b) { return a.rowNum - b.rowNum; });
+  var pY = extraTop;
+  var svg = '<rect width="100%" height="100%" fill="#f8fafc"/>';
+  
+  sorted.forEach(function(row) {
+    var rl = escHtml(row.label || '');
+    svg += '<text x="' + (extraLeft - 20) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="end" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
+    
+    var aisles = (row.aislePositions || []).slice();
+    aisles.sort(function(a, b) { return a - b; });
+    var startSeat = row.startSeat || 1;
+    var seatCount = row.seatCount;
+    
+    if (row.direction === 'horizontal') {
+      var totalRowW = seatCount * (pSW + pSG) + aisles.length * aisleGap;
+      var startX = extraLeft + (totalW - extraLeft - totalRowW) / 2;
+      var cursorX = startX;
+      for (var i = 0; i < seatCount; i++) {
+        for (var a = 0; a < aisles.length; a++) {
+          if (aisles[a] === i) {
+            // 渲染过道
+            var agx = cursorX;
+            svg += '<rect x="' + agx + '" y="' + (pY - 2) + '" width="' + aisleGap + '" height="' + (pSH + 4) + '" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="6,3" rx="3"/>';
+            svg += '<text x="' + (agx + aisleGap/2) + '" y="' + (pY + pSH/2 + 4) + '" text-anchor="middle" font-size="10" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>';
+            cursorX += aisleGap;
+          }
+        }
+        var sn = startSeat + i;
+        var sx = cursorX;
+        var sy = pY;
+        var numBoxW = Math.min(40, pSW * 0.8);
+        var numBoxH = 24;
+        var nbx = sx + (pSW - numBoxW) / 2;
+        var nby = sy - numBoxH - 6;
+        var numFS = Math.max(10, Math.min(14, numBoxH * 0.5));
+        
+        svg += '<rect x="' + nbx + '" y="' + nby + '" width="' + numBoxW + '" height="' + numBoxH + '" fill="#1a56db" rx="4"/>';
+        svg += '<text x="' + (nbx + numBoxW/2) + '" y="' + (nby + numBoxH/2 + 5) + '" text-anchor="middle" font-size="' + numFS + '" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">' + sn + '</text>';
+        svg += '<rect x="' + sx + '" y="' + sy + '" width="' + pSW + '" height="' + pSH + '" fill="#fff" stroke="#cbd5e1" stroke-width="1.5" rx="3"/>';
+        cursorX += pSW + pSG;
+      }
+    } else {
+      var colX = extraLeft + (totalW - extraLeft - pSW) / 2;
+      var estSeatH = (seatCount > 1) ? Math.min(pSH, 160 / seatCount) : pSH;
+      pRG = estSeatH + 8;
+      var availH = seatCount * (estSeatH + pRG);
+      var cursorY = pY;
+      for (var j = 0; j < seatCount; j++) {
+        for (var a = 0; a < aisles.length; a++) {
+          if (aisles[a] === j) {
+            var agy = cursorY;
+            svg += '<rect x="' + (colX - 2) + '" y="' + agy + '" width="' + (pSW + 4) + '" height="' + aisleGap + '" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="6,3" rx="3"/>';
+            svg += '<text x="' + (colX + pSW/2) + '" y="' + (agy + aisleGap/2 + 4) + '" text-anchor="middle" font-size="10" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>';
+            cursorY += aisleGap;
+          }
+        }
+        var sn = startSeat + j;
+        var numBoxW = 36;
+        var numBoxH = Math.min(30, estSeatH * 0.8);
+        var nbx = colX - numBoxW - 8;
+        var nby = cursorY + (estSeatH - numBoxH) / 2;
+        var numFS = Math.max(10, Math.min(14, numBoxH * 0.5));
+        
+        svg += '<rect x="' + nbx + '" y="' + nby + '" width="' + numBoxW + '" height="' + numBoxH + '" fill="#1a56db" rx="4"/>';
+        svg += '<text x="' + (nbx + numBoxW/2) + '" y="' + (nby + numBoxH/2 + 5) + '" text-anchor="middle" font-size="' + numFS + '" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">' + sn + '</text>';
+        svg += '<rect x="' + colX + '" y="' + cursorY + '" width="' + pSW + '" height="' + estSeatH + '" fill="#fff" stroke="#cbd5e1" stroke-width="1.5" rx="3"/>';
+        cursorY += estSeatH + 4;
+      }
+      pY = Math.max(pY + availH + aisleGap * aisles.length, cursorY);
+    }
+    if (row.direction === 'horizontal') {
+      pY += pSH + pRG;
+    }
+  });
+  var svgH = pY + 40;
+  container.innerHTML = '<svg width="' + totalW + '" height="' + svgH + '" style="max-width:100%;border:1px solid #e2e8f0;border-radius:8px">' + svg + '</svg>';
+}
+
+function backToCustomEditor() {
+  document.getElementById('customEditorStep').style.display = 'block';
+  document.getElementById('customPreviewStep').style.display = 'none';
+}
+
+// 保存
+function saveCustomLayout() {
+  if (!customEditorState.customRows.length) { alert('请至少定义一个排或列'); return; }
+  var venueName = document.getElementById('customVenueName').value.trim() || '自定义会场';
+  if (!confirm('确定导入会场 "' + venueName + '" 吗？\n共 ' + customEditorState.customRows.length + ' 排/列')) return;
+  authFetch('/api/custom-layout/save', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      venueName: venueName,
+      description: '自定义布局',
+      stageName: '',
+      backgroundImage: customEditorState.imagePath,
+      gridConfig: customEditorState.gridConfig,
+      customRows: customEditorState.customRows.map(function(r) { return { label: r.label, rowNum: r.rowNum, x: r.x, y: r.y, width: r.width, height: r.height, seatCount: r.seatCount, startSeat: r.startSeat || 1, direction: r.direction, aislePositions: r.aislePositions || [] }; }),
+      canvasWidth: customEditorState.image ? customEditorState.image.width : 800,
+      canvasHeight: customEditorState.image ? customEditorState.image.height : 600,
+      customStage: customEditorState.customStage,
+      customGates: customEditorState.customGates,
+      customAisles: customEditorState.customAisles
+    })
+  }).then(r => r.json()).then(data => {
+    if (data.success) {
+      alert('会场 "' + venueName + '" 导入成功！');
+      cancelCustomLayout();
+      refreshData();
+    } else {
+      alert('保存失败: ' + (data.error || '未知错误'));
+    }
+  }).catch(err => { alert('保存失败: ' + err.message); });
+}
+
+function cancelCustomLayout() {
+  customEditorState.customRows = [];
+  customEditorState.customStage = null;
+  customEditorState.customGates = [];
+  customEditorState.customAisles = [];
+  customEditorState.drawType = 'row';
+  customEditorState.selectedRowIndex = -1;
+  document.getElementById('customUploadStep').style.display = 'block';
+  document.getElementById('customEditorStep').style.display = 'none';
+  document.getElementById('customPreviewStep').style.display = 'none';
+  document.getElementById('customVenueName').value = '';
+  closeCustomDialog();
+}
+
+// 初始化检查Canvas尺寸
+window.addEventListener('resize', function() {
+  if (document.getElementById('customEditorStep').style.display !== 'none') {
+    refreshCustomCanvas();
+  }
+});
 
 document.getElementById('qrUrl').value = window.location.origin + '/';
 refreshData();

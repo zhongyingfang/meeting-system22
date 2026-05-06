@@ -245,6 +245,9 @@ function loadDataFromFile() {
     // 2. 确保必要字段存在
     if (!dataCache.venues) dataCache.venues = [];
     if (!dataCache.attendees) dataCache.attendees = [];
+    if (!dataCache.deletedVenueNames) dataCache.deletedVenueNames = [];
+    if (!dataCache.deletedVenueNamesNormalized) dataCache.deletedVenueNamesNormalized = [];
+    if (!dataCache.deletedAttendees) dataCache.deletedAttendees = [];
     
     // 如果有数据被清理，写回文件
     if (needsCleanup) {
@@ -255,7 +258,13 @@ function loadDataFromFile() {
     dataCacheVersion++;
     return dataCache;
   } catch {
-    dataCache = { venues: [], attendees: [] };
+    dataCache = { 
+      venues: [], 
+      attendees: [], 
+      deletedVenueNames: [], 
+      deletedVenueNamesNormalized: [],
+      deletedAttendees: [] 
+    };
     dataCacheVersion++;
     return dataCache;
   }
@@ -504,6 +513,8 @@ app.get('/api/qrcode', async (req, res) => {
 
 // 静态文件（index.html 公开访问）
 app.use(express.static(path.join(__dirname, 'public')));
+// 上传文件静态访问
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 获取所有数据
 app.get('/api/data', (req, res) => {
@@ -929,13 +940,227 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       svgContent += `  <text x="${svgWidth / 2}" y="${y + 108}" class="subtitle" text-anchor="middle">共 ${totalSeats} 个座位</text>\n`;
       y += 120 + 30;
 
-      // 舞台（在标题下方）
-      const stageHeight = 80;
-      svgContent += `  <rect x="${margin}" y="${y}" width="${svgWidth - margin * 2}" height="${stageHeight}" fill="#1a56db" rx="10"/>\n`;
-      svgContent += `  <text x="${svgWidth / 2}" y="${y + 56}" class="stage-label" text-anchor="middle">${escXml(venue.stageName || '舞台区域')}</text>\n`;
-      y += stageHeight + seatHeight + rowGap;
+      // 舞台（在标题下方）- 自定义布局会场不显示默认舞台
+      if (!(venue.layout === 'custom' && venue.customRows && venue.customRows.length > 0)) {
+        const stageHeight = 80;
+        svgContent += `  <rect x="${margin}" y="${y}" width="${svgWidth - margin * 2}" height="${stageHeight}" fill="#1a56db" rx="10"/>\n`;
+        svgContent += `  <text x="${svgWidth / 2}" y="${y + 56}" class="stage-label" text-anchor="middle">${escXml(venue.stageName || '舞台区域')}</text>\n`;
+        y += stageHeight + seatHeight + rowGap;
+      }
 
       if (!venue.rows || venue.rows.length === 0) { y += 50; return; }
+
+      // 自定义布局SVG渲染：使用实际位置
+      if (venue.layout === 'custom' && venue.customRows && venue.customRows.length > 0) {
+        const cr = venue.customRows;
+        const sorted = [...cr].sort((a, b) => a.rowNum - b.rowNum);
+        
+        // 计算画布边界（包含舞台和大门）
+        const cw = venue.canvasWidth || 800;
+        const ch = venue.canvasHeight || 600;
+        
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        sorted.forEach(row => {
+          // 为行标签留出空间：横排标签在左侧，竖排标签在上方
+          const extraLeft = (row.direction === 'vertical') ? 120 : 60;
+          const extraTop = (row.direction === 'vertical') ? 60 : 0;
+          minX = Math.min(minX, (row.x || 0) - extraLeft);
+          minY = Math.min(minY, (row.y || 0) - extraTop);
+          maxX = Math.max(maxX, (row.x || 0) + (row.width || 100));
+          maxY = Math.max(maxY, (row.y || 0) + (row.height || 50));
+        });
+        
+        // 加入舞台和大门到边界计算
+        if (venue.customStage && Object.keys(venue.customStage).length > 0) {
+          const stage = venue.customStage;
+          minX = Math.min(minX, stage.x || 0);
+          minY = Math.min(minY, stage.y || 0);
+          maxX = Math.max(maxX, (stage.x || 0) + (stage.width || 200));
+          maxY = Math.max(maxY, (stage.y || 0) + (stage.height || 80));
+        }
+        if (venue.customGates && venue.customGates.length > 0) {
+          venue.customGates.forEach(gate => {
+            minX = Math.min(minX, gate.x || 0);
+            minY = Math.min(minY, gate.y || 0);
+            maxX = Math.max(maxX, (gate.x || 0) + (gate.width || 80));
+            maxY = Math.max(maxY, (gate.y || 0) + (gate.height || 120));
+          });
+        }
+        if (venue.customAisles && venue.customAisles.length > 0) {
+          venue.customAisles.forEach(aisle => {
+            minX = Math.min(minX, aisle.x || 0);
+            minY = Math.min(minY, aisle.y || 0);
+            maxX = Math.max(maxX, (aisle.x || 0) + (aisle.width || 60));
+            maxY = Math.max(maxY, (aisle.y || 0) + (aisle.height || 40));
+          });
+        }
+        
+        const contentW = maxX - minX;
+        const contentH = maxY - minY;
+        
+        // 计算缩放：综合考虑画布尺寸和座位密度
+        const svgMargin = 200;
+        const canvasScale = Math.min(2500 / Math.max(contentW, 1), 2000 / Math.max(contentH, 1));
+        
+        // 基于座位密度计算最小缩放：确保每个座位至少 120px 宽/高
+        let minOrigSeatPx = Infinity;
+        sorted.forEach(row => {
+          const size = row.direction === 'horizontal' 
+            ? (row.width || 100) / Math.max(row.seatCount, 1)
+            : (row.height || 50) / Math.max(row.seatCount, 1);
+          minOrigSeatPx = Math.min(minOrigSeatPx, size);
+        });
+        const MIN_SEAT_PX = 120;
+        const seatScale = Math.min(MIN_SEAT_PX / Math.max(minOrigSeatPx, 1), 15); // 最大15倍
+        const scale = Math.max(canvasScale, seatScale);
+        
+        const baseX = svgMargin - minX * scale;
+        const baseY = y - minY * scale;
+        
+        // === 1. 先渲染舞台和大门 ===
+        if (venue.customStage && Object.keys(venue.customStage).length > 0) {
+          const stage = venue.customStage;
+          const stageX = baseX + (stage.x || 0) * scale;
+          const stageY = baseY + (stage.y || 0) * scale;
+          const stageW = (stage.width || 200) * scale;
+          const stageH = (stage.height || 80) * scale;
+          svgContent += `  <rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#f59e0b" stroke="#d97706" stroke-width="3" rx="8"/>\n`;
+          svgContent += `  <text x="${stageX + stageW/2}" y="${stageY + stageH/2 + 10}" text-anchor="middle" fill="#ffffff" font-size="${Math.min(48, stageH/2.2)}" font-weight="bold">${escXml(stage.label || '舞台')}</text>\n`;
+        }
+        
+        if (venue.customGates && venue.customGates.length > 0) {
+          venue.customGates.forEach(gate => {
+            const gateX = baseX + (gate.x || 0) * scale;
+            const gateY = baseY + (gate.y || 0) * scale;
+            const gateW = (gate.width || 80) * scale;
+            const gateH = (gate.height || 120) * scale;
+            svgContent += `  <rect x="${gateX}" y="${gateY}" width="${gateW}" height="${gateH}" fill="#10b981" stroke="#059669" stroke-width="3" rx="6"/>\n`;
+            svgContent += `  <text x="${gateX + gateW/2}" y="${gateY + gateH/2 + 10}" text-anchor="middle" fill="#ffffff" font-size="${Math.min(36, gateH/3)}" font-weight="bold">${escXml(gate.label || '门')}</text>\n`;
+          });
+        }
+        
+        if (venue.customAisles && venue.customAisles.length > 0) {
+          venue.customAisles.forEach(aisle => {
+            const aisleX = baseX + (aisle.x || 0) * scale;
+            const aisleY = baseY + (aisle.y || 0) * scale;
+            const aisleW = (aisle.width || 60) * scale;
+            const aisleH = (aisle.height || 40) * scale;
+            svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${aisleH}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>\n`;
+            const aisleDisplayLabel = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
+            svgContent += `  <text x="${aisleX + aisleW/2}" y="${aisleY + aisleH/2 + 6}" text-anchor="middle" fill="#d97706" font-size="${Math.min(30, aisleH/2.2)}" font-weight="bold">${escXml(aisleDisplayLabel)}</text>\n`;
+          });
+        }
+        
+        // === 2. 再渲染座位 ===
+        sorted.forEach(row => {
+          const rowLabel = row.label || '';
+          const x = baseX + (row.x || 0) * scale;
+          const rowY = baseY + (row.y || 0) * scale;
+          const w = (row.width || 100) * scale;
+          const h = (row.height || 50) * scale;
+          const startSeat = row.startSeat || 1;
+          const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
+          const aisleGapPx = Math.max(30, (row.direction === 'horizontal' ? w : h) * 0.05);
+          const totalAisleGap = aisles.length * aisleGapPx;
+          
+          if (row.direction === 'horizontal') {
+            const seatCount = row.seatCount;
+            const availW = w - totalAisleGap;
+            const seatW = availW / seatCount;
+            const seatH = Math.max(seatHeight, h * 0.9);
+            
+            let cursorX = x;
+            for (let i = 0; i < seatCount; i++) {
+              for (let a = 0; a < aisles.length; a++) {
+                if (aisles[a] === i) {
+                  svgContent += `  <rect x="${cursorX}" y="${rowY - 2}" width="${aisleGapPx}" height="${h + 4}" fill="#fbbf24" stroke="#f59e0b" stroke-width="3" stroke-dasharray="8,4" rx="4"/>\n`;
+                  svgContent += `  <text x="${cursorX + aisleGapPx/2}" y="${rowY + h/2 + 8}" text-anchor="middle" fill="#d97706" font-size="${Math.min(24, h/2.5)}" font-weight="bold">过道</text>\n`;
+                  cursorX += aisleGapPx;
+                }
+              }
+              const sx = cursorX;
+              const sy = rowY + (h - seatH) / 2;
+              const sn = startSeat + i;
+              const name = attendeeMap[rowLabel + '_' + sn];
+              
+              if (i === 0) {
+                svgContent += `  <text x="${sx - 15}" y="${sy + seatH/2 + 8}" class="row-label" text-anchor="end" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+              }
+              
+              const numBoxW = Math.min(80, seatW * 0.85);
+              const numBoxH = 40;
+              const nbx = sx + (seatW - numBoxW) / 2;
+              const nby = sy - numBoxH - 10;
+              svgContent += `  <rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>\n`;
+              svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + 28}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
+              svgContent += `  <rect x="${sx + 3}" y="${sy}" width="${seatW - 6}" height="${seatH}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+              
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const nameLen = Math.max(dn.length, 1);
+                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.5);
+                const fs = Math.max(12, Math.min(36, maxFit));
+                svgContent += `  <text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+              }
+              cursorX += seatW;
+            }
+          } else {
+            const seatCount = row.seatCount;
+            const availH = h - totalAisleGap;
+            const seatH = availH / seatCount;
+            const seatW = Math.max(seatWidth, w * 0.9);
+            
+            let cursorY = rowY;
+            for (let i = 0; i < seatCount; i++) {
+              for (let a = 0; a < aisles.length; a++) {
+                if (aisles[a] === i) {
+                  svgContent += `  <rect x="${x - 2}" y="${cursorY}" width="${w + 4}" height="${aisleGapPx}" fill="#fbbf24" stroke="#f59e0b" stroke-width="3" stroke-dasharray="8,4" rx="4"/>\n`;
+                  svgContent += `  <text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 8}" text-anchor="middle" fill="#d97706" font-size="${Math.min(24, w/3)}" font-weight="bold">过道</text>\n`;
+                  cursorY += aisleGapPx;
+                }
+              }
+              const sx = x + (w - seatW) / 2;
+              const sy = cursorY;
+              const sn = startSeat + i;
+              const name = attendeeMap[rowLabel + '_' + sn];
+              
+              if (i === 0) {
+                svgContent += `  <text x="${sx + seatW/2}" y="${sy - 15}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+              }
+              
+              const numBoxW = 60;
+              const numBoxH = Math.min(45, seatH * 0.85);
+              const nbx = sx - numBoxW - 10;
+              const nby = sy + (seatH - numBoxH) / 2;
+              svgContent += `  <rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>\n`;
+              svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 8}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
+              svgContent += `  <rect x="${sx}" y="${sy + 3}" width="${seatW}" height="${seatH - 6}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+              
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const nameLen = Math.max(dn.length, 1);
+                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.5);
+                const fs = Math.max(12, Math.min(36, maxFit));
+                svgContent += `  <text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+              }
+              cursorY += seatH;
+            }
+          }
+        });
+        
+        y = baseY + maxY * scale + 150;
+        
+        // 确保SVG画布足够大以容纳自定义布局的缩放内容
+        const customMaxW = svgMargin + maxX * scale + svgMargin;
+        if (customMaxW > svgWidth) svgWidth = Math.ceil(customMaxW);
+        if (y > totalHeight) totalHeight = Math.ceil(y);
+        // 更新SVG头部的尺寸和viewBox
+        svgContent = svgContent.replace(
+          /^<svg [^>]*>/m,
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${totalHeight}" viewBox="0 0 ${svgWidth} ${totalHeight}">`
+        );
+        return;
+      }
 
       // U型会场SVG渲染：按实际U型布局（左臂 + 底部 + 右臂）
       if (venue.layout === 'u-shape') {
@@ -1118,7 +1343,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           }
         });
         totalSeatWidth = maxRowSeats * (seatWidth + seatGap);
-        svgWidth = Math.max(totalSeatWidth + 400, 1200);
+        svgWidth = Math.max(svgWidth, totalSeatWidth + 400, 1200);
 
         rowGroups.forEach(group => {
           group.rows.forEach((row, ri) => {
@@ -1193,7 +1418,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         totalSeatWidth += groupSeats * (seatWidth + seatGap);
         if (gi < maxGroupCount - 1) totalSeatWidth += groupGap - seatGap;
       }
-      svgWidth = Math.max(totalSeatWidth + 400, 1200);
+      svgWidth = Math.max(svgWidth, totalSeatWidth + 400, 1200);
 
       // 渲染每一排
       venue.rows.forEach((row, rowIdx) => {
@@ -1296,6 +1521,53 @@ app.post('/api/analyze-layout', requireAdmin, (req, res) => {
     const manualAttendees = (existing.attendees || []).filter(a => a.source !== 'excel');
     const result = parseWorkbook(wb, manualAttendees, mode, sheetModes);
     
+    // ===== 保护自定义会场：优先保留所有自定义布局 =====
+    const customVenues = (existing.venues || []).filter(v => v.layout === 'custom');
+    // 只保留新解析的非自定义会场，同时过滤掉已被用户删除的会场
+    const nonCustomNewVenues = result.venues.filter(v => {
+      if (v.layout === 'custom') return false;
+      
+      // 检查是否已删除（同时检查原名称和规范化名称）
+      if (existing.deletedVenueNames && existing.deletedVenueNames.includes(v.name)) {
+        return false;
+      }
+      const normalizedName = v.name.trim().toLowerCase().replace(/\s+/g, '');
+      if (existing.deletedVenueNamesNormalized && existing.deletedVenueNamesNormalized.includes(normalizedName)) {
+        return false;
+      }
+      
+      return true;
+    });
+    // 合并：自定义会场 + 新解析的普通会场（过滤已删除）
+    result.venues = [...customVenues, ...nonCustomNewVenues];
+    
+    // ===== 过滤掉孤儿参会者（所属会场已被删除或不存在的）=====
+    const finalVenueIds = new Set(result.venues.map(v => v.id));
+    result.attendees = result.attendees.filter(a => finalVenueIds.has(a.venueId));
+    
+    // ===== 过滤掉已被用户删除的参会者 =====
+    if (existing.deletedAttendees && existing.deletedAttendees.length > 0) {
+      result.attendees = result.attendees.filter(a => {
+        // 检查该参会者是否在已删除列表中
+        const key = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+        if (existing.deletedAttendees.includes(key)) return false;
+        
+        // 同时检查规范化名称的匹配
+        const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
+        if (normalizedName) {
+          const normalizedKey = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+          if (existing.deletedAttendees.includes(normalizedKey)) return false;
+        }
+        
+        return true;
+      });
+    }
+    
+    // ===== 保留已删除记录，防止下次自动分析时重新出现 =====
+    if (existing.deletedVenueNames) result.deletedVenueNames = existing.deletedVenueNames;
+    if (existing.deletedVenueNamesNormalized) result.deletedVenueNamesNormalized = existing.deletedVenueNamesNormalized;
+    if (existing.deletedAttendees) result.deletedAttendees = existing.deletedAttendees;
+    
     writeData(result);
     
     res.json({ 
@@ -1303,7 +1575,7 @@ app.post('/api/analyze-layout', requireAdmin, (req, res) => {
       data: { venues: result.venues },
       mode: mode,
       sheetModes: sheetModes,
-      message: '布局分析完成'
+      message: '布局分析完成（已保留自定义会场）'
     });
   } catch (err) {
     structuredLog('error', { message: '布局分析失败', error: err.message, stack: err.stack });
@@ -1314,6 +1586,131 @@ app.post('/api/analyze-layout', requireAdmin, (req, res) => {
 // 生成布局预览图
 app.post('/api/generate-preview', requireAdmin, (req, res) => {
   try {
+    // 自定义布局临时预览（未保存到 data.json），使用实际位置信息
+    if (req.body.customPreview) {
+      const { venueName, customRows, canvasWidth, canvasHeight, customStage, customGates, customAisles } = req.body.customPreview;
+      if (!customRows || !customRows.length) {
+        return res.json({ ok: true, data: { venues: [] } });
+      }
+      // 计算缩放比例——基于座位密度确保每个座位至少 60px 宽/高
+      const cw = canvasWidth || 800;
+      const ch = canvasHeight || 600;
+      const margin = 60;
+      const canvasScale = Math.min(1800 / Math.max(cw + margin * 2, 1), 2);
+      
+      let minOrigSeatPx1 = Infinity;
+      customRows.forEach(row => {
+        const size = row.direction === 'horizontal' 
+          ? (row.width || 100) / Math.max(row.seatCount, 1)
+          : (row.height || 50) / Math.max(row.seatCount, 1);
+        minOrigSeatPx1 = Math.min(minOrigSeatPx1, size);
+      });
+      const MIN_PREVIEW_SEAT_PX = 60;
+      const seatScale = Math.min(MIN_PREVIEW_SEAT_PX / Math.max(minOrigSeatPx1, 0.5), 10);
+      const scale = Math.max(canvasScale, seatScale);
+      
+      // 为座位号和排标签留出额外空间
+      const extraMargin = 60;
+      const svgW = cw * scale + (margin + extraMargin) * 2;
+      const svgH = ch * scale + (margin + extraMargin) * 2 + 60;
+      
+      let sc = `<rect width="100%" height="100%" fill="#f8fafc"/>`;
+      sc += `<text x="${svgW/2}" y="35" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" font-weight="bold" fill="#1e293b">${escXml(venueName || '自定义会场')}</text>`;
+      
+      const sorted = [...customRows].sort((a, b) => a.rowNum - b.rowNum);
+      sorted.forEach(row => {
+        const rl = row.label || '';
+        const x = margin + (row.x || 0) * scale;
+        const y = margin + 60 + (row.y || 0) * scale;
+        const w = (row.width || 100) * scale;
+        const h = (row.height || 50) * scale;
+        const startSeat = row.startSeat || 1;
+        const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
+        const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
+        const totalAisleGap = aisles.length * aisleGapPx;
+        
+        if (row.direction === 'horizontal') {
+          const availW = w - totalAisleGap;
+          const seatW = availW / row.seatCount;
+          const seatH = Math.min(80, h * 0.95);
+          let cursorX = x;
+          for (let i = 0; i < row.seatCount; i++) {
+            for (let a = 0; a < aisles.length; a++) {
+              if (aisles[a] === i) {
+                sc += `<rect x="${cursorX}" y="${y - 2}" width="${aisleGapPx}" height="${h + 4}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+                sc += `<text x="${cursorX + aisleGapPx/2}" y="${y + h/2 + 5}" text-anchor="middle" font-size="${Math.min(16, h/3)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
+                cursorX += aisleGapPx;
+              }
+            }
+            const seatX = cursorX;
+            const seatY = y + (h - seatH) / 2;
+            const numFS = Math.max(10, Math.min(16, seatH * 0.35, seatW * 0.8));
+            sc += `<rect x="${seatX + 2}" y="${seatY}" width="${seatW - 4}" height="${seatH}" fill="#fff" stroke="#cbd5e1" stroke-width="2" rx="4"/>`;
+            sc += `<text x="${seatX + seatW/2}" y="${seatY + seatH/2 + numFS/3}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#64748b">${startSeat + i}</text>`;
+            cursorX += seatW;
+          }
+        } else {
+          const availH = h - totalAisleGap;
+          const seatH = availH / row.seatCount;
+          const seatW = Math.min(100, w * 0.95);
+          let cursorY = y;
+          for (let i = 0; i < row.seatCount; i++) {
+            for (let a = 0; a < aisles.length; a++) {
+              if (aisles[a] === i) {
+                sc += `<rect x="${x - 2}" y="${cursorY}" width="${w + 4}" height="${aisleGapPx}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+                sc += `<text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 5}" text-anchor="middle" font-size="${Math.min(16, w/4)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
+                cursorY += aisleGapPx;
+              }
+            }
+            const seatX = x + (w - seatW) / 2;
+            const seatY = cursorY;
+            const numFS = Math.max(10, Math.min(16, seatW * 0.22, seatH * 0.8));
+            sc += `<rect x="${seatX}" y="${seatY + 2}" width="${seatW}" height="${seatH - 4}" fill="#fff" stroke="#cbd5e1" stroke-width="2" rx="4"/>`;
+            sc += `<text x="${seatX + seatW/2}" y="${seatY + seatH/2 + numFS/3}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#64748b">${startSeat + i}</text>`;
+            cursorY += seatH;
+          }
+        }
+        sc += `<text x="${x - 12}" y="${y + h/2 + 6}" text-anchor="end" font-size="${Math.max(12, Math.min(18, h / 2.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444">${escXml(rl)}</text>`;
+      });
+      
+      // 渲染自定义舞台（临时预览）
+      if (customStage && Object.keys(customStage).length > 0) {
+        const stageX = margin + (customStage.x || 0) * scale;
+        const stageY = margin + 60 + (customStage.y || 0) * scale;
+        const stageW = (customStage.width || 200) * scale;
+        const stageH = (customStage.height || 80) * scale;
+        sc += `<rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#f59e0b" stroke="#d97706" stroke-width="3" rx="8"/>`;
+        sc += `<text x="${stageX + stageW/2}" y="${stageY + stageH/2 + 5}" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="bold">${escXml(customStage.label || '舞台')}</text>`;
+      }
+      
+      // 渲染自定义大门（临时预览）
+      if (customGates && customGates.length > 0) {
+        customGates.forEach(gate => {
+          const gateX = margin + (gate.x || 0) * scale;
+          const gateY = margin + 60 + (gate.y || 0) * scale;
+          const gateW = (gate.width || 80) * scale;
+          const gateH = (gate.height || 120) * scale;
+          sc += `<rect x="${gateX}" y="${gateY}" width="${gateW}" height="${gateH}" fill="#10b981" stroke="#059669" stroke-width="3" rx="6"/>`;
+          sc += `<text x="${gateX + gateW/2}" y="${gateY + gateH/2 + 5}" text-anchor="middle" fill="#ffffff" font-size="16" font-weight="bold">${escXml(gate.label || '门')}</text>`;
+        });
+      }
+      
+      // 渲染自定义过道（临时预览）
+      if (customAisles && customAisles.length > 0) {
+        customAisles.forEach(aisle => {
+          const aisleX = margin + (aisle.x || 0) * scale;
+          const aisleY = margin + 60 + (aisle.y || 0) * scale;
+          const aisleW = (aisle.width || 60) * scale;
+          const aisleH = (aisle.height || 40) * scale;
+          sc += `<rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${aisleH}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+          const aisleDisplayLabel2 = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
+          sc += `<text x="${aisleX + aisleW/2}" y="${aisleY + aisleH/2 + 4}" text-anchor="middle" fill="#d97706" font-size="14" font-weight="bold">${escXml(aisleDisplayLabel2)}</text>`;
+        });
+      }
+      
+      return res.json({ ok: true, data: { venues: [{ name: venueName || '自定义会场', width: svgW, height: svgH, svgContent: sc }] } });
+    }
+
     const data = readData();
     const config = readConfig();
     const siteTitle = config.siteTitle || '会议';
@@ -1352,6 +1749,201 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       venueAttendees.forEach(a => {
         attendeeMap[a.row + '_' + a.seat] = a.name;
       });
+      
+      // 自定义布局：根据 customRows 渲染干净矢量预览（使用实际位置）
+      if (venue.layout === 'custom' && venue.customRows && venue.customRows.length > 0) {
+        const cs = venue.customRows;
+        // 计算边界（包含座位号的空间）
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        cs.forEach(row => {
+          // 为座位号留出空间：横排座位上方，竖排座位左侧
+          const extraLeft = (row.direction === 'vertical') ? 80 : 50;
+          const extraTop = (row.direction === 'horizontal') ? 50 : 0;
+          
+          minX = Math.min(minX, (row.x || 0) - extraLeft / 2);
+          minY = Math.min(minY, (row.y || 0) - extraTop);
+          maxX = Math.max(maxX, (row.x || 0) + (row.width || 100) + 20);
+          maxY = Math.max(maxY, (row.y || 0) + (row.height || 50) + 20);
+        });
+        // 只在明确有自定义舞台时加入到边界
+        if (venue.customStage && Object.keys(venue.customStage).length > 0) {
+          const stage = venue.customStage;
+          minX = Math.min(minX, stage.x || 0);
+          minY = Math.min(minY, stage.y || 0);
+          maxX = Math.max(maxX, (stage.x || 0) + (stage.width || 200));
+          maxY = Math.max(maxY, (stage.y || 0) + (stage.height || 80));
+        }
+        if (venue.customGates && venue.customGates.length > 0) {
+          venue.customGates.forEach(gate => {
+            minX = Math.min(minX, gate.x || 0);
+            minY = Math.min(minY, gate.y || 0);
+            maxX = Math.max(maxX, (gate.x || 0) + (gate.width || 80));
+            maxY = Math.max(maxY, (gate.y || 0) + (gate.height || 120));
+          });
+        }
+        const contentW = maxX - minX;
+        const contentH = maxY - minY;
+        
+        // 计算缩放比例 - 综合考虑画布和座位密度
+        const margin = 80;
+        const maxPreviewWidth = 1600;
+        const canvasScale = Math.min(maxPreviewWidth / Math.max(contentW, 1), 1200 / Math.max(contentH, 1));
+        
+        // 基于座位密度计算最小缩放：确保每个座位至少 85px 宽/高
+        let minOrigSeatPx2 = Infinity;
+        cs.forEach(row => {
+          const size = row.direction === 'horizontal' 
+            ? (row.width || 100) / Math.max(row.seatCount, 1)
+            : (row.height || 50) / Math.max(row.seatCount, 1);
+          minOrigSeatPx2 = Math.min(minOrigSeatPx2, size);
+        });
+        const MIN_SEAT_PX2 = 85;
+        const seatScale = Math.min(MIN_SEAT_PX2 / Math.max(minOrigSeatPx2, 1), 12);
+        const scale = Math.max(canvasScale, seatScale);
+        
+        const baseX = margin - minX * scale;
+        const baseY = margin;
+        const totalSW = (maxX - minX) * scale + margin * 2;
+        const svgH = (maxY - minY) * scale + margin * 2 + 60;
+        
+        let sc = `<rect width="100%" height="100%" fill="#f8fafc"/>`;
+        
+        const sorted = [...cs].sort((a, b) => a.rowNum - b.rowNum);
+        
+        // === 1. 先渲染舞台和大门 ===
+        if (venue.customStage && Object.keys(venue.customStage).length > 0) {
+          const stage = venue.customStage;
+          const stageX = baseX + (stage.x || 0) * scale;
+          const stageY = baseY + (stage.y || 0) * scale;
+          const stageW = (stage.width || 200) * scale;
+          const stageH = (stage.height || 80) * scale;
+          sc += `<rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#f59e0b" stroke="#d97706" stroke-width="3" rx="8"/>`;
+          sc += `<text x="${stageX + stageW/2}" y="${stageY + stageH/2 + 8}" text-anchor="middle" fill="#ffffff" font-size="${Math.min(32, stageH/2.2)}" font-weight="bold">${escXml(stage.label || '舞台')}</text>`;
+        }
+        
+        if (venue.customGates && venue.customGates.length > 0) {
+          venue.customGates.forEach(gate => {
+            const gateX = baseX + (gate.x || 0) * scale;
+            const gateY = baseY + (gate.y || 0) * scale;
+            const gateW = (gate.width || 80) * scale;
+            const gateH = (gate.height || 120) * scale;
+            sc += `<rect x="${gateX}" y="${gateY}" width="${gateW}" height="${gateH}" fill="#10b981" stroke="#059669" stroke-width="3" rx="6"/>`;
+            sc += `<text x="${gateX + gateW/2}" y="${gateY + gateH/2 + 8}" text-anchor="middle" fill="#ffffff" font-size="${Math.min(26, gateH/3)}" font-weight="bold">${escXml(gate.label || '门')}</text>`;
+          });
+        }
+        
+        if (venue.customAisles && venue.customAisles.length > 0) {
+          venue.customAisles.forEach(aisle => {
+            const aisleX = baseX + (aisle.x || 0) * scale;
+            const aisleY = baseY + (aisle.y || 0) * scale;
+            const aisleW = (aisle.width || 60) * scale;
+            const aisleH = (aisle.height || 40) * scale;
+            sc += `<rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${aisleH}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+            const aisleDisplayLabel3 = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
+            sc += `<text x="${aisleX + aisleW/2}" y="${aisleY + aisleH/2 + 4}" text-anchor="middle" fill="#d97706" font-size="${Math.min(20, aisleH/2.2)}" font-weight="bold">${escXml(aisleDisplayLabel3)}</text>`;
+          });
+        }
+        
+        // === 2. 再渲染座位 ===
+        sorted.forEach(row => {
+          const rl = row.label || '';
+          const x = baseX + (row.x || 0) * scale;
+          const y = baseY + (row.y || 0) * scale;
+          const w = (row.width || 100) * scale;
+          const h = (row.height || 50) * scale;
+          const startSeat = row.startSeat || 1;
+          const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
+          const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
+          const totalAisleGap = aisles.length * aisleGapPx;
+          
+          if (row.direction === 'horizontal') {
+            const seatCount = row.seatCount;
+            const availW = w - totalAisleGap;
+            const seatW = availW / seatCount;
+            const seatH = Math.max(50, h * 0.9);
+            
+            let cursorX = x;
+            for (let i = 0; i < seatCount; i++) {
+              for (let a = 0; a < aisles.length; a++) {
+                if (aisles[a] === i) {
+                  sc += `<rect x="${cursorX}" y="${y - 2}" width="${aisleGapPx}" height="${h + 4}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+                  sc += `<text x="${cursorX + aisleGapPx/2}" y="${y + h/2 + 8}" text-anchor="middle" font-size="${Math.min(18, h/3)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
+                  cursorX += aisleGapPx;
+                }
+              }
+              const sx = cursorX;
+              const sy = y + (h - seatH) / 2;
+              const sn = startSeat + i;
+              const name = attendeeMap[rl + '_' + sn];
+              
+              if (i === 0) {
+                sc += `<text x="${sx - 8}" y="${sy + seatH/2 + 6}" text-anchor="end" font-size="${Math.max(18, Math.min(28, h/1.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">${escXml(rl)}</text>`;
+              }
+              
+              const numBoxW = Math.min(50, seatW * 0.8);
+              const numBoxH = 28;
+              const nbx = sx + (seatW - numBoxW) / 2;
+              const nby = sy - numBoxH - 8;
+              sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>`;
+              sc += `<text x="${nbx + numBoxW/2}" y="${nby + 20}" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${sn}</text>`;
+              
+              sc += `<rect x="${sx + 2}" y="${sy}" width="${seatW - 4}" height="${seatH}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const nameLen = Math.max(dn.length, 1);
+                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.45);
+                const fs = Math.max(11, Math.min(28, maxFit));
+                sc += `<text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" fill="#1e293b">${escXml(dn)}</text>`;
+              }
+              cursorX += seatW;
+            }
+          } else {
+            const seatCount = row.seatCount;
+            const availH = h - totalAisleGap;
+            const seatH = availH / seatCount;
+            const seatW = Math.max(60, w * 0.9);
+            
+            let cursorY = y;
+            for (let i = 0; i < seatCount; i++) {
+              for (let a = 0; a < aisles.length; a++) {
+                if (aisles[a] === i) {
+                  sc += `<rect x="${x - 2}" y="${cursorY}" width="${w + 4}" height="${aisleGapPx}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+                  sc += `<text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 8}" text-anchor="middle" font-size="${Math.min(18, w/3)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
+                  cursorY += aisleGapPx;
+                }
+              }
+              const sx = x + (w - seatW) / 2;
+              const sy = cursorY;
+              const sn = startSeat + i;
+              const name = attendeeMap[rl + '_' + sn];
+              
+              if (i === 0) {
+                sc += `<text x="${sx + seatW/2}" y="${sy - 10}" text-anchor="middle" font-size="${Math.max(18, Math.min(28, h/1.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">${escXml(rl)}</text>`;
+              }
+              
+              const numBoxW = 42;
+              const numBoxH = Math.min(36, seatH * 0.85);
+              const nbx = sx - numBoxW - 8;
+              const nby = sy + (seatH - numBoxH) / 2;
+              sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>`;
+              sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 6}" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${sn}</text>`;
+              
+              sc += `<rect x="${sx}" y="${sy + 2}" width="${seatW}" height="${seatH - 4}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const nameLen = Math.max(dn.length, 1);
+                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.45);
+                const fs = Math.max(11, Math.min(28, maxFit));
+                sc += `<text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" fill="#1e293b">${escXml(dn)}</text>`;
+              }
+              cursorY += seatH;
+            }
+          }
+        });
+        
+        previewVenues.push({ name: venue.name, width: totalSW, height: svgH, svgContent: sc });
+        return;
+      }
       
       // 计算所有排的最大组数和每组最大座位数
       let maxGroupCount = 0;
@@ -1677,7 +2269,26 @@ app.delete('/api/venues/:id', requireAdmin, (req, res) => {
   const venue = data.venues.find(v => v.id === req.params.id);
   if (!venue) return res.status(404).json({ error: '场馆不存在' });
 
-  const attendeeCount = data.attendees.filter(a => a.venueId === venue.id).length;
+  const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
+  const attendeeCount = venueAttendees.length;
+
+  // 记录被删除会场参会者信息到 deletedAttendees，防止自动分析时重新创建
+  if (venueAttendees.length > 0) {
+    if (!data.deletedAttendees) data.deletedAttendees = [];
+    venueAttendees.forEach(a => {
+      const deletedKey = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+      if (!data.deletedAttendees.includes(deletedKey)) {
+        data.deletedAttendees.push(deletedKey);
+      }
+      const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
+      if (normalizedName) {
+        const normalizedKey = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+        if (!data.deletedAttendees.includes(normalizedKey)) {
+          data.deletedAttendees.push(normalizedKey);
+        }
+      }
+    });
+  }
 
   data.attendees = data.attendees.map(a => {
     if (a.venueId === venue.id) {
@@ -1687,6 +2298,18 @@ app.delete('/api/venues/:id', requireAdmin, (req, res) => {
   });
 
   data.venues = data.venues.filter(v => v.id !== req.params.id);
+  
+  // 记录被删除的会场名称，防止自动分析时重新创建（同时保存原名称和规范化后的名称）
+  if (!data.deletedVenueNames) data.deletedVenueNames = [];
+  if (!data.deletedVenueNames.includes(venue.name)) {
+    data.deletedVenueNames.push(venue.name);
+  }
+  // 同时保存规范化名称（去掉空格、统一大小写）用于匹配
+  if (!data.deletedVenueNamesNormalized) data.deletedVenueNamesNormalized = [];
+  const normalizedName = venue.name.trim().toLowerCase().replace(/\s+/g, '');
+  if (!data.deletedVenueNamesNormalized.includes(normalizedName)) {
+    data.deletedVenueNamesNormalized.push(normalizedName);
+  }
 
   writeData(data);
   auditLog('DELETE_VENUE', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
@@ -1780,15 +2403,39 @@ app.delete('/api/attendees', requireAuth, (req, res) => {
   const data = readData();
   const beforeCount = data.attendees.length;
 
+  // 先保存要删除的参会者信息，用于记录已删除的名单
+  const toBeDeleted = [];
   if (id) {
+    toBeDeleted.push(...data.attendees.filter(a => a.id === id));
     data.attendees = data.attendees.filter(a => a.id !== id);
   } else if (name && venueId) {
+    toBeDeleted.push(...data.attendees.filter(a => a.name === name && a.venueId === venueId));
     data.attendees = data.attendees.filter(a => !(a.name === name && a.venueId === venueId));
   } else if (venueId) {
+    toBeDeleted.push(...data.attendees.filter(a => a.venueId === venueId));
     data.attendees = data.attendees.filter(a => a.venueId !== venueId);
   } else {
+    toBeDeleted.push(...data.attendees);
     data.attendees = [];
   }
+
+  // 记录被删除的参会者信息，防止自动分析时重新创建
+  if (!data.deletedAttendees) data.deletedAttendees = [];
+  toBeDeleted.forEach(a => {
+    // 记录关键信息用于匹配
+    const deletedKey = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+    if (!data.deletedAttendees.includes(deletedKey)) {
+      data.deletedAttendees.push(deletedKey);
+    }
+    // 同时记录规范化的名字用于匹配
+    const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (normalizedName) {
+      const normalizedKey = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+      if (!data.deletedAttendees.includes(normalizedKey)) {
+        data.deletedAttendees.push(normalizedKey);
+      }
+    }
+  });
 
   const deletedCount = beforeCount - data.attendees.length;
   writeData(data);
@@ -1800,6 +2447,47 @@ app.delete('/api/attendees', requireAuth, (req, res) => {
     venueId: venueId || null,
     deletedCount,
     scope: id ? 'single_id' : name && venueId ? 'single' : venueId ? 'venue' : 'all'
+  });
+  
+  res.json({ ok: true, deleted: deletedCount });
+});
+
+// 批量删除参会者
+app.post('/api/attendees/batch-delete', requireAuth, (req, res) => {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: '请提供要删除的参会者ID列表' });
+  }
+  const data = readData();
+  const beforeCount = data.attendees.length;
+  const idsSet = new Set(ids);
+  
+  // 先保存要删除的参会者信息
+  const toBeDeleted = data.attendees.filter(a => idsSet.has(a.id));
+  data.attendees = data.attendees.filter(a => !idsSet.has(a.id));
+  
+  // 记录被删除的参会者信息，防止自动分析时重新创建
+  if (!data.deletedAttendees) data.deletedAttendees = [];
+  toBeDeleted.forEach(a => {
+    const deletedKey = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+    if (!data.deletedAttendees.includes(deletedKey)) {
+      data.deletedAttendees.push(deletedKey);
+    }
+    const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (normalizedName) {
+      const normalizedKey = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+      if (!data.deletedAttendees.includes(normalizedKey)) {
+        data.deletedAttendees.push(normalizedKey);
+      }
+    }
+  });
+  
+  const deletedCount = beforeCount - data.attendees.length;
+  writeData(data);
+  
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  auditLog('BATCH_DELETE_ATTENDEES', ip, {
+    ids, deletedCount
   });
   
   res.json({ ok: true, deleted: deletedCount });
@@ -1844,6 +2532,20 @@ app.post('/api/import-excel', requireAdmin, (req, res) => {
     const existing = readData();
     const manualAttendees = (existing.attendees || []).filter(a => a.source !== 'excel');
     const result = parseWorkbook(wb, manualAttendees, mode, sheetModes);
+    
+    // 新导入Excel：不继承旧删除记录，保留自定义会场
+    const customVenues2 = (existing.venues || []).filter(v => v.layout === 'custom');
+    result.venues = [...customVenues2, ...result.venues.filter(v => v.layout !== 'custom')];
+    
+    // ===== 过滤掉孤儿参会者（所属会场已被删除或不存在的）=====
+    const finalVenueIds2b = new Set(result.venues.map(v => v.id));
+    result.attendees = result.attendees.filter(a => finalVenueIds2b.has(a.venueId));
+    
+    // 新导入Excel：清空旧删除记录
+    result.deletedVenueNames = [];
+    result.deletedVenueNamesNormalized = [];
+    result.deletedAttendees = [];
+    
     writeData(result);
     res.json({ ok: true, data: result, mode: mode, sheetModes: sheetModes });
   } catch (err) {
@@ -1917,10 +2619,19 @@ app.post('/api/upload-excel', requireAdmin, (req, res) => {
     fs.writeFileSync(uploadedPath, buffer);
     
     const wb = XLSX.read(buffer, { type: 'buffer' });
+    const existing = readData();
     const manualAttendees = keepManual
-      ? (readData().attendees || []).filter(a => a.source !== 'excel')
+      ? (existing.attendees || []).filter(a => a.source !== 'excel')
       : [];
     const result = parseWorkbook(wb, manualAttendees, parseMode, sheetModesMap);
+    
+    // 新上传Excel：不继承旧删除记录，保留自定义会场
+    const customVenues = (existing.venues || []).filter(v => v.layout === 'custom');
+    result.venues = [...customVenues, ...result.venues.filter(v => v.layout !== 'custom')];
+    
+    // ===== 过滤掉孤儿参会者（所属会场已被删除或不存在的）=====
+    const finalVenueIds3 = new Set(result.venues.map(v => v.id));
+    result.attendees = result.attendees.filter(a => finalVenueIds3.has(a.venueId));
     
     // 验证导入数量
     if (result.attendees.length > MAX_ATTENDEES_IMPORT) {
@@ -1928,6 +2639,11 @@ app.post('/api/upload-excel', requireAdmin, (req, res) => {
         error: `导入数据过大（${result.attendees.length} 人），不超过 ${MAX_ATTENDEES_IMPORT} 人` 
       });
     }
+    
+    // 新上传Excel：清空旧删除记录，开启新会话
+    result.deletedVenueNames = [];
+    result.deletedVenueNamesNormalized = [];
+    result.deletedAttendees = [];
     
     writeData(result);
     auditLog('UPLOAD_EXCEL', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
@@ -1941,6 +2657,140 @@ app.post('/api/upload-excel', requireAdmin, (req, res) => {
     res.json({ ok: true, data: result });
   } catch (err) {
     structuredLog('error', { message: 'Excel 上传失败', error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ========== 自定义会场布局 API ==========
+
+// 图片文件头魔数验证
+const IMAGE_SIGNATURES = {
+  png:  [0x89, 0x50, 0x4E, 0x47],
+  jpg:  [0xFF, 0xD8, 0xFF],
+  gif:  [0x47, 0x49, 0x46, 0x38],
+  webp: [0x52, 0x49, 0x46, 0x46]
+};
+
+function detectImageType(buffer) {
+  const head = buffer.slice(0, 4);
+  for (const [type, sig] of Object.entries(IMAGE_SIGNATURES)) {
+    if (sig.every((b, i) => head[i] === b)) return type;
+  }
+  if (buffer.length >= 12 &&
+      head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+    return 'webp';
+  }
+  return null;
+}
+
+// 上传自定义布局背景图
+app.post('/api/custom-layout/upload-image', requireAdmin, (req, res) => {
+  try {
+    const { imageData } = req.body;
+    if (!imageData) {
+      return res.status(400).json({ error: '缺少图片数据' });
+    }
+    let base64Str = imageData;
+    let ext = 'png';
+    if (base64Str.startsWith('data:')) {
+      const match = base64Str.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (match) {
+        ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+        base64Str = match[2];
+      }
+    }
+    const buffer = Buffer.from(base64Str, 'base64');
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(413).json({ error: '图片文件过大，最大支持 10MB' });
+    }
+    const detectedType = detectImageType(buffer);
+    if (!detectedType || !['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(detectedType)) {
+      return res.status(400).json({ error: '不支持的图片格式，仅支持 JPG/PNG/GIF/WebP' });
+    }
+    const imagesDir = path.join(__dirname, 'uploads', 'images');
+    if (!fs.existsSync(imagesDir)) {
+      fs.mkdirSync(imagesDir, { recursive: true });
+    }
+    const filename = 'custom_' + Date.now() + '.' + detectedType;
+    const filePath = path.join(imagesDir, filename);
+    fs.writeFileSync(filePath, buffer);
+    const imagePath = 'uploads/images/' + filename;
+    auditLog('UPLOAD_CUSTOM_IMAGE', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      filename: filename, size: buffer.length
+    });
+    res.json({ success: true, imagePath });
+  } catch (err) {
+    structuredLog('error', { message: '自定义布局图片上传失败', error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 保存自定义布局
+app.post('/api/custom-layout/save', requireAdmin, (req, res) => {
+  try {
+    const { venueName, description, stageName, backgroundImage, gridConfig, customRows, canvasWidth, canvasHeight, customStage, customGates, customAisles } = req.body;
+    if (!venueName) return res.status(400).json({ error: '请输入会场名称' });
+    if (!customRows || !customRows.length) return res.status(400).json({ error: '请至少定义一个排或列' });
+    const data = readData();
+    // 使用时间戳生成唯一ID，避免冲突
+    const venueId = 'venue-custom-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    const standardRows = customRows.map((cr, idx) => {
+      const seats = [];
+      const startSeat = cr.startSeat || 1;
+      const aislePositions = cr.aislePositions || [];
+      // 根据aislePositions将座位分成多个group
+      // aislePositions[i] = k 表示在第k个座位（0-based index）前插入过道
+      let seatGroups = [];
+      let currentGroup = [];
+      for (let i = 0; i < cr.seatCount; i++) {
+        if (aislePositions.indexOf(i) > -1 && currentGroup.length > 0) {
+          seatGroups.push(currentGroup);
+          currentGroup = [];
+        }
+        currentGroup.push(startSeat + i);
+      }
+      if (currentGroup.length > 0) seatGroups.push(currentGroup);
+      // 如果没有seatGroups（seatCount=0的情况），创建一个空group
+      if (seatGroups.length === 0) {
+        for (let i = 0; i < cr.seatCount; i++) seats.push(startSeat + i);
+        seatGroups = [seats];
+      }
+      return {
+        label: cr.label || ('第' + (idx + 1) + '排'),
+        rowNum: cr.rowNum || (idx + 1),
+        seatGroups: seatGroups,
+        isAisle: false,
+        hasAisleAfter: false
+      };
+    });
+    const totalSeats = standardRows.reduce((sum, r) => sum + (r.seatGroups[0] || []).length, 0);
+    const venue = {
+      id: venueId,
+      name: venueName,
+      description: description || venueName,
+      stageName: '',
+      mode: 'custom',
+      layout: 'custom',
+      totalSeats,
+      rows: standardRows,
+      backgroundImage: backgroundImage || '',
+      gridConfig: gridConfig || { cellWidth: 50, cellHeight: 50, offsetX: 0, offsetY: 0, seatSize: 40, seatGap: 8 },
+      customRows: customRows,
+      canvasWidth: canvasWidth || 800,
+      canvasHeight: canvasHeight || 600,
+      customStage: customStage,
+      customGates: customGates || [],
+      customAisles: customAisles || []
+    };
+    data.venues.push(venue);
+    writeData(data);
+    auditLog('SAVE_CUSTOM_LAYOUT', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+      venueId, venueName, rowCount: customRows.length, totalSeats
+    });
+    res.json({ success: true, venue });
+  } catch (err) {
+    structuredLog('error', { message: '自定义布局保存失败', error: err.message });
     res.status(400).json({ error: err.message });
   }
 });
@@ -2059,6 +2909,20 @@ app.get('/api/venues/:id/seating', requireAuth, (req, res) => {
               seating.seatOccupancy[key] = attendeeMap[key] || null;
             });
           });
+        }
+      });
+    }
+
+    // 自定义布局：也从 customRows 填充 seatOccupancy
+    if (venue.customRows) {
+      venue.customRows.forEach(row => {
+        const rowStartSeat = row.startSeat || 1;
+        for (let i = 0; i < (row.seatCount || 0); i++) {
+          const seatNum = rowStartSeat + i;
+          const key = `${row.label}_${String(seatNum)}`;
+          if (!(key in seating.seatOccupancy)) {
+            seating.seatOccupancy[key] = attendeeMap[key] || null;
+          }
         }
       });
     }
