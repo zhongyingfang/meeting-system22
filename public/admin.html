@@ -322,6 +322,13 @@ async function openSeatCard() {
             <button class="btn btn-primary btn-sm" onclick="startCustomEditor()">开始编辑布局</button>
           </div>
         </div>
+        <div style="margin-top:12px;text-align:center;border-top:1px solid var(--border);padding-top:12px">
+          <button class="btn btn-outline btn-sm" onclick="startManualEditor()" style="gap:4px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            不传图，手动绘制
+          </button>
+          <span style="color:var(--text2);font-size:11px;margin-left:6px">在网格背景上直接绘制排/列、舞台、大门、过道</span>
+        </div>
       </div>
 
       <!-- Step 2: 网格编辑器 -->
@@ -1925,19 +1932,19 @@ function renderCustomDragMap(venue) {
   var contentH = maxY - minY;
 
   // === 第二步：计算缩放比例 ===
-  // 自适应容器宽度，使用 dragSeatMap 实际可用宽度
+  // 使用全部可用宽度（不再硬限制600），高度按比例动态设定
   var container = document.getElementById('dragSeatMap');
   var availCW = (container && container.clientWidth) ? container.clientWidth - 20 : 520;
   availCW = Math.max(300, availCW);
-  var MAX_CONTAINER_W = Math.min(availCW, 600);
-  var MAX_CONTAINER_H = 400;
+  var MAX_CONTAINER_W = availCW;
+  var MAX_CONTAINER_H = Math.max(500, Math.round(availCW * 0.5));
   var PADDING = 20;
   
   var scaleW = (MAX_CONTAINER_W - PADDING * 2) / Math.max(contentW, 1);
   var scaleH = (MAX_CONTAINER_H - PADDING * 2) / Math.max(contentH, 1);
   var scale = Math.min(scaleW, scaleH);
   
-  // 确保最小可见性，座位至少18px宽/高
+  // 在全貌可见的前提下尽量让座位≥30px
   var minSeatPx = Infinity;
   cr.forEach(function(row) {
     var size = row.direction === 'horizontal'
@@ -1945,9 +1952,10 @@ function renderCustomDragMap(venue) {
       : (row.height || 50) / Math.max(row.seatCount, 1);
     minSeatPx = Math.min(minSeatPx, size);
   });
-  var MIN_SEAT_PX = 18;
+  var MIN_SEAT_PX = 30;
   var minScale = MIN_SEAT_PX / Math.max(minSeatPx, 0.5);
-  scale = Math.max(scale, minScale);
+  // 在全貌可见前提下最大化座位：允许适量溢出（不超过30%）
+  scale = Math.max(scale, Math.min(minScale, scale * 1.3));
   
   // === 第三步：计算基准偏移 ===
   var finalContentW = contentW * scale;
@@ -1972,7 +1980,7 @@ function renderCustomDragMap(venue) {
     var stW = Math.round((st.width || 100) * scale);
     var stH = Math.round((st.height || 80) * scale);
     var stFontSize = Math.max(10, Math.min(14, stH / 5));
-    html += '<div style="position:absolute;left:' + stX + 'px;top:' + stY + 'px;width:' + stW + 'px;height:' + stH + 'px;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + stFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15)">' + esc(st.label || '舞台') + '</div>';
+    html += '<div style="position:absolute;left:' + stX + 'px;top:' + stY + 'px;width:' + stW + 'px;height:' + stH + 'px;background:#1a56db;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + stFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15)">' + esc(st.label || '舞台') + '</div>';
   }
 
   // 渲染大门（只在用户自定义了大门时才渲染）
@@ -1996,37 +2004,11 @@ function renderCustomDragMap(venue) {
       var aH = Math.round((aisle.height || 40) * scale);
       var aFontSize = Math.max(8, Math.min(11, aH / 3));
       var aisleLabel = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
-      html += '<div style="position:absolute;left:' + aX + 'px;top:' + aY + 'px;width:' + aW + 'px;height:' + aH + 'px;background:#fbbf24;border:2px dashed #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#d97706;font-size:' + aFontSize + 'px;font-weight:700;z-index:1">' + esc(aisleLabel) + '</div>';
+      html += '<div style="position:absolute;left:' + aX + 'px;top:' + aY + 'px;width:' + aW + 'px;height:' + aH + 'px;background:#dbeafe;border:none;border-radius:2px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:' + aFontSize + 'px;font-weight:700;z-index:1">' + esc(aisleLabel) + '</div>';
     });
   }
 
-  // 渲染座位排
-  // 全场统一字号：找出最小座位宽度和全局最长名字
-  var customMinSW = Infinity;
-  var customGlobalMaxLen = 1;
-  cr.forEach(function(row) {
-    var rw2 = Math.round((row.width || 100) * scale);
-    var rh2 = Math.round((row.height || 50) * scale);
-    var sc = row.seatCount || 0;
-    var aisles2 = (row.aislePositions || []).length;
-    var gap = aisles2 * Math.max(16, (row.direction === 'horizontal' ? rw2 : rh2) * 0.04);
-    var seatPx;
-    if (row.direction === 'horizontal') {
-      seatPx = Math.max(20, Math.floor((rw2 - gap) / Math.max(sc, 1)));
-    } else {
-      seatPx = Math.max(20, Math.floor((rh2 - gap) / Math.max(sc, 1)));
-    }
-    if (seatPx < customMinSW) customMinSW = seatPx;
-    var startS = row.startSeat || 1;
-    for (var si = 0; si < sc; si++) {
-      var sn = startS + si;
-      var k2 = (row.label || '') + '_' + sn;
-      var att = currentDragSeating.seatOccupancy[k2];
-      var txt = att ? att.name : String(sn);
-      if (txt.length > customGlobalMaxLen) customGlobalMaxLen = txt.length;
-    }
-  });
-  var customGlobalFontSize = Math.max(7, Math.floor(Math.min((customMinSW - 4) / Math.max(customGlobalMaxLen, 1), 30 * 0.7, 14)));
+  // 渲染座位排（字号在 renderSeat 中按座位独立计算）
   var sorted = cr.slice().sort(function(a, b) { return (a.rowNum || 0) - (b.rowNum || 0); });
   sorted.forEach(function(row) {
     var rx = Math.round(baseX + (row.x || 0) * scale);
@@ -2052,7 +2034,7 @@ function renderCustomDragMap(venue) {
       rowSeatH = Math.max(20, Math.floor((rh - totalAisleGap) / seatCount));
     }
     
-    // 辅助函数：渲染单个座位（使用全场统一字号）
+    // 辅助函数：渲染单个座位（有名字时竖排显示）
     function renderSeat(sx, sy, sw, sh, seatNum, isV) {
       var key = rowLabel + '_' + seatNum;
       var attendee = currentDragSeating.seatOccupancy[key];
@@ -2067,19 +2049,12 @@ function renderCustomDragMap(venue) {
       var fontSize;
 
       if (name && contentLen > 0) {
-        var horzNeed = Math.ceil((sw - 4) / contentLen);
-        if (customGlobalFontSize <= horzNeed) {
-          fontSize = customGlobalFontSize;
-        } else {
-          isVertical = true;
-          var vertNeed = Math.ceil((sh - 2) / contentLen);
-          if (customGlobalFontSize <= vertNeed) {
-            fontSize = customGlobalFontSize;
-          } else {
-            fontSize = Math.max(MIN_FONT, Math.floor(Math.min((sh - 2) / contentLen, sw * 0.8, 14)));
-          }
-        }
+        // 有名字时统一竖排显示，每个字占一行
+        isVertical = true;
+        // 竖排：宽度只需容纳单个最宽字符，高度需容纳所有字符
+        fontSize = Math.max(MIN_FONT, Math.min(Math.floor(sw * 0.85), Math.floor((sh - 2) / contentLen), 16));
       } else {
+        // 空座位只显示座位号，横排显示
         fontSize = Math.max(MIN_FONT, Math.min(Math.floor(sw * 0.6), Math.floor(sh * 0.4), 12));
       }
       
@@ -2108,7 +2083,7 @@ function renderCustomDragMap(venue) {
     }
 
     function renderAisleGap(ax, ay, aw, ah) {
-      return '<div style="position:absolute;left:' + ax + 'px;top:' + ay + 'px;width:' + aw + 'px;height:' + ah + 'px;background:#fbbf24;border:2px dashed #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#d97706;font-weight:700;z-index:1">过道</div>';
+      return '<div style="position:absolute;left:' + ax + 'px;top:' + ay + 'px;width:' + aw + 'px;height:' + ah + 'px;background:#dbeafe;border:none;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#94a3b8;font-weight:700;z-index:1">过道</div>';
     }
 
     if (row.direction === 'horizontal') {
@@ -3652,12 +3627,30 @@ function resetCustomImage() {
 // 拖拽上传（使用内联事件处理，不再重复绑定）
 
 
-// Step 2: 开始编辑器
+// Step 2: 开始编辑器（基于上传图片）
 function startCustomEditor() {
   if (!customEditorState.imageElement) { alert('请先上传布局图'); return; }
   document.getElementById('customUploadStep').style.display = 'none';
   document.getElementById('customEditorStep').style.display = 'block';
   document.getElementById('customPreviewStep').style.display = 'none';
+  customEditorState.customRows = [];
+  customEditorState.customStage = null;
+  customEditorState.customGates = [];
+  customEditorState.customAisles = [];
+  customEditorState.drawMode = true;
+  customEditorState.drawType = 'row';
+  customEditorState.selectedRowIndex = -1;
+  refreshCustomCanvas();
+}
+
+// Step 2: 开始编辑器（手动绘制，无图片）
+function startManualEditor() {
+  document.getElementById('customUploadStep').style.display = 'none';
+  document.getElementById('customEditorStep').style.display = 'block';
+  document.getElementById('customPreviewStep').style.display = 'none';
+  customEditorState.imageElement = null;
+  customEditorState.imagePath = '';
+  customEditorState.image = null;
   customEditorState.customRows = [];
   customEditorState.customStage = null;
   customEditorState.customGates = [];
@@ -3680,27 +3673,35 @@ function setCustomDrawType(type) {
 
 function checkCustomCanvasSize() {
   var img = customEditorState.imageElement;
-  if (!img) return;
   var container = document.getElementById('customCanvasContainer');
   var maxW = Math.min(container.clientWidth - 4, 1200);
-  customEditorState.image = { width: maxW, height: maxW * (img.height / img.width) };
+  if (img) {
+    customEditorState.image = { width: maxW, height: maxW * (img.height / img.width) };
+  } else if (!customEditorState.image) {
+    // 无图片时使用默认尺寸（4:3比例）
+    customEditorState.image = { width: maxW, height: Math.round(maxW * 0.75) };
+  }
 }
 
 function refreshCustomCanvas() {
   var canvas = document.getElementById('customLayoutCanvas');
   var state = customEditorState;
-  var img = state.imageElement;
-  if (!img || !canvas) return;
+  if (!canvas) return;
   checkCustomCanvasSize();
   var cw = state.image.width;
   var ch = state.image.height;
   canvas.width = cw;
   canvas.height = ch;
   var ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, cw, ch);
-  ctx.globalAlpha = state.imageOpacity;
-  ctx.drawImage(img, 0, 0, cw, ch);
-  ctx.globalAlpha = 1;
+  // 填充背景色（无图片时显示浅色网格背景）
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(0, 0, cw, ch);
+  // 绘制背景图片（如果有）
+  if (state.imageElement) {
+    ctx.globalAlpha = state.imageOpacity;
+    ctx.drawImage(state.imageElement, 0, 0, cw, ch);
+    ctx.globalAlpha = 1;
+  }
 
   // 绘制网格
   var gw = parseInt(document.getElementById('gridCellW').value) || 50;
@@ -4298,78 +4299,100 @@ function renderCustomPreviewLocal() {
   }
   
   var sorted = rows.slice().sort(function(a, b) { return a.rowNum - b.rowNum; });
+  // 构建分组：连续且seatCount相同的排为一组
+  var groups = [];
+  var currentGroup = [sorted[0]];
+  for (var g = 1; g < sorted.length; g++) {
+    if (sorted[g].seatCount === sorted[g-1].seatCount) {
+      currentGroup.push(sorted[g]);
+    } else {
+      groups.push(currentGroup);
+      currentGroup = [sorted[g]];
+    }
+  }
+  if (currentGroup.length > 0) groups.push(currentGroup);
+
   var pY = extraTop;
   var svg = '<rect width="100%" height="100%" fill="#f8fafc"/>';
-  
-  sorted.forEach(function(row) {
-    var rl = escHtml(row.label || '');
-    svg += '<text x="' + (extraLeft - 20) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="end" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
-    
-    var aisles = (row.aislePositions || []).slice();
-    aisles.sort(function(a, b) { return a - b; });
-    var startSeat = row.startSeat || 1;
-    var seatCount = row.seatCount;
-    
-    if (row.direction === 'horizontal') {
-      var totalRowW = seatCount * (pSW + pSG) + aisles.length * aisleGap;
-      var startX = extraLeft + (totalW - extraLeft - totalRowW) / 2;
-      var cursorX = startX;
-      for (var i = 0; i < seatCount; i++) {
-        for (var a = 0; a < aisles.length; a++) {
-          if (aisles[a] === i) {
-            // 渲染过道
-            var agx = cursorX;
-            svg += '<rect x="' + agx + '" y="' + (pY - 2) + '" width="' + aisleGap + '" height="' + (pSH + 4) + '" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="6,3" rx="3"/>';
-            svg += '<text x="' + (agx + aisleGap/2) + '" y="' + (pY + pSH/2 + 4) + '" text-anchor="middle" font-size="10" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>';
-            cursorX += aisleGap;
+
+  groups.forEach(function(group) {
+    group.forEach(function(row, rowIdxInGroup) {
+      var isFirstInGroup = (rowIdxInGroup === 0);
+      var rl = escHtml(row.label || '');
+      svg += '<text x="' + (extraLeft - 20) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="end" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
+
+      var aisles = (row.aislePositions || []).slice();
+      aisles.sort(function(a, b) { return a - b; });
+      var startSeat = row.startSeat || 1;
+      var seatCount = row.seatCount;
+
+      if (row.direction === 'horizontal') {
+        var totalRowW = seatCount * (pSW + pSG) + aisles.length * aisleGap;
+        var startX = extraLeft + (totalW - extraLeft - totalRowW) / 2;
+        var cursorX = startX;
+        for (var i = 0; i < seatCount; i++) {
+          for (var a = 0; a < aisles.length; a++) {
+            if (aisles[a] === i) {
+              // 渲染过道
+              var agx = cursorX;
+              svg += '<rect x="' + agx + '" y="' + (pY + pSH/2 - 12) + '" width="' + aisleGap + '" height="24" fill="#dbeafe" rx="3"/>';
+              svg += '<text x="' + (agx + aisleGap/2) + '" y="' + (pY + pSH/2 + 6) + '" text-anchor="middle" font-size="11" font-family="Microsoft YaHei, sans-serif" fill="#94a3b8" font-weight="bold">过道</text>';
+              cursorX += aisleGap;
+            }
           }
-        }
-        var sn = startSeat + i;
-        var sx = cursorX;
-        var sy = pY;
-        var numBoxW = Math.min(40, pSW * 0.8);
-        var numBoxH = 24;
-        var nbx = sx + (pSW - numBoxW) / 2;
-        var nby = sy - numBoxH - 6;
-        var numFS = Math.max(10, Math.min(14, numBoxH * 0.5));
-        
-        svg += '<rect x="' + nbx + '" y="' + nby + '" width="' + numBoxW + '" height="' + numBoxH + '" fill="#1a56db" rx="4"/>';
-        svg += '<text x="' + (nbx + numBoxW/2) + '" y="' + (nby + numBoxH/2 + 5) + '" text-anchor="middle" font-size="' + numFS + '" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">' + sn + '</text>';
-        svg += '<rect x="' + sx + '" y="' + sy + '" width="' + pSW + '" height="' + pSH + '" fill="#fff" stroke="#cbd5e1" stroke-width="1.5" rx="3"/>';
-        cursorX += pSW + pSG;
-      }
-    } else {
-      var colX = extraLeft + (totalW - extraLeft - pSW) / 2;
-      var estSeatH = (seatCount > 1) ? Math.min(pSH, 160 / seatCount) : pSH;
-      pRG = estSeatH + 8;
-      var availH = seatCount * (estSeatH + pRG);
-      var cursorY = pY;
-      for (var j = 0; j < seatCount; j++) {
-        for (var a = 0; a < aisles.length; a++) {
-          if (aisles[a] === j) {
-            var agy = cursorY;
-            svg += '<rect x="' + (colX - 2) + '" y="' + agy + '" width="' + (pSW + 4) + '" height="' + aisleGap + '" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="6,3" rx="3"/>';
-            svg += '<text x="' + (colX + pSW/2) + '" y="' + (agy + aisleGap/2 + 4) + '" text-anchor="middle" font-size="10" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>';
-            cursorY += aisleGap;
+          var sn = startSeat + i;
+          var sx = cursorX;
+          var sy = pY;
+          // 座位号蓝色方块（仅组内第一排显示）
+          if (isFirstInGroup) {
+            var numBoxW = Math.min(40, pSW * 0.8);
+            var numBoxH = 24;
+            var nbx = sx + (pSW - numBoxW) / 2;
+            var nby = sy - numBoxH - 6;
+            var numFS = Math.max(10, Math.min(14, numBoxH * 0.5));
+            svg += '<rect x="' + nbx + '" y="' + nby + '" width="' + numBoxW + '" height="' + numBoxH + '" fill="#1a56db" rx="4"/>';
+            svg += '<text x="' + (nbx + numBoxW/2) + '" y="' + (nby + numBoxH/2 + 5) + '" text-anchor="middle" font-size="' + numFS + '" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">' + sn + '</text>';
           }
+          // 座位框（始终渲染）
+          svg += '<rect x="' + sx + '" y="' + sy + '" width="' + pSW + '" height="' + pSH + '" fill="#fff" stroke="#cbd5e1" stroke-width="1.5" rx="3"/>';
+          cursorX += pSW + pSG;
         }
-        var sn = startSeat + j;
-        var numBoxW = 36;
-        var numBoxH = Math.min(30, estSeatH * 0.8);
-        var nbx = colX - numBoxW - 8;
-        var nby = cursorY + (estSeatH - numBoxH) / 2;
-        var numFS = Math.max(10, Math.min(14, numBoxH * 0.5));
-        
-        svg += '<rect x="' + nbx + '" y="' + nby + '" width="' + numBoxW + '" height="' + numBoxH + '" fill="#1a56db" rx="4"/>';
-        svg += '<text x="' + (nbx + numBoxW/2) + '" y="' + (nby + numBoxH/2 + 5) + '" text-anchor="middle" font-size="' + numFS + '" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">' + sn + '</text>';
-        svg += '<rect x="' + colX + '" y="' + cursorY + '" width="' + pSW + '" height="' + estSeatH + '" fill="#fff" stroke="#cbd5e1" stroke-width="1.5" rx="3"/>';
-        cursorY += estSeatH + 4;
+      } else {
+        var colX = extraLeft + (totalW - extraLeft - pSW) / 2;
+        var estSeatH = (seatCount > 1) ? Math.min(pSH, 160 / seatCount) : pSH;
+        pRG = estSeatH + 8;
+        var availH = seatCount * (estSeatH + pRG);
+        var cursorY = pY;
+        for (var j = 0; j < seatCount; j++) {
+          for (var a = 0; a < aisles.length; a++) {
+            if (aisles[a] === j) {
+              var agy = cursorY;
+              svg += '<rect x="' + (colX + pSW/2 - 12) + '" y="' + agy + '" width="24" height="' + aisleGap + '" fill="#dbeafe" rx="3"/>';
+              svg += '<text x="' + (colX + pSW/2) + '" y="' + (agy + aisleGap/2 + 6) + '" text-anchor="middle" font-size="11" font-family="Microsoft YaHei, sans-serif" fill="#94a3b8" font-weight="bold">过道</text>';
+              cursorY += aisleGap;
+            }
+          }
+          var sn = startSeat + j;
+          // 座位号蓝色方块（仅组内第一排显示）
+          if (isFirstInGroup) {
+            var numBoxW = 36;
+            var numBoxH = Math.min(30, estSeatH * 0.8);
+            var nbx = colX - numBoxW - 8;
+            var nby = cursorY + (estSeatH - numBoxH) / 2;
+            var numFS = Math.max(10, Math.min(14, numBoxH * 0.5));
+            svg += '<rect x="' + nbx + '" y="' + nby + '" width="' + numBoxW + '" height="' + numBoxH + '" fill="#1a56db" rx="4"/>';
+            svg += '<text x="' + (nbx + numBoxW/2) + '" y="' + (nby + numBoxH/2 + 5) + '" text-anchor="middle" font-size="' + numFS + '" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">' + sn + '</text>';
+          }
+          // 座位框（始终渲染）
+          svg += '<rect x="' + colX + '" y="' + cursorY + '" width="' + pSW + '" height="' + estSeatH + '" fill="#fff" stroke="#cbd5e1" stroke-width="1.5" rx="3"/>';
+          cursorY += estSeatH + 4;
+        }
+        pY = Math.max(pY + availH + aisleGap * aisles.length, cursorY);
       }
-      pY = Math.max(pY + availH + aisleGap * aisles.length, cursorY);
-    }
-    if (row.direction === 'horizontal') {
-      pY += pSH + pRG;
-    }
+      if (row.direction === 'horizontal') {
+        pY += pSH + pRG;
+      }
+    });
   });
   var svgH = pY + 40;
   container.innerHTML = '<svg width="' + totalW + '" height="' + svgH + '" style="max-width:100%;border:1px solid #e2e8f0;border-radius:8px">' + svg + '</svg>';

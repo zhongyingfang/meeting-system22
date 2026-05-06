@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const VERSION = 'v1.2.0';
+const VERSION = 'v1.3.0';
 const PACKAGE_NAME = `meeting-system-${VERSION}`;
 
 console.log('==========================================');

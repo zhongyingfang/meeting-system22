@@ -6,7 +6,7 @@ echo   版本: v1.2.0
 echo ==========================================
 echo.
 
-set VERSION=v1.2.0
+set VERSION=v1.3.0
 set PACKAGE_NAME=meeting-system-%VERSION%
 
 echo [准备] 清理临时文件...

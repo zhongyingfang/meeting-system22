@@ -1024,7 +1024,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           const stageY = baseY + (stage.y || 0) * scale;
           const stageW = (stage.width || 200) * scale;
           const stageH = (stage.height || 80) * scale;
-          svgContent += `  <rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#f59e0b" stroke="#d97706" stroke-width="3" rx="8"/>\n`;
+          svgContent += `  <rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#1a56db" rx="8"/>\n`;
           svgContent += `  <text x="${stageX + stageW/2}" y="${stageY + stageH/2 + 10}" text-anchor="middle" fill="#ffffff" font-size="${Math.min(48, stageH/2.2)}" font-weight="bold">${escXml(stage.label || '舞台')}</text>\n`;
         }
         
@@ -1045,107 +1045,131 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
             const aisleY = baseY + (aisle.y || 0) * scale;
             const aisleW = (aisle.width || 60) * scale;
             const aisleH = (aisle.height || 40) * scale;
-            svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${aisleH}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>\n`;
+            svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${Math.min(aisleH, 24)}" fill="#dbeafe" rx="3"/>\n`;
             const aisleDisplayLabel = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
-            svgContent += `  <text x="${aisleX + aisleW/2}" y="${aisleY + aisleH/2 + 6}" text-anchor="middle" fill="#d97706" font-size="${Math.min(30, aisleH/2.2)}" font-weight="bold">${escXml(aisleDisplayLabel)}</text>\n`;
+            svgContent += `  <text x="${aisleX + aisleW/2}" y="${aisleY + Math.min(aisleH, 24)/2 + 6}" text-anchor="middle" fill="#94a3b8" font-size="${Math.min(20, Math.min(aisleH, 24)/1.6)}" font-weight="bold">${escXml(aisleDisplayLabel)}</text>\n`;
           });
         }
         
         // === 2. 再渲染座位 ===
-        sorted.forEach(row => {
-          const rowLabel = row.label || '';
-          const x = baseX + (row.x || 0) * scale;
-          const rowY = baseY + (row.y || 0) * scale;
-          const w = (row.width || 100) * scale;
-          const h = (row.height || 50) * scale;
-          const startSeat = row.startSeat || 1;
-          const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
-          const aisleGapPx = Math.max(30, (row.direction === 'horizontal' ? w : h) * 0.05);
-          const totalAisleGap = aisles.length * aisleGapPx;
-          
-          if (row.direction === 'horizontal') {
-            const seatCount = row.seatCount;
-            const availW = w - totalAisleGap;
-            const seatW = availW / seatCount;
-            const seatH = Math.max(seatHeight, h * 0.9);
-            
-            let cursorX = x;
-            for (let i = 0; i < seatCount; i++) {
-              for (let a = 0; a < aisles.length; a++) {
-                if (aisles[a] === i) {
-                  svgContent += `  <rect x="${cursorX}" y="${rowY - 2}" width="${aisleGapPx}" height="${h + 4}" fill="#fbbf24" stroke="#f59e0b" stroke-width="3" stroke-dasharray="8,4" rx="4"/>\n`;
-                  svgContent += `  <text x="${cursorX + aisleGapPx/2}" y="${rowY + h/2 + 8}" text-anchor="middle" fill="#d97706" font-size="${Math.min(24, h/2.5)}" font-weight="bold">过道</text>\n`;
-                  cursorX += aisleGapPx;
-                }
-              }
-              const sx = cursorX;
-              const sy = rowY + (h - seatH) / 2;
-              const sn = startSeat + i;
-              const name = attendeeMap[rowLabel + '_' + sn];
-              
-              if (i === 0) {
-                svgContent += `  <text x="${sx - 15}" y="${sy + seatH/2 + 8}" class="row-label" text-anchor="end" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
-              }
-              
-              const numBoxW = Math.min(80, seatW * 0.85);
-              const numBoxH = 40;
-              const nbx = sx + (seatW - numBoxW) / 2;
-              const nby = sy - numBoxH - 10;
-              svgContent += `  <rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>\n`;
-              svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + 28}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
-              svgContent += `  <rect x="${sx + 3}" y="${sy}" width="${seatW - 6}" height="${seatH}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
-              
-              if (name) {
-                const dn = name.replace(/\n/g, ' ');
-                const nameLen = Math.max(dn.length, 1);
-                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.5);
-                const fs = Math.max(12, Math.min(36, maxFit));
-                svgContent += `  <text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
-              }
-              cursorX += seatW;
-            }
+        // 构建分组：连续且seatCount相同的排为一组
+        const rowGroups = [];
+        let curGroup = [sorted[0]];
+        for (let g = 1; g < sorted.length; g++) {
+          if (sorted[g].seatCount === sorted[g-1].seatCount) {
+            curGroup.push(sorted[g]);
           } else {
-            const seatCount = row.seatCount;
-            const availH = h - totalAisleGap;
-            const seatH = availH / seatCount;
-            const seatW = Math.max(seatWidth, w * 0.9);
-            
-            let cursorY = rowY;
-            for (let i = 0; i < seatCount; i++) {
-              for (let a = 0; a < aisles.length; a++) {
-                if (aisles[a] === i) {
-                  svgContent += `  <rect x="${x - 2}" y="${cursorY}" width="${w + 4}" height="${aisleGapPx}" fill="#fbbf24" stroke="#f59e0b" stroke-width="3" stroke-dasharray="8,4" rx="4"/>\n`;
-                  svgContent += `  <text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 8}" text-anchor="middle" fill="#d97706" font-size="${Math.min(24, w/3)}" font-weight="bold">过道</text>\n`;
-                  cursorY += aisleGapPx;
-                }
-              }
-              const sx = x + (w - seatW) / 2;
-              const sy = cursorY;
-              const sn = startSeat + i;
-              const name = attendeeMap[rowLabel + '_' + sn];
-              
-              if (i === 0) {
-                svgContent += `  <text x="${sx + seatW/2}" y="${sy - 15}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
-              }
-              
-              const numBoxW = 60;
-              const numBoxH = Math.min(45, seatH * 0.85);
-              const nbx = sx - numBoxW - 10;
-              const nby = sy + (seatH - numBoxH) / 2;
-              svgContent += `  <rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>\n`;
-              svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 8}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
-              svgContent += `  <rect x="${sx}" y="${sy + 3}" width="${seatW}" height="${seatH - 6}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
-              
-              if (name) {
-                const dn = name.replace(/\n/g, ' ');
-                const nameLen = Math.max(dn.length, 1);
-                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.5);
-                const fs = Math.max(12, Math.min(36, maxFit));
-                svgContent += `  <text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
-              }
-              cursorY += seatH;
-            }
+            rowGroups.push(curGroup);
+            curGroup = [sorted[g]];
           }
+        }
+        if (curGroup.length > 0) rowGroups.push(curGroup);
+        
+        rowGroups.forEach(group => {
+          group.forEach((row, rowIdxInGroup) => {
+            const isFirstInGroup = (rowIdxInGroup === 0);
+            const rowLabel = row.label || '';
+            const x = baseX + (row.x || 0) * scale;
+            const rowY = baseY + (row.y || 0) * scale;
+            const w = (row.width || 100) * scale;
+            const h = (row.height || 50) * scale;
+            const startSeat = row.startSeat || 1;
+            const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
+            const aisleGapPx = Math.max(30, (row.direction === 'horizontal' ? w : h) * 0.05);
+            const totalAisleGap = aisles.length * aisleGapPx;
+
+            if (row.direction === 'horizontal') {
+              const seatCount = row.seatCount;
+              const availW = w - totalAisleGap;
+              const seatW = availW / seatCount;
+              const seatH = Math.max(seatHeight, h * 0.9);
+
+              let cursorX = x;
+              for (let i = 0; i < seatCount; i++) {
+                for (let a = 0; a < aisles.length; a++) {
+                  if (aisles[a] === i) {
+                    svgContent += `  <rect x="${cursorX}" y="${rowY + h/2 - 12}" width="${aisleGapPx}" height="24" fill="#dbeafe" rx="3"/>\n`;
+                    svgContent += `  <text x="${cursorX + aisleGapPx/2}" y="${rowY + h/2 + 6}" text-anchor="middle" fill="#94a3b8" font-size="${Math.min(16, 24/1.6)}" font-weight="bold">过道</text>\n`;
+                    cursorX += aisleGapPx;
+                  }
+                }
+                const sx = cursorX;
+                const sy = rowY + (h - seatH) / 2;
+                const sn = startSeat + i;
+                const name = attendeeMap[rowLabel + '_' + sn];
+
+                if (i === 0) {
+                  svgContent += `  <text x="${sx - 15}" y="${sy + seatH/2 + 8}" class="row-label" text-anchor="end" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+                }
+
+                // 座位号蓝色方块（仅组内第一排显示）
+                if (isFirstInGroup) {
+                  const numBoxW = Math.min(80, seatW * 0.85);
+                  const numBoxH = 40;
+                  const nbx = sx + (seatW - numBoxW) / 2;
+                  const nby = sy - numBoxH - 10;
+                  svgContent += `  <rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>\n`;
+                  svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + 28}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
+                }
+
+                svgContent += `  <rect x="${sx + 3}" y="${sy}" width="${seatW - 6}" height="${seatH}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+
+                if (name) {
+                  const dn = name.replace(/\n/g, ' ');
+                  const nameLen = Math.max(dn.length, 1);
+                  const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.5);
+                  const fs = Math.max(12, Math.min(36, maxFit));
+                  svgContent += `  <text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+                }
+                cursorX += seatW;
+              }
+            } else {
+              const seatCount = row.seatCount;
+              const availH = h - totalAisleGap;
+              const seatH = availH / seatCount;
+              const seatW = Math.max(seatWidth, w * 0.9);
+
+              let cursorY = rowY;
+              for (let i = 0; i < seatCount; i++) {
+                for (let a = 0; a < aisles.length; a++) {
+                  if (aisles[a] === i) {
+                    svgContent += `  <rect x="${x + w/2 - 12}" y="${cursorY}" width="24" height="${aisleGapPx}" fill="#dbeafe" rx="3"/>\n`;
+                    svgContent += `  <text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 6}" text-anchor="middle" fill="#94a3b8" font-size="${Math.min(16, 24/1.6)}" font-weight="bold">过道</text>\n`;
+                    cursorY += aisleGapPx;
+                  }
+                }
+                const sx = x + (w - seatW) / 2;
+                const sy = cursorY;
+                const sn = startSeat + i;
+                const name = attendeeMap[rowLabel + '_' + sn];
+
+                if (i === 0) {
+                  svgContent += `  <text x="${sx + seatW/2}" y="${sy - 15}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+                }
+
+                // 座位号蓝色方块（仅组内第一排显示）
+                if (isFirstInGroup) {
+                  const numBoxW = 60;
+                  const numBoxH = Math.min(45, seatH * 0.85);
+                  const nbx = sx - numBoxW - 10;
+                  const nby = sy + (seatH - numBoxH) / 2;
+                  svgContent += `  <rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>\n`;
+                  svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 8}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
+                }
+
+                svgContent += `  <rect x="${sx}" y="${sy + 3}" width="${seatW}" height="${seatH - 6}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+
+                if (name) {
+                  const dn = name.replace(/\n/g, ' ');
+                  const nameLen = Math.max(dn.length, 1);
+                  const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.5);
+                  const fs = Math.max(12, Math.min(36, maxFit));
+                  svgContent += `  <text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+                }
+                cursorY += seatH;
+              }
+            }
+          });
         });
         
         y = baseY + maxY * scale + 150;
@@ -1618,59 +1642,93 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       sc += `<text x="${svgW/2}" y="35" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" font-weight="bold" fill="#1e293b">${escXml(venueName || '自定义会场')}</text>`;
       
       const sorted = [...customRows].sort((a, b) => a.rowNum - b.rowNum);
-      sorted.forEach(row => {
-        const rl = row.label || '';
-        const x = margin + (row.x || 0) * scale;
-        const y = margin + 60 + (row.y || 0) * scale;
-        const w = (row.width || 100) * scale;
-        const h = (row.height || 50) * scale;
-        const startSeat = row.startSeat || 1;
-        const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
-        const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
-        const totalAisleGap = aisles.length * aisleGapPx;
-        
-        if (row.direction === 'horizontal') {
-          const availW = w - totalAisleGap;
-          const seatW = availW / row.seatCount;
-          const seatH = Math.min(80, h * 0.95);
-          let cursorX = x;
-          for (let i = 0; i < row.seatCount; i++) {
-            for (let a = 0; a < aisles.length; a++) {
-              if (aisles[a] === i) {
-                sc += `<rect x="${cursorX}" y="${y - 2}" width="${aisleGapPx}" height="${h + 4}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
-                sc += `<text x="${cursorX + aisleGapPx/2}" y="${y + h/2 + 5}" text-anchor="middle" font-size="${Math.min(16, h/3)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
-                cursorX += aisleGapPx;
-              }
-            }
-            const seatX = cursorX;
-            const seatY = y + (h - seatH) / 2;
-            const numFS = Math.max(10, Math.min(16, seatH * 0.35, seatW * 0.8));
-            sc += `<rect x="${seatX + 2}" y="${seatY}" width="${seatW - 4}" height="${seatH}" fill="#fff" stroke="#cbd5e1" stroke-width="2" rx="4"/>`;
-            sc += `<text x="${seatX + seatW/2}" y="${seatY + seatH/2 + numFS/3}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#64748b">${startSeat + i}</text>`;
-            cursorX += seatW;
-          }
+      // 构建分组：连续且seatCount相同的排为一组
+      const groups = [];
+      let currentGroup = [sorted[0]];
+      for (let g = 1; g < sorted.length; g++) {
+        if (sorted[g].seatCount === sorted[g-1].seatCount) {
+          currentGroup.push(sorted[g]);
         } else {
-          const availH = h - totalAisleGap;
-          const seatH = availH / row.seatCount;
-          const seatW = Math.min(100, w * 0.95);
-          let cursorY = y;
-          for (let i = 0; i < row.seatCount; i++) {
-            for (let a = 0; a < aisles.length; a++) {
-              if (aisles[a] === i) {
-                sc += `<rect x="${x - 2}" y="${cursorY}" width="${w + 4}" height="${aisleGapPx}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
-                sc += `<text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 5}" text-anchor="middle" font-size="${Math.min(16, w/4)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
-                cursorY += aisleGapPx;
-              }
-            }
-            const seatX = x + (w - seatW) / 2;
-            const seatY = cursorY;
-            const numFS = Math.max(10, Math.min(16, seatW * 0.22, seatH * 0.8));
-            sc += `<rect x="${seatX}" y="${seatY + 2}" width="${seatW}" height="${seatH - 4}" fill="#fff" stroke="#cbd5e1" stroke-width="2" rx="4"/>`;
-            sc += `<text x="${seatX + seatW/2}" y="${seatY + seatH/2 + numFS/3}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#64748b">${startSeat + i}</text>`;
-            cursorY += seatH;
-          }
+          groups.push(currentGroup);
+          currentGroup = [sorted[g]];
         }
-        sc += `<text x="${x - 12}" y="${y + h/2 + 6}" text-anchor="end" font-size="${Math.max(12, Math.min(18, h / 2.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444">${escXml(rl)}</text>`;
+      }
+      if (currentGroup.length > 0) groups.push(currentGroup);
+
+      groups.forEach(group => {
+        group.forEach((row, rowIdxInGroup) => {
+          const isFirstInGroup = (rowIdxInGroup === 0);
+          const rl = row.label || '';
+          const x = margin + (row.x || 0) * scale;
+          const y = margin + 60 + (row.y || 0) * scale;
+          const w = (row.width || 100) * scale;
+          const h = (row.height || 50) * scale;
+          const startSeat = row.startSeat || 1;
+          const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
+          const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
+          const totalAisleGap = aisles.length * aisleGapPx;
+
+          if (row.direction === 'horizontal') {
+            const availW = w - totalAisleGap;
+            const seatW = availW / row.seatCount;
+            const seatH = Math.min(80, h * 0.95);
+            let cursorX = x;
+            for (let i = 0; i < row.seatCount; i++) {
+              for (let a = 0; a < aisles.length; a++) {
+                if (aisles[a] === i) {
+                  sc += `<rect x="${cursorX}" y="${y + h/2 - 12}" width="${aisleGapPx}" height="24" fill="#dbeafe" rx="3"/>`;
+                  sc += `<text x="${cursorX + aisleGapPx/2}" y="${y + h/2 + 6}" text-anchor="middle" font-size="${Math.min(14, 24/1.6)}" font-family="Microsoft YaHei, sans-serif" fill="#94a3b8" font-weight="bold">过道</text>`;
+                  cursorX += aisleGapPx;
+                }
+              }
+              const seatX = cursorX;
+              const seatY = y + (h - seatH) / 2;
+              // 座位框（始终渲染）
+              sc += `<rect x="${seatX + 2}" y="${seatY}" width="${seatW - 4}" height="${seatH}" fill="#fff" stroke="#cbd5e1" stroke-width="2" rx="4"/>`;
+              // 座位号（仅组内第一排显示，蓝色方块在座位上方）
+              if (isFirstInGroup) {
+                const numBoxW = Math.min(50, seatW * 0.8);
+                const numBoxH = Math.max(18, Math.min(28, seatH * 0.45));
+                const numFS = Math.max(10, Math.min(16, numBoxH * 0.55));
+                const nbx = seatX + (seatW - numBoxW) / 2;
+                const nby = seatY - numBoxH - 6;
+                sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="4"/>`;
+                sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH - 6}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${startSeat + i}</text>`;
+              }
+              cursorX += seatW;
+            }
+          } else {
+            const availH = h - totalAisleGap;
+            const seatH = availH / row.seatCount;
+            const seatW = Math.min(100, w * 0.95);
+            let cursorY = y;
+            for (let i = 0; i < row.seatCount; i++) {
+              for (let a = 0; a < aisles.length; a++) {
+                if (aisles[a] === i) {
+                  sc += `<rect x="${x + w/2 - 12}" y="${cursorY}" width="24" height="${aisleGapPx}" fill="#dbeafe" rx="3"/>`;
+                  sc += `<text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 6}" text-anchor="middle" font-size="${Math.min(14, 24/1.6)}" font-family="Microsoft YaHei, sans-serif" fill="#94a3b8" font-weight="bold">过道</text>`;
+                  cursorY += aisleGapPx;
+                }
+              }
+              const seatX = x + (w - seatW) / 2;
+              const seatY = cursorY;
+              // 座位框（始终渲染）
+              sc += `<rect x="${seatX}" y="${seatY + 2}" width="${seatW}" height="${seatH - 4}" fill="#fff" stroke="#cbd5e1" stroke-width="2" rx="4"/>`;
+              // 座位号（仅组内第一排显示，蓝色方块在座位左侧）
+              if (isFirstInGroup) {
+                const numBoxW = Math.min(42, seatW * 0.7);
+                const numBoxH = Math.max(18, Math.min(30, seatH * 0.75));
+                const numFS = Math.max(10, Math.min(16, numBoxH * 0.5));
+                const nbx = seatX - numBoxW - 8;
+                const nby = seatY + (seatH - numBoxH) / 2;
+                sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="4"/>`;
+                sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 5}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${startSeat + i}</text>`;
+              }
+              cursorY += seatH;
+            }
+          }
+          sc += `<text x="${x - 12}" y="${y + h/2 + 6}" text-anchor="end" font-size="${Math.max(12, Math.min(18, h / 2.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444">${escXml(rl)}</text>`;
+        });
       });
       
       // 渲染自定义舞台（临时预览）
@@ -1679,7 +1737,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
         const stageY = margin + 60 + (customStage.y || 0) * scale;
         const stageW = (customStage.width || 200) * scale;
         const stageH = (customStage.height || 80) * scale;
-        sc += `<rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#f59e0b" stroke="#d97706" stroke-width="3" rx="8"/>`;
+        sc += `<rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#1a56db" rx="8"/>`;
         sc += `<text x="${stageX + stageW/2}" y="${stageY + stageH/2 + 5}" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="bold">${escXml(customStage.label || '舞台')}</text>`;
       }
       
@@ -1702,9 +1760,9 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
           const aisleY = margin + 60 + (aisle.y || 0) * scale;
           const aisleW = (aisle.width || 60) * scale;
           const aisleH = (aisle.height || 40) * scale;
-          sc += `<rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${aisleH}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+          sc += `<rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${Math.min(aisleH, 24)}" fill="#dbeafe" rx="3"/>`;
           const aisleDisplayLabel2 = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
-          sc += `<text x="${aisleX + aisleW/2}" y="${aisleY + aisleH/2 + 4}" text-anchor="middle" fill="#d97706" font-size="14" font-weight="bold">${escXml(aisleDisplayLabel2)}</text>`;
+          sc += `<text x="${aisleX + aisleW/2}" y="${aisleY + Math.min(aisleH, 24)/2 + 6}" text-anchor="middle" fill="#94a3b8" font-size="${Math.min(16, Math.min(aisleH, 24)/1.6)}" font-weight="bold">${escXml(aisleDisplayLabel2)}</text>`;
         });
       }
       
@@ -1817,7 +1875,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
           const stageY = baseY + (stage.y || 0) * scale;
           const stageW = (stage.width || 200) * scale;
           const stageH = (stage.height || 80) * scale;
-          sc += `<rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#f59e0b" stroke="#d97706" stroke-width="3" rx="8"/>`;
+          sc += `<rect x="${stageX}" y="${stageY}" width="${stageW}" height="${stageH}" fill="#1a56db" rx="8"/>`;
           sc += `<text x="${stageX + stageW/2}" y="${stageY + stageH/2 + 8}" text-anchor="middle" fill="#ffffff" font-size="${Math.min(32, stageH/2.2)}" font-weight="bold">${escXml(stage.label || '舞台')}</text>`;
         }
         
@@ -1838,107 +1896,129 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
             const aisleY = baseY + (aisle.y || 0) * scale;
             const aisleW = (aisle.width || 60) * scale;
             const aisleH = (aisle.height || 40) * scale;
-            sc += `<rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${aisleH}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
+            sc += `<rect x="${aisleX}" y="${aisleY}" width="${aisleW}" height="${Math.min(aisleH, 24)}" fill="#dbeafe" rx="3"/>`;
             const aisleDisplayLabel3 = (aisle.label && aisle.label !== 'null') ? aisle.label : '过道';
-            sc += `<text x="${aisleX + aisleW/2}" y="${aisleY + aisleH/2 + 4}" text-anchor="middle" fill="#d97706" font-size="${Math.min(20, aisleH/2.2)}" font-weight="bold">${escXml(aisleDisplayLabel3)}</text>`;
+            sc += `<text x="${aisleX + aisleW/2}" y="${aisleY + Math.min(aisleH, 24)/2 + 6}" text-anchor="middle" fill="#94a3b8" font-size="${Math.min(16, Math.min(aisleH, 24)/1.6)}" font-weight="bold">${escXml(aisleDisplayLabel3)}</text>`;
           });
         }
         
         // === 2. 再渲染座位 ===
-        sorted.forEach(row => {
-          const rl = row.label || '';
-          const x = baseX + (row.x || 0) * scale;
-          const y = baseY + (row.y || 0) * scale;
-          const w = (row.width || 100) * scale;
-          const h = (row.height || 50) * scale;
-          const startSeat = row.startSeat || 1;
-          const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
-          const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
-          const totalAisleGap = aisles.length * aisleGapPx;
-          
-          if (row.direction === 'horizontal') {
-            const seatCount = row.seatCount;
-            const availW = w - totalAisleGap;
-            const seatW = availW / seatCount;
-            const seatH = Math.max(50, h * 0.9);
-            
-            let cursorX = x;
-            for (let i = 0; i < seatCount; i++) {
-              for (let a = 0; a < aisles.length; a++) {
-                if (aisles[a] === i) {
-                  sc += `<rect x="${cursorX}" y="${y - 2}" width="${aisleGapPx}" height="${h + 4}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
-                  sc += `<text x="${cursorX + aisleGapPx/2}" y="${y + h/2 + 8}" text-anchor="middle" font-size="${Math.min(18, h/3)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
-                  cursorX += aisleGapPx;
-                }
-              }
-              const sx = cursorX;
-              const sy = y + (h - seatH) / 2;
-              const sn = startSeat + i;
-              const name = attendeeMap[rl + '_' + sn];
-              
-              if (i === 0) {
-                sc += `<text x="${sx - 8}" y="${sy + seatH/2 + 6}" text-anchor="end" font-size="${Math.max(18, Math.min(28, h/1.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">${escXml(rl)}</text>`;
-              }
-              
-              const numBoxW = Math.min(50, seatW * 0.8);
-              const numBoxH = 28;
-              const nbx = sx + (seatW - numBoxW) / 2;
-              const nby = sy - numBoxH - 8;
-              sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>`;
-              sc += `<text x="${nbx + numBoxW/2}" y="${nby + 20}" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${sn}</text>`;
-              
-              sc += `<rect x="${sx + 2}" y="${sy}" width="${seatW - 4}" height="${seatH}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
-              if (name) {
-                const dn = name.replace(/\n/g, ' ');
-                const nameLen = Math.max(dn.length, 1);
-                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.45);
-                const fs = Math.max(11, Math.min(28, maxFit));
-                sc += `<text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" fill="#1e293b">${escXml(dn)}</text>`;
-              }
-              cursorX += seatW;
-            }
+        // 构建分组：连续且seatCount相同的排为一组
+        const rowGroups = [];
+        let curGroup = [sorted[0]];
+        for (let g = 1; g < sorted.length; g++) {
+          if (sorted[g].seatCount === sorted[g-1].seatCount) {
+            curGroup.push(sorted[g]);
           } else {
-            const seatCount = row.seatCount;
-            const availH = h - totalAisleGap;
-            const seatH = availH / seatCount;
-            const seatW = Math.max(60, w * 0.9);
-            
-            let cursorY = y;
-            for (let i = 0; i < seatCount; i++) {
-              for (let a = 0; a < aisles.length; a++) {
-                if (aisles[a] === i) {
-                  sc += `<rect x="${x - 2}" y="${cursorY}" width="${w + 4}" height="${aisleGapPx}" fill="#fbbf24" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8,4" rx="4"/>`;
-                  sc += `<text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 8}" text-anchor="middle" font-size="${Math.min(18, w/3)}" font-family="Microsoft YaHei, sans-serif" fill="#d97706" font-weight="bold">过道</text>`;
-                  cursorY += aisleGapPx;
-                }
-              }
-              const sx = x + (w - seatW) / 2;
-              const sy = cursorY;
-              const sn = startSeat + i;
-              const name = attendeeMap[rl + '_' + sn];
-              
-              if (i === 0) {
-                sc += `<text x="${sx + seatW/2}" y="${sy - 10}" text-anchor="middle" font-size="${Math.max(18, Math.min(28, h/1.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">${escXml(rl)}</text>`;
-              }
-              
-              const numBoxW = 42;
-              const numBoxH = Math.min(36, seatH * 0.85);
-              const nbx = sx - numBoxW - 8;
-              const nby = sy + (seatH - numBoxH) / 2;
-              sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>`;
-              sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 6}" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${sn}</text>`;
-              
-              sc += `<rect x="${sx}" y="${sy + 2}" width="${seatW}" height="${seatH - 4}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
-              if (name) {
-                const dn = name.replace(/\n/g, ' ');
-                const nameLen = Math.max(dn.length, 1);
-                const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.45);
-                const fs = Math.max(11, Math.min(28, maxFit));
-                sc += `<text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" fill="#1e293b">${escXml(dn)}</text>`;
-              }
-              cursorY += seatH;
-            }
+            rowGroups.push(curGroup);
+            curGroup = [sorted[g]];
           }
+        }
+        if (curGroup.length > 0) rowGroups.push(curGroup);
+
+        rowGroups.forEach(group => {
+          group.forEach((row, rowIdxInGroup) => {
+            const isFirstInGroup = (rowIdxInGroup === 0);
+            const rl = row.label || '';
+            const x = baseX + (row.x || 0) * scale;
+            const y = baseY + (row.y || 0) * scale;
+            const w = (row.width || 100) * scale;
+            const h = (row.height || 50) * scale;
+            const startSeat = row.startSeat || 1;
+            const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
+            const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
+            const totalAisleGap = aisles.length * aisleGapPx;
+
+            if (row.direction === 'horizontal') {
+              const seatCount = row.seatCount;
+              const availW = w - totalAisleGap;
+              const seatW = availW / seatCount;
+              const seatH = Math.max(50, h * 0.9);
+
+              let cursorX = x;
+              for (let i = 0; i < seatCount; i++) {
+                for (let a = 0; a < aisles.length; a++) {
+                  if (aisles[a] === i) {
+                    sc += `<rect x="${cursorX}" y="${y + h/2 - 12}" width="${aisleGapPx}" height="24" fill="#dbeafe" rx="3"/>`;
+                    sc += `<text x="${cursorX + aisleGapPx/2}" y="${y + h/2 + 6}" text-anchor="middle" font-size="${Math.min(14, 24/1.6)}" font-family="Microsoft YaHei, sans-serif" fill="#94a3b8" font-weight="bold">过道</text>`;
+                    cursorX += aisleGapPx;
+                  }
+                }
+                const sx = cursorX;
+                const sy = y + (h - seatH) / 2;
+                const sn = startSeat + i;
+                const name = attendeeMap[rl + '_' + sn];
+
+                if (i === 0) {
+                  sc += `<text x="${sx - 8}" y="${sy + seatH/2 + 6}" text-anchor="end" font-size="${Math.max(18, Math.min(28, h/1.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">${escXml(rl)}</text>`;
+                }
+
+                // 座位号蓝色方块（仅组内第一排显示）
+                if (isFirstInGroup) {
+                  const numBoxW = Math.min(50, seatW * 0.8);
+                  const numBoxH = 28;
+                  const nbx = sx + (seatW - numBoxW) / 2;
+                  const nby = sy - numBoxH - 8;
+                  sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>`;
+                  sc += `<text x="${nbx + numBoxW/2}" y="${nby + 20}" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${sn}</text>`;
+                }
+
+                sc += `<rect x="${sx + 2}" y="${sy}" width="${seatW - 4}" height="${seatH}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
+                if (name) {
+                  const dn = name.replace(/\n/g, ' ');
+                  const nameLen = Math.max(dn.length, 1);
+                  const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.45);
+                  const fs = Math.max(11, Math.min(28, maxFit));
+                  sc += `<text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" fill="#1e293b">${escXml(dn)}</text>`;
+                }
+                cursorX += seatW;
+              }
+            } else {
+              const seatCount = row.seatCount;
+              const availH = h - totalAisleGap;
+              const seatH = availH / seatCount;
+              const seatW = Math.max(60, w * 0.9);
+
+              let cursorY = y;
+              for (let i = 0; i < seatCount; i++) {
+                for (let a = 0; a < aisles.length; a++) {
+                  if (aisles[a] === i) {
+                    sc += `<rect x="${x + w/2 - 12}" y="${cursorY}" width="24" height="${aisleGapPx}" fill="#dbeafe" rx="3"/>`;
+                    sc += `<text x="${x + w/2}" y="${cursorY + aisleGapPx/2 + 6}" text-anchor="middle" font-size="${Math.min(14, 24/1.6)}" font-family="Microsoft YaHei, sans-serif" fill="#94a3b8" font-weight="bold">过道</text>`;
+                    cursorY += aisleGapPx;
+                  }
+                }
+                const sx = x + (w - seatW) / 2;
+                const sy = cursorY;
+                const sn = startSeat + i;
+                const name = attendeeMap[rl + '_' + sn];
+
+                if (i === 0) {
+                  sc += `<text x="${sx + seatW/2}" y="${sy - 10}" text-anchor="middle" font-size="${Math.max(18, Math.min(28, h/1.8))}" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">${escXml(rl)}</text>`;
+                }
+
+                // 座位号蓝色方块（仅组内第一排显示）
+                if (isFirstInGroup) {
+                  const numBoxW = 42;
+                  const numBoxH = Math.min(36, seatH * 0.85);
+                  const nbx = sx - numBoxW - 8;
+                  const nby = sy + (seatH - numBoxH) / 2;
+                  sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="6"/>`;
+                  sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 6}" text-anchor="middle" font-size="18" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${sn}</text>`;
+                }
+
+                sc += `<rect x="${sx}" y="${sy + 2}" width="${seatW}" height="${seatH - 4}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
+                if (name) {
+                  const dn = name.replace(/\n/g, ' ');
+                  const nameLen = Math.max(dn.length, 1);
+                  const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.45);
+                  const fs = Math.max(11, Math.min(28, maxFit));
+                  sc += `<text x="${sx + seatW/2}" y="${sy + seatH/2 + fs/3}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" fill="#1e293b">${escXml(dn)}</text>`;
+                }
+                cursorY += seatH;
+              }
+            }
+          });
         });
         
         previewVenues.push({ name: venue.name, width: totalSW, height: svgH, svgContent: sc });

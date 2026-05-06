@@ -1,2 +1,0 @@
-RemindFacebookBonus = 1776917328
-RemindGoal = 1776917328
