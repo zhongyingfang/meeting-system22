@@ -1646,6 +1646,8 @@ async function loadDragSeating() {
       await renderUnassignedList(true);
       updateDragStatus();
       updateSelectedCount();
+      // 从服务器加载已保存的区域
+      await loadRegionsFromServer();
       // 如果在区域选择模式，高亮区域
       if (regionSelectMode) {
         highlightRegionsOnSeatMap();
@@ -1723,6 +1725,7 @@ function renderStandardDragMap(venue) {
     if (row.seatGroups) {
       row.seatGroups.forEach(function(group) {
         group.forEach(function(seatNum) {
+          if (seatNum === null || seatNum === undefined) return;
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
           var txt = attendee ? attendee.name : String(seatNum);
@@ -1749,6 +1752,10 @@ function renderStandardDragMap(venue) {
           html += '<div style="width:16px;flex-shrink:0"></div>';
         }
         group.forEach(function(seatNum) {
+          if (seatNum === null || seatNum === undefined) {
+            html += '<div style="width:16px;height:' + seatH + 'px;flex-shrink:0;background:#dbeafe;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;color:#94a3b8;font-weight:600">过道</div>';
+            return;
+          }
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
           html += renderDragSeat(row.label, seatNum, attendee, false, { seatW: globalSW, seatH: seatH, globalFontSize: venueFontSize });
@@ -1799,8 +1806,9 @@ function renderUShapeDragMap(venue) {
     var total = 0;
     if (row.seatGroups) {
       row.seatGroups.forEach(function(group) {
-        total += group.length;
+        total += group.filter(function(s) { return s !== null && s !== undefined; }).length;
         group.forEach(function(seatNum) {
+          if (seatNum === null || seatNum === undefined) return;
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
           var txt = attendee ? attendee.name : String(seatNum);
@@ -1835,6 +1843,10 @@ function renderUShapeDragMap(venue) {
       html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:2px">' + esc(row.label) + '</div>';
       if (row.seatGroups && row.seatGroups[0]) {
         row.seatGroups[0].forEach(function(seatNum) {
+          if (seatNum === null || seatNum === undefined) {
+            html += '<div style="width:' + colSW + 'px;height:14px;flex-shrink:0;background:#dbeafe;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;color:#94a3b8;font-weight:600">过道</div>';
+            return;
+          }
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
           html += renderDragSeat(row.label, seatNum, attendee, true, { seatW: colSW, seatH: colSH, globalFontSize: ushapeFontSize });
@@ -1855,6 +1867,10 @@ function renderUShapeDragMap(venue) {
       html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-bottom:2px">' + esc(row.label) + '</div>';
       if (row.seatGroups && row.seatGroups[0]) {
         row.seatGroups[0].forEach(function(seatNum) {
+          if (seatNum === null || seatNum === undefined) {
+            html += '<div style="width:' + colSW + 'px;height:14px;flex-shrink:0;background:#dbeafe;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;color:#94a3b8;font-weight:600">过道</div>';
+            return;
+          }
           var key = row.label + '_' + seatNum;
           var attendee = currentDragSeating.seatOccupancy[key];
           html += renderDragSeat(row.label, seatNum, attendee, true, { seatW: colSW, seatH: colSH, globalFontSize: ushapeFontSize });
@@ -1874,6 +1890,10 @@ function renderUShapeDragMap(venue) {
     html += '<div style="display:flex;align-items:center;flex-wrap:nowrap">';
     if (bottomRow.seatGroups && bottomRow.seatGroups[0]) {
       bottomRow.seatGroups[0].forEach(function(seatNum) {
+        if (seatNum === null || seatNum === undefined) {
+          html += '<div style="width:14px;height:44px;flex-shrink:0;background:#dbeafe;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;color:#94a3b8;font-weight:600">过道</div>';
+          return;
+        }
         var key = bottomRow.label + '_' + seatNum;
         var attendee = currentDragSeating.seatOccupancy[key];
         html += renderDragSeat(bottomRow.label, seatNum, attendee, false, { seatW: bottomSW, seatH: 44, globalFontSize: ushapeFontSize });
@@ -2059,13 +2079,34 @@ function renderCustomDragMap(venue) {
       }
       
       var tooltip = esc(rowLabel) + seatNum + '号' + (attendee ? ' - ' + esc(attendee.name) + '（可拖拽换座）' : ' - 空座位');
+      
+      // 检查座位是否属于已分配单位的区域（锁定）
+      var lockRegion = getSeatLockRegion(key);
+      var isLocked = lockRegion !== null;
+      var lockedClass = '';
+      if (isLocked) {
+        if (attendee) {
+          lockedClass = ' seat-locked';
+          tooltip = esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（' + esc(lockRegion.company) + '预留区）';
+        } else {
+          lockedClass = ' seat-locked seat-locked-empty';
+          content = '已预留';
+          contentStr = '已预留';
+          contentLen = 3;
+          tooltip = esc(rowLabel) + seatNum + '号 - ' + esc(lockRegion.company) + '预留座位';
+        }
+      }
+      
       var selClass = selectedSeats.indexOf(key) > -1 ? ' selected' : '';
-      var seatHtml = '<div class="drag-seat' + selClass + '" style="position:absolute;left:' + sx + 'px;top:' + sy + 'px;width:' + (sw - 2) + 'px;height:' + sh + 'px" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
+      var seatHtml = '<div class="drag-seat' + selClass + lockedClass + '" style="position:absolute;left:' + sx + 'px;top:' + sy + 'px;width:' + (sw - 2) + 'px;height:' + sh + 'px" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
       seatHtml += ' onmousedown="handleSeatMouseDown(event)"';
       if (attendee) {
         seatHtml += ' draggable="true" ondragstart="handleSeatDragStart(event)" ondragend="handleSeatDragEnd(event)"';
       }
-      seatHtml += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+      // 空锁定座位不允许拖拽进入
+      if (!(isLocked && !attendee)) {
+        seatHtml += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+      }
       seatHtml += '>';
       seatHtml += '<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:' + bg + ';color:' + tc + ';font-size:' + fontSize + 'px;font-weight:600;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;overflow:hidden;line-height:1.05">';
       if (isVertical) {
@@ -2093,7 +2134,7 @@ function renderCustomDragMap(venue) {
       html += '<div style="position:absolute;left:' + labelLeft + 'px;top:' + ry + 'px;width:52px;height:' + rh + 'px;display:flex;align-items:center;justify-content:flex-end;font-size:10px;color:#ef4444;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(rowLabel) + '">' + esc(rowLabel) + '</div>';
       var cursorX = rx;
       for (var i = 0; i < seatCount; i++) {
-        var seatNum = startSeat + i;
+        var seatNum = getRowSeatNumber(row, i);
         // 检查此座位前是否有过道
         for (var a = 0; a < aisles.length; a++) {
           if (aisles[a] === i) {
@@ -2112,7 +2153,7 @@ function renderCustomDragMap(venue) {
       html += '<div style="position:absolute;left:' + rx + 'px;top:' + labelTop + 'px;width:' + rw + 'px;height:16px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#ef4444;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(rowLabel) + '">' + esc(rowLabel) + '</div>';
       var cursorY = ry;
       for (var i = 0; i < seatCount; i++) {
-        var seatNum = startSeat + i;
+        var seatNum = getRowSeatNumber(row, i);
         for (var a = 0; a < aisles.length; a++) {
           if (aisles[a] === i) {
             html += renderAisleGap(rx, Math.round(cursorY), rw, aisleGapPx);
@@ -2730,6 +2771,15 @@ async function handleDrop(event) {
 
   if (draggedSeatKey === key) return;
 
+  // 检查座位是否属于已分配单位的区域（锁定座位）
+  var lockRegion = getSeatLockRegion(key);
+  if (lockRegion) {
+    showToast('该座位属于「' + lockRegion.company + '」的预留区域，不可安排其他人');
+    draggedAttendee = null;
+    draggedSeatKey = null;
+    return;
+  }
+
   var existingAttendee = currentDragSeating.seatOccupancy[key];
   if (existingAttendee) {
     var confirmMsg = draggedSeatKey
@@ -3115,7 +3165,22 @@ async function importNames() {
 // 区域选择状态
 var regionSelectMode = false;
 var selectedSeats = []; // 存储座位的 key: "rowLabel_seatNum"
-var savedRegions = {}; // key: venueId, value: [{id, name, seats}]
+var savedRegions = {}; // key: venueId, value: [{id, name, seats, company, colorIndex}]
+
+// 检查座位是否属于已分配单位的区域（锁定座位）
+function getSeatLockRegion(seatKey) {
+  var regions = savedRegions[currentVenueId] || [];
+  for (var i = 0; i < regions.length; i++) {
+    if (regions[i].company && regions[i].seats.indexOf(seatKey) > -1) {
+      return regions[i];
+    }
+  }
+  return null;
+}
+function isSeatLockedByCompany(seatKey) {
+  return getSeatLockRegion(seatKey) !== null;
+}
+
 var isDrawing = false;
 var drawStart = {x: 0, y: 0};
 var drawBox = null;
@@ -3147,7 +3212,7 @@ function getRegionColor(regionIndex) {
 
 // 添加鼠标悬停显示清除按钮和区域选择的样式
 var dragStyles = document.createElement('style');
-dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); border-color:#f59e0b !important; box-shadow:0 0 8px rgba(245,158,11,0.4); }\n.drag-seat.seat-dragging { opacity:0.4; transform:scale(0.95); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.region-tag-color-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin:0; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; min-width:150px; }\n#regionSelectDropdown { min-width:150px; max-height:300px; overflow-y:auto; }\n.attendee-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,0.1); }\n.attendee-card:active { cursor:grabbing !important; transform:scale(0.97); }\n#unassignedList::-webkit-scrollbar { height:6px; }\n#unassignedList::-webkit-scrollbar-track { background:#f1f5f9; border-radius:3px; }\n#unassignedList::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:3px; }\n#unassignedList::-webkit-scrollbar-thumb:hover { background:#94a3b8; }\n@keyframes searchPulse { 0%,100% { box-shadow:0 0 0 0 rgba(245,158,11,0.7); } 50% { box-shadow:0 0 0 8px rgba(245,158,11,0); } }\n.search-highlight { border-color:#f59e0b !important; background:#fff3cd !important; }\n';
+dragStyles.textContent = '\n.drag-seat:hover .clear-seat { display:inline !important; }\n.drag-seat.drag-over { transform: scale(1.05); border-color:#f59e0b !important; box-shadow:0 0 8px rgba(245,158,11,0.4); }\n.drag-seat.seat-dragging { opacity:0.4; transform:scale(0.95); }\n.draggable-attendee:active { cursor: grabbing !important; }\n.drag-seat.selected { background:#86efac !important; border-color:#22c55e !important; color:#166534 !important; box-shadow:0 0 0 2px #22c55e inset !important; }\n.region-select-mode .drag-seat { cursor:crosshair !important; }\n.drag-seat.seat-locked { cursor:not-allowed !important; opacity:0.85; }\n.drag-seat.seat-locked-empty { cursor:not-allowed !important; background:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(0,0,0,0.05) 4px,rgba(0,0,0,0.05) 8px) !important; border-style:dashed !important; border-width:2px !important; }\n#dragBoxOverlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:100; }\n.drawBox { position:absolute; border:2px dashed #3b82f6; background:rgba(59, 130, 246, 0.1); pointer-events:none; }\n.region-tag { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; background:#f0f9ff; border:1px solid #7dd3fc; border-radius:8px; font-size:12px; cursor:pointer; transition:all 0.2s; }\n.region-tag:hover { background:#e0f2fe; transform:translateY(-1px); }\n.region-tag-name { font-weight:600; color:#0369a1; }\n.region-tag-count { background:#0ea5e9; color:#fff; padding:1px 6px; border-radius:10px; font-size:10px; font-weight:700; }\n.region-tag-delete { color:#ef4444; cursor:pointer; padding:2px; line-height:1; }\n.region-tag-color-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }\n.attendee-checkbox { width:18px; height:18px; cursor:pointer; accent-color:var(--primary); }\n.select-all-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text2); margin:0; padding:4px 0; }\n.batch-actions { padding:8px 0; border-top:1px solid var(--border); margin-top:8px; }\n.batch-actions select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; margin-right:8px; min-width:150px; }\n#regionSelectDropdown { min-width:150px; max-height:300px; overflow-y:auto; }\n.attendee-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,0.1); }\n.attendee-card:active { cursor:grabbing !important; transform:scale(0.97); }\n#unassignedList::-webkit-scrollbar { height:6px; }\n#unassignedList::-webkit-scrollbar-track { background:#f1f5f9; border-radius:3px; }\n#unassignedList::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:3px; }\n#unassignedList::-webkit-scrollbar-thumb:hover { background:#94a3b8; }\n@keyframes searchPulse { 0%,100% { box-shadow:0 0 0 0 rgba(245,158,11,0.7); } 50% { box-shadow:0 0 0 8px rgba(245,158,11,0); } }\n.search-highlight { border-color:#f59e0b !important; background:#fff3cd !important; }\n';
 document.head.appendChild(dragStyles);
 
 // 切换区域选择模式
@@ -3210,25 +3275,32 @@ function saveRegion() {
   if (selectedSeats.length === 0) return alert('请先选择座位');
   var name = prompt('请输入区域名称（如：VIP区、嘉宾区）：');
   if (!name) return;
-  
+  var company = prompt('请输入单位名称（如：某某公司，留空表示不指定单位）：', '');
+
   if (!savedRegions[currentVenueId]) savedRegions[currentVenueId] = [];
   var regionId = 'region_' + Date.now();
-  var colorIndex = savedRegions[currentVenueId].length; // 按顺序分配颜色
-  savedRegions[currentVenueId].push({
+  var colorIndex = savedRegions[currentVenueId].length;
+  var region = {
     id: regionId,
     name: name,
     seats: selectedSeats.slice(),
     colorIndex: colorIndex
-  });
-  
+  };
+  if (company && company.trim()) region.company = company.trim();
+  savedRegions[currentVenueId].push(region);
+
   // 保存到 localStorage
   try {
     localStorage.setItem('savedRegions_' + currentVenueId, JSON.stringify(savedRegions[currentVenueId]));
   } catch (e) {}
-  
+
+  // 保存到服务器
+  saveRegionsToServer();
+
   renderSavedRegions();
   highlightRegionsOnSeatMap();
-  showToast('区域「' + name + '」已保存');
+  var msg = region.company ? '单位「' + region.company + '」的区域「' + region.name + '」已保存' : '区域「' + name + '」已保存';
+  showToast(msg);
 }
 
 // 渲染已保存的区域
@@ -3253,9 +3325,10 @@ function renderSavedRegions() {
   var html = '';
   regions.forEach(function(region, idx) {
     var color = getRegionColor(region.colorIndex);
-    html += '<div class="region-tag" onclick="selectRegion(\'' + region.id + '\')" title="点击选择此区域" style="background:' + color.bg + ';border-color:' + color.border + '">';
+    var displayName = region.company ? esc(region.company) + ' <span style="opacity:0.6">-</span> ' + esc(region.name) : esc(region.name);
+    html += '<div class="region-tag" onclick="selectRegion(\'' + region.id + '\')" title="' + (region.company ? esc(region.name) + '（' + esc(region.company) + '）' : esc(region.name)) + '" style="background:' + color.bg + ';border-color:' + color.border + '">';
     html += '<span class="region-tag-color-dot" style="background:' + color.border + '"></span>';
-    html += '<span class="region-tag-name" style="color:' + color.text + '">' + esc(region.name) + '</span>';
+    html += '<span class="region-tag-name" style="color:' + color.text + '">' + displayName + '</span>';
     html += '<span class="region-tag-count" style="background:' + color.border + '">' + region.seats.length + '座</span>';
     html += '<span class="region-tag-delete" onclick="event.stopPropagation();deleteRegion(\'' + region.id + '\')" title="删除">×</span>';
     html += '</div>';
@@ -3302,6 +3375,54 @@ function deleteRegion(regionId) {
   renderSavedRegions();
   highlightRegionsOnSeatMap();
   showToast('区域已删除');
+  saveRegionsToServer();
+}
+
+// 将区域数据保存到服务器
+async function saveRegionsToServer() {
+  if (!currentVenueId) return;
+  var regions = savedRegions[currentVenueId] || [];
+  try {
+    await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/regions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ regions: regions })
+    });
+  } catch (err) {
+    console.error('保存区域到服务器失败:', err);
+  }
+}
+
+// 从服务器加载区域数据
+async function loadRegionsFromServer() {
+  if (!currentVenueId) return;
+  try {
+    var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId) + '/regions');
+    var data = await res.json();
+    if (data.ok && Array.isArray(data.regions) && data.regions.length > 0) {
+      // 合并服务器数据到 savedRegions，localStorage 数据优先
+      if (!savedRegions[currentVenueId]) savedRegions[currentVenueId] = [];
+      var existingIds = {};
+      savedRegions[currentVenueId].forEach(function(r) { existingIds[r.id] = true; });
+      data.regions.forEach(function(r) {
+        if (!existingIds[r.id]) {
+          savedRegions[currentVenueId].push(r);
+        }
+      });
+      // 确保颜色索引正确
+      savedRegions[currentVenueId].forEach(function(r, idx) {
+        if (r.colorIndex === undefined) r.colorIndex = idx;
+      });
+      // 写回 localStorage 做缓存
+      try {
+        localStorage.setItem('savedRegions_' + currentVenueId, JSON.stringify(savedRegions[currentVenueId]));
+      } catch (e) {}
+      renderSavedRegions();
+      highlightRegionsOnSeatMap();
+    }
+  } catch (err) {
+    console.error('从服务器加载区域失败:', err);
+  }
 }
 
 // 在座位图上高亮显示所有保存的区域
@@ -3330,6 +3451,43 @@ function highlightRegionsOnSeatMap() {
         }
       }
     });
+  });
+  
+  // 渲染区域标签（浮动在座位图上方的单位/区域名称）
+  var container = document.getElementById('dragSeatMap');
+  if (!container) return;
+  // 清除旧标签
+  container.querySelectorAll('.region-zone-label').forEach(function(el) { el.remove(); });
+  
+  // 有单位的区域标签始终显示，无单位的区域标签仅在区域选择模式显示
+  regions.forEach(function(region) {
+    // 无单位的区域只在区域选择模式下显示标签
+    if (!region.company && !regionSelectMode) return;
+    var color = getRegionColor(region.colorIndex);
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    var found = false;
+    region.seats.forEach(function(seatKey) {
+      var seatEl = document.querySelector('.drag-seat[data-key="' + seatKey + '"]');
+      if (seatEl) {
+        found = true;
+        var rect = seatEl.getBoundingClientRect();
+        var containerRect = container.getBoundingClientRect();
+        var relX = rect.left - containerRect.left + container.scrollLeft;
+        var relY = rect.top - containerRect.top + container.scrollTop;
+        if (relX < minX) minX = relX;
+        if (relX + rect.width > maxX) maxX = relX + rect.width;
+        if (relY < minY) minY = relY;
+        if (relY + rect.height > maxY) maxY = relY + rect.height;
+      }
+    });
+    if (!found) return;
+    
+    var labelText = region.company ? region.company + ' - ' + region.name : region.name;
+    var label = document.createElement('div');
+    label.className = 'region-zone-label';
+    label.textContent = labelText;
+    label.style.cssText = 'position:absolute;left:' + (minX) + 'px;top:' + Math.max(0, minY - 24) + 'px;background:' + color.border + ';color:#fff;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap;pointer-events:none;z-index:101;box-shadow:0 2px 6px rgba(0,0,0,0.15);opacity:0.9';
+    container.appendChild(label);
   });
 }
 
@@ -3378,13 +3536,33 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
   
   var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（可拖拽换座）' : esc(rowLabel) + seatNum + '号 - 空座位';
   
+  // 检查座位是否属于已分配单位的区域（锁定）
+  var lockRegion = getSeatLockRegion(key);
+  var isLocked = lockRegion !== null;
+  var lockedClass = '';
+  if (isLocked) {
+    if (attendee) {
+      lockedClass = ' seat-locked';
+      tooltip = esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（' + esc(lockRegion.company) + '预留区）';
+    } else {
+      lockedClass = ' seat-locked seat-locked-empty';
+      content = '已预留';
+      contentStr = '已预留';
+      contentLen = 3;
+      tooltip = esc(rowLabel) + seatNum + '号 - ' + esc(lockRegion.company) + '预留座位';
+    }
+  }
+  
   var selectedClass = selectedSeats.indexOf(key) > -1 ? ' selected' : '';
-  var cursorStyle = attendee ? 'cursor:grab;' : 'cursor:pointer;';
+  var cursorStyle = attendee ? 'cursor:grab;' : (isLocked ? '' : 'cursor:pointer;');
   var style = 'width:' + seatW + 'px;height:' + seatH + 'px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:600;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor + ';position:relative;' + cursorStyle;
   
-  var html = '<div class="drag-seat' + selectedClass + '" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
+  var html = '<div class="drag-seat' + selectedClass + lockedClass + '" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
   html += ' onmousedown="handleSeatMouseDown(event)"';
-  html += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+  // 空锁定座位不允许拖拽进入
+  if (!(isLocked && !attendee)) {
+    html += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
+  }
   if (attendee) {
     html += ' draggable="true"';
     html += ' ondragstart="handleSeatDragStart(event)" ondragend="handleSeatDragEnd(event)"';
@@ -3772,79 +3950,72 @@ function refreshCustomCanvas() {
     var aisles = (row.aislePositions || []).slice();
     aisles.sort(function(a, b) { return a - b; });
     var seatCount = row.seatCount;
-    var startSeat = row.startSeat || 1;
-    // 构建座位到真实编号的映射（连续编号，过道不占用编号）
     var aisleGapPx = Math.max(20, (row.direction === 'horizontal' ? row.width : row.height) * 0.04);
-    var totalAisleGap = aisles.length * aisleGapPx;
-    // 座位预览
+    // 座位预览（按网格对齐，每格一个座位）
     if (row.direction === 'horizontal') {
-      var availW = row.width - totalAisleGap;
-      var seatW = Math.min(40, (availW - (seatCount - 1) * 6) / seatCount);
-      var gap = (availW - seatCount * seatW) / Math.max(seatCount - 1, 1);
-      if (gap > 10) gap = 6;
+      var seatW = Math.max(gw - 4, 8);
+      var seatH = Math.min(row.height, 24);
       var cursorX = row.x;
-      var realSeatNum = startSeat;
       for (var i = 0; i < seatCount; i++) {
-        // 检查当前座位前是否有过道
+        // 过道：在当前格绘制标记后跳过此格
         for (var a = 0; a < aisles.length; a++) {
-          if (aisles[a] === realSeatNum - startSeat) {
-            cursorX += aisleGapPx;
-            // 绘制过道标记
+          if (aisles[a] === i) {
+            var aisleCX = cursorX + gw / 2;
             ctx.fillStyle = 'rgba(251,191,36,0.25)';
-            ctx.fillRect(cursorX - aisleGapPx, row.y, aisleGapPx, Math.min(row.height, 24));
+            ctx.fillRect(aisleCX - aisleGapPx/2, row.y, aisleGapPx, seatH);
             ctx.strokeStyle = '#f59e0b';
             ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
-            ctx.strokeRect(cursorX - aisleGapPx, row.y, aisleGapPx, Math.min(row.height, 24));
+            ctx.strokeRect(aisleCX - aisleGapPx/2, row.y, aisleGapPx, seatH);
             ctx.setLineDash([]);
+            cursorX += gw;
           }
         }
-        var sx = cursorX;
-        cursorX += seatW + gap;
+        // 座位占据当前格
+        var sx = cursorX + (gw - seatW) / 2;
         ctx.fillStyle = 'rgba(219,234,254,0.7)';
-        ctx.fillRect(sx, row.y, seatW, Math.min(row.height, 24));
+        ctx.fillRect(sx, row.y, seatW, seatH);
         ctx.strokeStyle = '#94a3b8';
         ctx.lineWidth = 0.5;
-        ctx.strokeRect(sx, row.y, seatW, Math.min(row.height, 24));
+        ctx.strokeRect(sx, row.y, seatW, seatH);
         ctx.fillStyle = '#64748b';
         ctx.font = '9px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(realSeatNum, sx + seatW / 2, row.y + 16);
-        realSeatNum++;
+        ctx.fillText(getRowSeatNumber(row, i), cursorX + gw / 2, row.y + 16);
+        cursorX += gw;
       }
     } else {
-      // 竖列：同理，在高度方向插入过道
-      var availH = row.height - totalAisleGap;
-      var seatH = Math.min(40, (availH - (seatCount - 1) * 6) / seatCount);
-      var gap = (availH - seatCount * seatH) / Math.max(seatCount - 1, 1);
-      if (gap > 10) gap = 6;
+      // 竖列：每格一个座位，按网格对齐
+      var seatW2 = Math.min(row.width, 24);
+      var seatH2 = Math.max(gh - 4, 8);
       var cursorY = row.y;
-      var realSeatNum = startSeat;
       for (var i = 0; i < seatCount; i++) {
+        // 过道：在当前格绘制标记后跳过此格
         for (var a = 0; a < aisles.length; a++) {
-          if (aisles[a] === realSeatNum - startSeat) {
-            cursorY += aisleGapPx;
+          if (aisles[a] === i) {
+            var aisleCY = cursorY + gh / 2;
             ctx.fillStyle = 'rgba(251,191,36,0.25)';
-            ctx.fillRect(row.x, cursorY - aisleGapPx, Math.min(row.width, 24), aisleGapPx);
+            ctx.fillRect(row.x, aisleCY - aisleGapPx/2, seatW2, aisleGapPx);
             ctx.strokeStyle = '#f59e0b';
             ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
-            ctx.strokeRect(row.x, cursorY - aisleGapPx, Math.min(row.width, 24), aisleGapPx);
+            ctx.strokeRect(row.x, aisleCY - aisleGapPx/2, seatW2, aisleGapPx);
             ctx.setLineDash([]);
+            cursorY += gh;
           }
         }
-        var sy = cursorY;
-        cursorY += seatH + gap;
+        // 座位占据当前格
+        var sy = cursorY + (gh - seatH2) / 2;
         ctx.fillStyle = 'rgba(219,234,254,0.7)';
-        ctx.fillRect(row.x, sy, Math.min(row.width, 24), seatH);
+        ctx.fillRect(row.x, sy, seatW2, seatH2);
         ctx.strokeStyle = '#94a3b8';
         ctx.lineWidth = 0.5;
-        ctx.strokeRect(row.x, sy, Math.min(row.width, 24), seatH);
+        ctx.strokeRect(row.x, sy, seatW2, seatH2);
         ctx.fillStyle = '#64748b';
         ctx.font = '9px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(realSeatNum, row.x + Math.min(row.width, 24) / 2, sy + seatH / 2 + 3);
-        realSeatNum++;
+        ctx.fillText(getRowSeatNumber(row, i), row.x + seatW2 / 2, sy + seatH2 / 2 + 3);
+        cursorY += gh;
       }
     }
     // 标签
@@ -3923,19 +4094,31 @@ document.getElementById('customLayoutCanvas').addEventListener('mouseup', functi
     var direction = sw >= sh ? 'horizontal' : 'vertical';
     var gw = parseInt(document.getElementById('gridCellW').value) || 50;
     var gh = parseInt(document.getElementById('gridCellH').value) || 50;
-    var estimatedSeats = Math.max(1, direction === 'horizontal' ? Math.floor(sw / (gw * 0.8)) : Math.floor(sh / (gh * 0.8)));
+    var estimatedSeats = Math.max(1, direction === 'horizontal' ? Math.floor(sw / gw) : Math.floor(sh / gh));
     var defaultLabel = '第' + (customEditorState.customRows.length + 1) + (direction === 'horizontal' ? '排' : '列');
     showCustomRowDialog(defaultLabel, estimatedSeats, direction, sx, sy, sw, sh);
   }
 });
 
+// 获取行内指定索引座位的实际座位号（支持自定义座位号列表）
+function getRowSeatNumber(row, index) {
+  if (row.seatNumbers && row.seatNumbers.length > index) {
+    return row.seatNumbers[index];
+  }
+  return (row.startSeat || 1) + index;
+}
+
 // 配置对话框
-function showCustomRowDialog(defaultLabel, estimatedSeats, direction, x, y, w, h, existingAislePositions) {
+function showCustomRowDialog(defaultLabel, estimatedSeats, direction, x, y, w, h, existingAislePositions, existingSeatNumbers) {
   var existing = document.querySelector('.custom-dialog-overlay');
   if (existing) existing.remove();
   var aisleHints = '';
   if (existingAislePositions && existingAislePositions.length > 0) {
     aisleHints = '<div style="font-size:11px;color:#f59e0b;margin-bottom:8px">当前过道位置：第 ' + existingAislePositions.join(', ') + ' 个座位后</div>';
+  }
+  var seatNumbersVal = '';
+  if (existingSeatNumbers && existingSeatNumbers.length > 0) {
+    seatNumbersVal = existingSeatNumbers.join(',');
   }
   var overlay = document.createElement('div');
   overlay.className = 'custom-dialog-overlay';
@@ -3945,6 +4128,7 @@ function showCustomRowDialog(defaultLabel, estimatedSeats, direction, x, y, w, h
     '<div class="form-group"><label>名称（可自定义）</label><input id="dlgLabel" value="' + defaultLabel + '"></div>' +
     '<div class="form-group"><label>座位数量</label><input id="dlgCount" type="number" value="' + estimatedSeats + '" min="1" max="100"></div>' +
     '<div class="form-group"><label>开始座位号</label><input id="dlgStartSeat" type="number" value="1" min="1" max="999"></div>' +
+    '<div class="form-group"><label>自定义座位号（可选）</label><input id="dlgSeatNumbers" placeholder="如：1,3,5,7,9 不填则从开始座位号自动生成" value="' + seatNumbersVal + '"></div>' +
     '<div class="form-group"><label>方向</label><select id="dlgDir"><option value="horizontal"' + (direction === 'horizontal' ? ' selected' : '') + '>横排</option><option value="vertical"' + (direction === 'vertical' ? ' selected' : '') + '>竖列</option></select></div>' +
     '<div class="form-group"><label>过道位置（第几个座位后）</label><input id="dlgAisles" placeholder="如：3,7 表示在第3和第7个座位后有过道（可选）"></div>' +
     aisleHints +
@@ -3956,12 +4140,17 @@ function showCustomRowDialog(defaultLabel, estimatedSeats, direction, x, y, w, h
   if (existingAislePositions && existingAislePositions.length > 0) {
     document.getElementById('dlgAisles').value = existingAislePositions.join(',');
   }
+  if (existingSeatNumbers && existingSeatNumbers.length > 0) {
+    document.getElementById('dlgStartSeat').value = existingSeatNumbers[0];
+    document.getElementById('dlgCount').value = existingSeatNumbers.length;
+  }
   setTimeout(function() { var inp = document.getElementById('dlgLabel'); if (inp) { inp.focus(); inp.select(); } }, 100);
 }
 
 function closeCustomDialog() {
   var overlay = document.querySelector('.custom-dialog-overlay');
   if (overlay) overlay.remove();
+  window.confirmCustomRow = confirmCustomRow;
 }
 
 function confirmCustomRow(x, y, w, h) {
@@ -3969,8 +4158,20 @@ function confirmCustomRow(x, y, w, h) {
   var count = parseInt(document.getElementById('dlgCount').value) || 1;
   var startSeat = parseInt(document.getElementById('dlgStartSeat').value) || 1;
   var dir = document.getElementById('dlgDir').value;
+  // 解析自定义座位号（兼容全角逗号）
+  var seatNumbersInput = document.getElementById('dlgSeatNumbers').value.trim().replace(/，/g, ',');
+  var seatNumbers = null;
+  if (seatNumbersInput) {
+    seatNumbers = seatNumbersInput.split(',').map(function(s) { return parseInt(s.trim()); }).filter(function(n) { return !isNaN(n) && n >= 1; });
+    if (seatNumbers.length > 0) {
+      count = seatNumbers.length;
+      startSeat = seatNumbers[0];
+    } else {
+      seatNumbers = null;
+    }
+  }
   // 解析过道位置
-  var aislesInput = document.getElementById('dlgAisles').value.trim();
+  var aislesInput = document.getElementById('dlgAisles').value.trim().replace(/，/g, ',');
   var aislePositions = [];
   if (aislesInput) {
     aislePositions = aislesInput.split(',').map(function(s) { return parseInt(s.trim()); }).filter(function(n) { return !isNaN(n) && n >= 1 && n < count; });
@@ -3986,6 +4187,7 @@ function confirmCustomRow(x, y, w, h) {
     direction: dir,
     aislePositions: aislePositions
   };
+  if (seatNumbers) row.seatNumbers = seatNumbers;
   customEditorState.customRows.push(row);
   closeCustomDialog();
   renderCustomRowTable();
@@ -4081,7 +4283,7 @@ function editCustomLabel(idx) {
 
 function editCustomRow(idx) {
   var row = customEditorState.customRows[idx];
-  showCustomRowDialog(row.label, row.seatCount, row.direction, row.x, row.y, row.width, row.height, row.aislePositions || []);
+  showCustomRowDialog(row.label, row.seatCount, row.direction, row.x, row.y, row.width, row.height, row.aislePositions || [], row.seatNumbers || []);
   setTimeout(function() {
     document.getElementById('dlgStartSeat').value = row.startSeat || 1;
   }, 50);
@@ -4092,8 +4294,20 @@ function editCustomRow(idx) {
     var count = parseInt(document.getElementById('dlgCount').value) || 1;
     var startSeat = parseInt(document.getElementById('dlgStartSeat').value) || 1;
     var dir = document.getElementById('dlgDir').value;
+    // 解析自定义座位号（兼容全角逗号）
+    var seatNumbersInput = document.getElementById('dlgSeatNumbers').value.trim().replace(/，/g, ',');
+    var seatNumbers = null;
+    if (seatNumbersInput) {
+      seatNumbers = seatNumbersInput.split(',').map(function(s) { return parseInt(s.trim()); }).filter(function(n) { return !isNaN(n) && n >= 1; });
+      if (seatNumbers.length > 0) {
+        count = seatNumbers.length;
+        startSeat = seatNumbers[0];
+      } else {
+        seatNumbers = null;
+      }
+    }
     // 解析过道位置
-    var aislesInput = document.getElementById('dlgAisles').value.trim();
+    var aislesInput = document.getElementById('dlgAisles').value.trim().replace(/，/g, ',');
     var aislePositions = [];
     if (aislesInput) {
       aislePositions = aislesInput.split(',').map(function(s) { return parseInt(s.trim()); }).filter(function(n) { return !isNaN(n) && n >= 1 && n < count; });
@@ -4105,6 +4319,11 @@ function editCustomRow(idx) {
     row.startSeat = startSeat;
     row.direction = dir;
     row.aislePositions = aislePositions;
+    if (seatNumbers) {
+      row.seatNumbers = seatNumbers;
+    } else {
+      delete row.seatNumbers;
+    }
     row.x = ex; row.y = ey; row.width = ew; row.height = eh;
     closeCustomDialog();
     renderCustomRowTable();
@@ -4340,7 +4559,7 @@ function renderCustomPreviewLocal() {
               cursorX += aisleGap;
             }
           }
-          var sn = startSeat + i;
+          var sn = getRowSeatNumber(row, i);
           var sx = cursorX;
           var sy = pY;
           // 座位号蓝色方块（仅组内第一排显示）
@@ -4372,7 +4591,7 @@ function renderCustomPreviewLocal() {
               cursorY += aisleGap;
             }
           }
-          var sn = startSeat + j;
+          var sn = getRowSeatNumber(row, j);
           // 座位号蓝色方块（仅组内第一排显示）
           if (isFirstInGroup) {
             var numBoxW = 36;
@@ -4416,7 +4635,7 @@ function saveCustomLayout() {
       stageName: '',
       backgroundImage: customEditorState.imagePath,
       gridConfig: customEditorState.gridConfig,
-      customRows: customEditorState.customRows.map(function(r) { return { label: r.label, rowNum: r.rowNum, x: r.x, y: r.y, width: r.width, height: r.height, seatCount: r.seatCount, startSeat: r.startSeat || 1, direction: r.direction, aislePositions: r.aislePositions || [] }; }),
+      customRows: customEditorState.customRows.map(function(r) { var obj = { label: r.label, rowNum: r.rowNum, x: r.x, y: r.y, width: r.width, height: r.height, seatCount: r.seatCount, startSeat: r.startSeat || 1, direction: r.direction, aislePositions: r.aislePositions || [] }; if (r.seatNumbers) obj.seatNumbers = r.seatNumbers; return obj; }),
       canvasWidth: customEditorState.image ? customEditorState.image.width : 800,
       canvasHeight: customEditorState.image ? customEditorState.image.height : 600,
       customStage: customEditorState.customStage,

@@ -821,6 +821,56 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     const numBoxWidth = 60;
     const numBoxHeight = 32;
 
+    // 区域颜色（与前端一致）
+    const svgRegionColors = [
+      { border: '#f59e0b' }, { border: '#22c55e' }, { border: '#ec4899' },
+      { border: '#06b6d4' }, { border: '#6366f1' }, { border: '#ef4444' },
+      { border: '#84cc16' }, { border: '#f97316' }
+    ];
+
+    // 渲染区域标注（单位预留区覆盖层）
+    function renderRegionOverlays(venue, seatPositions) {
+      let html = '';
+      if (!venue.regions || venue.regions.length === 0) return html;
+      venue.regions.forEach(function(region, idx) {
+        if (!region.company) return;
+        const color = svgRegionColors[idx % svgRegionColors.length];
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let found = false;
+        region.seats.forEach(function(seatKey) {
+          const pos = seatPositions[seatKey];
+          if (pos) {
+            found = true;
+            if (pos.x < minX) minX = pos.x;
+            if (pos.y < minY) minY = pos.y;
+            if (pos.x + pos.w > maxX) maxX = pos.x + pos.w;
+            if (pos.y + pos.h > maxY) maxY = pos.y + pos.h;
+          }
+        });
+        if (!found) return;
+        const padding = 10;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+        const overlayW = maxX - minX;
+        const overlayH = maxY - minY;
+        // 半透明覆盖层
+        html += `  <rect x="${minX}" y="${minY}" width="${overlayW}" height="${overlayH}" fill="${color.border}" opacity="0.12" rx="8" stroke="${color.border}" stroke-width="2" stroke-dasharray="6,3"/>\n`;
+        // 标签背景
+        const labelText = escXml(region.company) + ' - ' + escXml(region.name);
+        const labelY = Math.max(0, minY - 8);
+        const labelW = Math.max(labelText.length * 13 + 24, 60);
+        html += `  <rect x="${minX}" y="${labelY - 28}" width="${labelW}" height="28" fill="${color.border}" rx="4" opacity="0.9"/>\n`;
+        html += `  <text x="${minX + 12}" y="${labelY - 10}" fill="#ffffff" font-size="16" font-weight="bold">${labelText}</text>\n`;
+        // 区域中心文字
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        html += `  <text x="${centerX}" y="${centerY}" fill="${color.border}" font-size="22" font-weight="bold" text-anchor="middle" opacity="0.5">${escXml(region.company)} 预留区</text>\n`;
+      });
+      return html;
+    }
+
     // 辅助函数：计算排宽度
     function getRowWidth(row) {
       let w = 0;
@@ -933,6 +983,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       venueAttendees.forEach(a => {
         attendeeMap[a.row + '_' + a.seat] = a.name;
       });
+      const regionSeatPositions = {}; // 记录座位坐标用于区域标注
 
       // 标题（会场名称在最上方）
       svgContent += `  <text x="${svgWidth / 2}" y="${y + 64}" class="main-title" text-anchor="middle">${escXml(venue.name)}</text>\n`;
@@ -1073,7 +1124,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
             const rowY = baseY + (row.y || 0) * scale;
             const w = (row.width || 100) * scale;
             const h = (row.height || 50) * scale;
-            const startSeat = row.startSeat || 1;
+            const getSn = (idx) => (row.seatNumbers && row.seatNumbers.length > idx) ? row.seatNumbers[idx] : (row.startSeat || 1) + idx;
             const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
             const aisleGapPx = Math.max(30, (row.direction === 'horizontal' ? w : h) * 0.05);
             const totalAisleGap = aisles.length * aisleGapPx;
@@ -1095,7 +1146,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 }
                 const sx = cursorX;
                 const sy = rowY + (h - seatH) / 2;
-                const sn = startSeat + i;
+                const sn = getSn(i);
                 const name = attendeeMap[rowLabel + '_' + sn];
 
                 if (i === 0) {
@@ -1113,6 +1164,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 }
 
                 svgContent += `  <rect x="${sx + 3}" y="${sy}" width="${seatW - 6}" height="${seatH}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+                if (rowLabel && sn) regionSeatPositions[rowLabel + '_' + sn] = { x: sx + 3, y: sy, w: seatW - 6, h: seatH };
 
                 if (name) {
                   const dn = name.replace(/\n/g, ' ');
@@ -1140,7 +1192,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 }
                 const sx = x + (w - seatW) / 2;
                 const sy = cursorY;
-                const sn = startSeat + i;
+                const sn = getSn(i);
                 const name = attendeeMap[rowLabel + '_' + sn];
 
                 if (i === 0) {
@@ -1158,6 +1210,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 }
 
                 svgContent += `  <rect x="${sx}" y="${sy + 3}" width="${seatW}" height="${seatH - 6}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+                if (rowLabel && sn) regionSeatPositions[rowLabel + '_' + sn] = { x: sx, y: sy + 3, w: seatW, h: seatH - 6 };
 
                 if (name) {
                   const dn = name.replace(/\n/g, ' ');
@@ -1183,6 +1236,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           /^<svg [^>]*>/m,
           `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${totalHeight}" viewBox="0 0 ${svgWidth} ${totalHeight}">`
         );
+        svgContent += renderRegionOverlays(venue, regionSeatPositions);
         return;
       }
 
@@ -1264,6 +1318,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
               // 姓名框
               svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              if (col.label && sn) regionSeatPositions[col.label + '_' + sn] = { x: sx, y, w: seatWidth, h: seatHeight };
               if (name) {
                 const dn = name.replace(/\n/g, ' ');
                 const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
@@ -1288,6 +1343,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
               // 姓名框
               svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              if (col.label && sn) regionSeatPositions[col.label + '_' + sn] = { x: sx, y, w: seatWidth, h: seatHeight };
               if (name) {
                 const dn = name.replace(/\n/g, ' ');
                 const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
@@ -1321,6 +1377,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
             // 姓名框
             svgContent += `  <rect x="${bx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+            if (sn) regionSeatPositions[(uBottomRow ? uBottomRow.label : '底部') + '_' + sn] = { x: bx, y, w: seatWidth, h: seatHeight };
             if (name) {
               const dn = name.replace(/\n/g, ' ');
               const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
@@ -1334,6 +1391,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         }
 
         y += 60;
+        svgContent += renderRegionOverlays(venue, regionSeatPositions);
         return;
       }
 
@@ -1399,6 +1457,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
                 const fill = name ? '#dbeafe' : '#ffffff';
                 svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                if (seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
                 if (name) {
                   const displayName = name.replace(/\n/g, ' ');
                   const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
@@ -1482,6 +1541,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               }
               
               svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              if (seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
               if (name) {
                 const displayName = name.replace(/\n/g, ' ');
                 const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
@@ -1508,6 +1568,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         }
       });
       }
+      svgContent += renderRegionOverlays(venue, regionSeatPositions);
       y += 60;
     });
 
@@ -1663,7 +1724,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
           const y = margin + 60 + (row.y || 0) * scale;
           const w = (row.width || 100) * scale;
           const h = (row.height || 50) * scale;
-          const startSeat = row.startSeat || 1;
+          const getSn = (idx) => (row.seatNumbers && row.seatNumbers.length > idx) ? row.seatNumbers[idx] : (row.startSeat || 1) + idx;
           const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
           const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
           const totalAisleGap = aisles.length * aisleGapPx;
@@ -1693,7 +1754,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
                 const nbx = seatX + (seatW - numBoxW) / 2;
                 const nby = seatY - numBoxH - 6;
                 sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="4"/>`;
-                sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH - 6}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${startSeat + i}</text>`;
+                sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH - 6}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${getSn(i)}</text>`;
               }
               cursorX += seatW;
             }
@@ -1722,7 +1783,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
                 const nbx = seatX - numBoxW - 8;
                 const nby = seatY + (seatH - numBoxH) / 2;
                 sc += `<rect x="${nbx}" y="${nby}" width="${numBoxW}" height="${numBoxH}" fill="#1a56db" rx="4"/>`;
-                sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 5}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${startSeat + i}</text>`;
+                sc += `<text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 5}" text-anchor="middle" font-size="${numFS}" font-family="Microsoft YaHei, sans-serif" fill="#ffffff">${getSn(i)}</text>`;
               }
               cursorY += seatH;
             }
@@ -1924,7 +1985,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
             const y = baseY + (row.y || 0) * scale;
             const w = (row.width || 100) * scale;
             const h = (row.height || 50) * scale;
-            const startSeat = row.startSeat || 1;
+            const getSn = (idx) => (row.seatNumbers && row.seatNumbers.length > idx) ? row.seatNumbers[idx] : (row.startSeat || 1) + idx;
             const aisles = (row.aislePositions || []).slice().sort((a, b) => a - b);
             const aisleGapPx = Math.max(40, (row.direction === 'horizontal' ? w : h) * 0.05);
             const totalAisleGap = aisles.length * aisleGapPx;
@@ -1946,7 +2007,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
                 }
                 const sx = cursorX;
                 const sy = y + (h - seatH) / 2;
-                const sn = startSeat + i;
+                const sn = getSn(i);
                 const name = attendeeMap[rl + '_' + sn];
 
                 if (i === 0) {
@@ -1990,7 +2051,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
                 }
                 const sx = x + (w - seatW) / 2;
                 const sy = cursorY;
-                const sn = startSeat + i;
+                const sn = getSn(i);
                 const name = attendeeMap[rl + '_' + sn];
 
                 if (i === 0) {
@@ -2817,7 +2878,7 @@ app.post('/api/custom-layout/save', requireAdmin, (req, res) => {
     const venueId = 'venue-custom-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
     const standardRows = customRows.map((cr, idx) => {
       const seats = [];
-      const startSeat = cr.startSeat || 1;
+      const getSn = (i) => (cr.seatNumbers && cr.seatNumbers.length > i) ? cr.seatNumbers[i] : (cr.startSeat || 1) + i;
       const aislePositions = cr.aislePositions || [];
       // 根据aislePositions将座位分成多个group
       // aislePositions[i] = k 表示在第k个座位（0-based index）前插入过道
@@ -2828,12 +2889,12 @@ app.post('/api/custom-layout/save', requireAdmin, (req, res) => {
           seatGroups.push(currentGroup);
           currentGroup = [];
         }
-        currentGroup.push(startSeat + i);
+        currentGroup.push(getSn(i));
       }
       if (currentGroup.length > 0) seatGroups.push(currentGroup);
       // 如果没有seatGroups（seatCount=0的情况），创建一个空group
       if (seatGroups.length === 0) {
-        for (let i = 0; i < cr.seatCount; i++) seats.push(startSeat + i);
+        for (let i = 0; i < cr.seatCount; i++) seats.push(getSn(i));
         seatGroups = [seats];
       }
       return {
@@ -2996,9 +3057,8 @@ app.get('/api/venues/:id/seating', requireAuth, (req, res) => {
     // 自定义布局：也从 customRows 填充 seatOccupancy
     if (venue.customRows) {
       venue.customRows.forEach(row => {
-        const rowStartSeat = row.startSeat || 1;
         for (let i = 0; i < (row.seatCount || 0); i++) {
-          const seatNum = rowStartSeat + i;
+          const seatNum = (row.seatNumbers && row.seatNumbers.length > i) ? row.seatNumbers[i] : (row.startSeat || 1) + i;
           const key = `${row.label}_${String(seatNum)}`;
           if (!(key in seating.seatOccupancy)) {
             seating.seatOccupancy[key] = attendeeMap[key] || null;
@@ -3440,6 +3500,43 @@ app.post('/api/backups/restore', requireAdmin, (req, res) => {
     res.json({ ok: true, message: `已从 ${filename} 恢复` });
   } catch (err) {
     res.status(500).json({ error: '恢复失败: ' + err.message });
+  }
+});
+
+// ==================== 区域（单位就坐区）管理 ====================
+
+// 保存会场的区域数据
+app.post('/api/venues/:id/regions', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const venue = data.venues.find(v => v.id === req.params.id);
+    if (!venue) return res.status(404).json({ error: '场馆不存在' });
+
+    const { regions } = req.body;
+    if (!Array.isArray(regions)) {
+      return res.status(400).json({ error: 'regions 必须是数组' });
+    }
+
+    venue.regions = regions;
+    writeData(data);
+    res.json({ ok: true });
+  } catch (err) {
+    structuredLog('error', { message: '保存区域失败', error: err.message });
+    res.status(500).json({ error: '保存失败: ' + err.message });
+  }
+});
+
+// 获取会场的区域数据
+app.get('/api/venues/:id/regions', requireAuth, (req, res) => {
+  try {
+    const data = readData();
+    const venue = data.venues.find(v => v.id === req.params.id);
+    if (!venue) return res.status(404).json({ error: '场馆不存在' });
+
+    res.json({ ok: true, regions: venue.regions || [] });
+  } catch (err) {
+    structuredLog('error', { message: '获取区域失败', error: err.message });
+    res.status(500).json({ error: '获取失败: ' + err.message });
   }
 });
 

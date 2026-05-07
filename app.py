@@ -1266,9 +1266,9 @@ def generate_pdf(names, template_vars, output_path):
         cards_per_row = 1
         cards_per_col = 1
     else:
-        # 普通座位牌：每个姓名一个卡片
+        # 普通座位牌（双面）：每个姓名上下两个卡片（正常+镜像），无粘贴区
         effective_card_width = card_width
-        effective_card_height = card_height
+        effective_card_height = card_height * 2  # 一个姓名占双倍高度（正常+镜像）
         # 避免除以零的情况
         if effective_card_width > 0 and effective_card_height > 0:
             cards_per_row = max(1, int(page_width // effective_card_width))
@@ -1379,10 +1379,14 @@ def generate_pdf(names, template_vars, output_path):
                 bottom_paste_bottom_y = big_card_top_y + paste_height + card_height * 2 + paste_height - 10  # 底部留10mm边距
                 c.drawCentredString(x, bottom_paste_bottom_y, position)
         else:
-            # 普通座位牌：单个卡片
+            # 普通座位牌（双面）：每个姓名包含上下两部分（正常+镜像），无粘贴区
             x = col * effective_card_width + effective_card_width / 2
-            y = page_height - (row + 1) * effective_card_height + effective_card_height / 2
-            draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, False, position)
+            slot_center_y = page_height - (row + 1) * effective_card_height + effective_card_height / 2
+            
+            # 上半部分（正常显示）
+            draw_namecard(c, x, slot_center_y + card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, False, position)
+            # 下半部分（镜像显示，从另一面看是正的）
+            draw_namecard(c, x, slot_center_y - card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position)
     
     # 清理临时文件
     if image_path:
@@ -1533,7 +1537,7 @@ def main():
         "座位牌类型",
         ["普通座位牌", "三角立式台卡"],
         index=0,
-        help="普通座位牌：直接插入模具；三角立式台卡：需要折叠，前后两面内容相同，包含镜像打印"
+        help="普通座位牌：双面显示（正面+背面镜像），适合插入透明台座；三角立式台卡：需要折叠，前后两面内容相同，包含镜像打印和粘贴区"
     )
     
     # 座位号设置
@@ -1948,16 +1952,11 @@ def main():
                 # 按比例缩放字体大小
                 temp_vars['font_size'] = int(temp_vars.get('font_size', 48) * font_scale)
                 
-                # 预览时，如果是三角立式台卡，暂时改为普通座位牌以只显示单个座位牌
+                # 预览时使用统一模式（显示双面，无粘贴区）
                 original_card_type = temp_vars.get('card_type')
-                if temp_vars.get('card_type') == '三角立式台卡':
-                    temp_vars['card_type'] = '普通座位牌'  # 预览时使用普通座位牌
-                    temp_vars['page_width'] = preview_card_width  # 左右不留空白
-                    temp_vars['page_height'] = preview_card_height
-                else:
-                    # 普通座位牌：使用自定义页面尺寸
-                    temp_vars['page_width'] = preview_card_width  # 左右不留空白
-                    temp_vars['page_height'] = preview_card_height
+                temp_vars['card_type'] = '普通座位牌'  # 预览时使用双面显示
+                temp_vars['page_width'] = preview_card_width  # 左右不留空白
+                temp_vars['page_height'] = preview_card_height * 2  # 双倍高度显示两面
                 
                 try:
                     generate_pdf(preview_names, temp_vars, preview_path)
