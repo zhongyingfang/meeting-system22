@@ -893,14 +893,25 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     data.venues.forEach(venue => {
       // 舞台 + 标题区域
       totalHeight += stageHeight + 30 + 120 + seatHeight + rowGap;
-      if (venue.layout === 'u-shape' && venue.rows && venue.rows.length > 0) {
-        const uArmRows = venue.rows.filter(r => !(r.label || '').includes('底部'));
-        const uBottom = venue.rows.find(r => (r.label || '').includes('底部'));
+      if ((venue.layout === 'u-shape' || venue.layout === 'hui-shape') && venue.rows && venue.rows.length > 0) {
+        // 位置结构法：以/第.+列/为锚点分拆
+        var firstArm = -1, lastArm = -1;
+        venue.rows.forEach(function(r, idx) {
+          var l = (r.label || '').replace(/\s+/g, '');
+          if (/^第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
+        });
+        const uTopRows = firstArm > 0 ? venue.rows.slice(0, firstArm) : [];
+        const uArmRows = venue.rows.slice(Math.max(0, firstArm), lastArm + 1);
+        const uBottomRows = lastArm >= 0 && lastArm < venue.rows.length - 1 ? venue.rows.slice(lastArm + 1) : [];
         const maxArmLen = Math.max(...uArmRows.map(r => r.seatGroups[0] ? r.seatGroups[0].length : 0), 0);
+        // 顶部行高度
+        if (uTopRows.length > 0) {
+          totalHeight += uTopRows.length * (seatHeight + 30) + 30;
+        }
         totalHeight += 50; // 列标签行
         totalHeight += maxArmLen * (seatHeight + rowGap); // 两臂座位
-        if (uBottom) {
-          totalHeight += 30 + seatHeight + 50; // 底部行间隙 + 底部行座位 + 底部间距
+        if (uBottomRows.length > 0) {
+          totalHeight += 30 + uBottomRows.length * (seatHeight + 30); // 底部行
         }
         totalHeight += 60; // 底部间距
       } else if (venue.rows && venue.rows.length > 0) {
@@ -919,19 +930,29 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     // 计算最大宽度
     let maxWidth = 0;
     data.venues.forEach(venue => {
-      if (venue.layout === 'u-shape' && venue.rows) {
-         const uArmRows = venue.rows.filter(r => !(r.label || '').includes('底部'));
-         const uBottom = venue.rows.find(r => (r.label || '').includes('底部'));
+      if ((venue.layout === 'u-shape' || venue.layout === 'hui-shape') && venue.rows) {
+         // 位置结构法：以/第.+列/为锚点分拆
+         var firstArmW = -1, lastArmW = -1;
+         venue.rows.forEach(function(r, idx) {
+           var l = (r.label || '').replace(/\s+/g, '');
+           if (/^第.+列$/.test(l)) { if (firstArmW < 0) firstArmW = idx; lastArmW = idx; }
+         });
+         const uTopW = firstArmW > 0 ? venue.rows.slice(0, firstArmW) : [];
+         const uArmW = venue.rows.slice(Math.max(0, firstArmW), lastArmW + 1);
+         const uBottomW = lastArmW >= 0 && lastArmW < venue.rows.length - 1 ? venue.rows.slice(lastArmW + 1) : [];
          const colGap = 30;
          const armBottomGap = 60;
-         const midIdx = Math.floor(uArmRows.length / 2);
-         const leftColCount = midIdx;
-         const rightColCount = uArmRows.length - midIdx;
+         const _midIdx = Math.floor(uArmW.length / 2);
+         const leftColCount = _midIdx;
+         const rightColCount = uArmW.length - _midIdx;
          const lWidth = leftColCount * seatWidth + Math.max(0, leftColCount - 1) * colGap;
          const rWidth = rightColCount * seatWidth + Math.max(0, rightColCount - 1) * colGap;
-         const bSeats = uBottom ? (uBottom.seatGroups[0] || []).length : 0;
-         const bWidth = bSeats * (seatWidth + seatGap) - (bSeats > 0 ? seatGap : 0);
-         const uTotal = lWidth + (bWidth > 0 ? armBottomGap + bWidth + armBottomGap : 0) + rWidth;
+         const tSeats = uTopW.length > 0 ? Math.max(...uTopW.map(r => (r.seatGroups[0] || []).length)) : 0;
+         const tWidth = tSeats * (seatWidth + seatGap) - (tSeats > 0 ? seatGap : 0);
+         const bSeatsW = uBottomW.length > 0 ? Math.max(...uBottomW.map(r => (r.seatGroups[0] || []).length)) : 0;
+         const bWidth = bSeatsW * (seatWidth + seatGap) - (bSeatsW > 0 ? seatGap : 0);
+         const hWidth = Math.max(tWidth, bWidth);
+         const uTotal = lWidth + (hWidth > 0 ? armBottomGap + hWidth + armBottomGap : 0) + rWidth;
          maxWidth = Math.max(maxWidth, uTotal);
       } else if (venue.rows) {
         // 新方式：计算所有排的最大组数和每组最大座位数
@@ -1150,7 +1171,9 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 const name = attendeeMap[rowLabel + '_' + sn];
 
                 if (i === 0) {
+                  const lastSx = x + w - seatW;
                   svgContent += `  <text x="${sx - 15}" y="${sy + seatH/2 + 8}" class="row-label" text-anchor="end" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+                  svgContent += `  <text x="${lastSx + seatW + 15}" y="${sy + seatH/2 + 8}" class="row-label" text-anchor="start" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
                 }
 
                 // 座位号蓝色方块（仅组内第一排显示）
@@ -1240,15 +1263,24 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         return;
       }
 
-      // U型会场SVG渲染：按实际U型布局（左臂 + 底部 + 右臂）
-      if (venue.layout === 'u-shape') {
-        const uBottomRow = venue.rows.find(r => (r.label || '').includes('底部'));
-        const uArmRows = venue.rows.filter(r => !(r.label || '').includes('底部'));
+      // U型/回字型会场SVG渲染
+      if (venue.layout === 'u-shape' || venue.layout === 'hui-shape') {
+        // 位置结构法：以/^第.+列$/为锚点分拆行（顶部行 | 臂列 | 底部行）
+        var firstArmSv = -1, lastArmSv = -1;
+        venue.rows.forEach(function(r, idx) {
+          var l = (r.label || '').replace(/\s+/g, '');
+          if (/^第.+列$/.test(l)) { if (firstArmSv < 0) firstArmSv = idx; lastArmSv = idx; }
+        });
+        const uTopRows = firstArmSv > 0 ? venue.rows.slice(0, firstArmSv) : [];
+        const uArmRows = venue.rows.slice(Math.max(0, firstArmSv), lastArmSv + 1);
+        const uBottomRows = lastArmSv >= 0 && lastArmSv < venue.rows.length - 1 ? venue.rows.slice(lastArmSv + 1) : [];
         const midIdx = Math.floor(uArmRows.length / 2);
         const leftArmRows = uArmRows.slice(0, midIdx);
         const rightArmRows = uArmRows.slice(midIdx);
 
-        const bottomSeats = uBottomRow ? uBottomRow.seatGroups[0] || [] : [];
+        const maxTopSeats = uTopRows.length > 0 ? Math.max(...uTopRows.map(r => (r.seatGroups[0] || []).length)) : 0;
+        const maxBottomSeats = uBottomRows.length > 0 ? Math.max(...uBottomRows.map(r => (r.seatGroups[0] || []).length)) : 0;
+        const hSeatCount = Math.max(maxTopSeats, maxBottomSeats);
         const maxArmLen = Math.max(...uArmRows.map(r => r.seatGroups[0] ? r.seatGroups[0].length : 0), 0);
 
         const colGap = 30;
@@ -1258,20 +1290,20 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const leftArmWidth = leftArmRows.reduce((sum, col) => sum + seatWidth + colGap, 0) - (leftArmRows.length > 0 ? colGap : 0);
         // 计算右臂宽度
         const rightArmWidth = rightArmRows.reduce((sum, col) => sum + seatWidth + colGap, 0) - (rightArmRows.length > 0 ? colGap : 0);
-        // 底部行宽度
-        const bottomWidth = bottomSeats.length > 0 ? bottomSeats.length * (seatWidth + seatGap) - seatGap : 0;
-        // 底部和臂之间的间距
+        // 水平行（顶部/底部）宽度（取最大值）
+        const hWidth = hSeatCount > 0 ? hSeatCount * (seatWidth + seatGap) - seatGap : 0;
+        // 水平行和臂之间的间距
         const armBottomGap = 60;
         // 总宽度
-        const totalWidth = leftArmWidth + (bottomWidth > 0 ? armBottomGap + bottomWidth + armBottomGap : 0) + rightArmWidth;
+        const totalWidth = leftArmWidth + (hWidth > 0 ? armBottomGap + hWidth + armBottomGap : 0) + rightArmWidth;
         
         // 整体居中偏移
         const baseX = Math.max(0, (svgWidth - totalWidth) / 2);
         
         // 各区域起始X位置
         const leftStartX = baseX;
-        const bottomStartX = leftStartX + leftArmWidth + (leftArmWidth > 0 && bottomWidth > 0 ? armBottomGap : 0);
-        const rightStartX = (bottomWidth > 0 ? bottomStartX + bottomWidth + armBottomGap : leftStartX + leftArmWidth + armBottomGap);
+        const bottomStartX = leftStartX + leftArmWidth + (leftArmWidth > 0 && hWidth > 0 ? armBottomGap : 0);
+        const rightStartX = (hWidth > 0 ? bottomStartX + hWidth + armBottomGap : leftStartX + leftArmWidth + armBottomGap);
 
         // 计算各列在每个垂直位置的X坐标
         const leftColXs = [];
@@ -1288,7 +1320,68 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           rx += seatWidth + colGap;
         });
 
+       // ---- 0. 顶部行（回字型顶部封闭，水平排列于左右臂间）----
+       // 按座位数分组——连续相同座位数的行为一组，只在每组首行显示座位号
+        if (uTopRows.length > 0) {
+          const topRowGroups = [];
+          uTopRows.forEach((row) => {
+            const sc = (row.seatGroups[0] || []).filter(x => x !== null && x !== undefined).length;
+            const prev = topRowGroups[topRowGroups.length - 1];
+            if (prev && prev.seatCount === sc) { prev.rows.push(row); }
+            else { topRowGroups.push({ seatCount: sc, rows: [row] }); }
+          });
+          topRowGroups.forEach(group => {
+            group.rows.forEach((topRow, ri) => {
+              const topSeats = topRow.seatGroups[0] || [];
+              if (topSeats.length > 0) {
+                const topLabel = topRow.label || '';
+                svgContent += `  <text x="${leftStartX}" y="${y + 24}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(topLabel)}</text>\n`;
+                const topRowWidth = topSeats.length * (seatWidth + seatGap) - seatGap;
+                const hAreaCenter = bottomStartX + hWidth / 2;
+                let tx = hAreaCenter - topRowWidth / 2;
+                const isFirstInGroup = ri === 0;
+                topSeats.forEach((sn) => {
+                  const name = attendeeMap[topRow.label + '_' + sn];
+                  if (isFirstInGroup) {
+                    const numBoxX = tx + (seatWidth - numBoxWidth) / 2;
+                    const numBoxY = y - numBoxHeight - 8;
+                    svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                    svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+                  }
+                  svgContent += `  <rect x="${tx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                  if (topRow.label && sn) regionSeatPositions[topRow.label + '_' + sn] = { x: tx, y, w: seatWidth, h: seatHeight };
+                  if (name) {
+                    const dn = name.replace(/\n/g, ' ');
+                    const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
+                    svgContent += `  <text x="${tx + seatWidth / 2}" y="${y + seatHeight / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+                  }
+                  tx += seatWidth + seatGap;
+                });
+              }
+              y += seatHeight + 30;
+            });
+          });
+          y += 30;
+        }
+
         // ---- 1. 列标签行 ----
+        // 按座位数列分组——座位数相同的相邻列归一组，组内只在第一列显示座位号
+        const armGroupFirstCols = (armRows) => {
+          const groups = [];
+          armRows.forEach((row) => {
+            const sc = (row.seatGroups[0] || []).filter(x => x !== null && x !== undefined).length;
+            const prev = groups[groups.length - 1];
+            if (prev && prev.seatCount === sc) { prev.rows.push(row); }
+            else { groups.push({ seatCount: sc, rows: [row] }); }
+          });
+          const firstSet = new Set();
+          let ci = 0;
+          groups.forEach(g => { firstSet.add(ci); ci += g.rows.length; });
+          return firstSet;
+        };
+        const leftFirstInGroupCols = armGroupFirstCols(leftArmRows);
+        const rightFirstInGroupCols = armGroupFirstCols(rightArmRows);
+
         const labelY = y;
         leftArmRows.forEach((col, idx) => {
           const cx = leftColXs[idx] + seatWidth / 2;
@@ -1310,11 +1403,13 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const name = attendeeMap[col.label + '_' + sn];
               const sx = leftColXs[idx];
 
-              // 座位号
-              const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
-              const numBoxY = y - numBoxHeight - 8;
-              svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
-              svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+              if (leftFirstInGroupCols.has(idx)) {
+                // 座位号
+                const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+                const numBoxY = y - numBoxHeight - 8;
+                svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+              }
 
               // 姓名框
               svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
@@ -1335,11 +1430,13 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const name = attendeeMap[col.label + '_' + sn];
               const sx = rightColXs[idx];
 
-              // 座位号
-              const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
-              const numBoxY = y - numBoxHeight - 8;
-              svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
-              svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+              if (rightFirstInGroupCols.has(idx)) {
+                // 座位号
+                const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+                const numBoxY = y - numBoxHeight - 8;
+                svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+              }
 
               // 姓名框
               svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
@@ -1355,39 +1452,48 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           y += seatHeight + rowGap;
         }
 
-        // ---- 3. 底部行：所有座位排成一行（在臂下方）----
-        if (bottomSeats.length > 0) {
+        // ---- 3. 底部行（支持多行，水平排列于左右臂间）----
+       // 按座位数分组——连续相同座位数的行为一组，只在每组首行显示座位号
+        if (uBottomRows.length > 0) {
           y += 30;
-          // 底部行标签
-          const bottomLabel = uBottomRow ? uBottomRow.label : '底部';
-          svgContent += `  <text x="${leftStartX}" y="${y - 10}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(bottomLabel)}</text>\n`;
-
-          // 渲染底部座位——排在底部区域中间，与臂对齐
-          const bottomAreaCenter = bottomStartX + bottomWidth / 2;
-          let bx = bottomAreaCenter - (bottomSeats.length * (seatWidth + seatGap) - seatGap) / 2;
-
-          bottomSeats.forEach((sn) => {
-            const name = attendeeMap[(uBottomRow ? uBottomRow.label : '底部') + '_' + sn];
-
-            // 座位号
-            const numBoxX = bx + (seatWidth - numBoxWidth) / 2;
-            const numBoxY = y - numBoxHeight - 8;
-            svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
-            svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
-
-            // 姓名框
-            svgContent += `  <rect x="${bx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
-            if (sn) regionSeatPositions[(uBottomRow ? uBottomRow.label : '底部') + '_' + sn] = { x: bx, y, w: seatWidth, h: seatHeight };
-            if (name) {
-              const dn = name.replace(/\n/g, ' ');
-              const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
-              svgContent += `  <text x="${bx + seatWidth / 2}" y="${y + seatHeight / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
-            }
-
-            bx += seatWidth + seatGap;
+          const bottomRowGroups = [];
+          uBottomRows.forEach((row) => {
+            const sc = (row.seatGroups[0] || []).filter(x => x !== null && x !== undefined).length;
+            const prev = bottomRowGroups[bottomRowGroups.length - 1];
+            if (prev && prev.seatCount === sc) { prev.rows.push(row); }
+            else { bottomRowGroups.push({ seatCount: sc, rows: [row] }); }
           });
-
-          y += seatHeight + 50;
+          bottomRowGroups.forEach(group => {
+            group.rows.forEach((botRow, ri) => {
+              const botSeats = botRow.seatGroups[0] || [];
+              if (botSeats.length > 0) {
+                const botLabel = botRow.label || '';
+                svgContent += `  <text x="${leftStartX}" y="${y - 10}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(botLabel)}</text>\n`;
+                const botRowWidth = botSeats.length * (seatWidth + seatGap) - seatGap;
+                const hAreaCenter = bottomStartX + hWidth / 2;
+                let bx = hAreaCenter - botRowWidth / 2;
+                const isFirstInGroup = ri === 0;
+                botSeats.forEach((sn) => {
+                  const name = attendeeMap[botRow.label + '_' + sn];
+                  if (isFirstInGroup) {
+                    const numBoxX = bx + (seatWidth - numBoxWidth) / 2;
+                    const numBoxY = y - numBoxHeight - 8;
+                    svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                    svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
+                  }
+                  svgContent += `  <rect x="${bx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                  if (botRow.label && sn) regionSeatPositions[botRow.label + '_' + sn] = { x: bx, y, w: seatWidth, h: seatHeight };
+                  if (name) {
+                    const dn = name.replace(/\n/g, ' ');
+                    const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
+                    svgContent += `  <text x="${bx + seatWidth / 2}" y="${y + seatHeight / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+                  }
+                  bx += seatWidth + seatGap;
+                });
+              }
+              y += seatHeight + 30;
+            });
+          });
         }
 
         y += 60;
@@ -1425,7 +1531,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           }
         });
         totalSeatWidth = maxRowSeats * (seatWidth + seatGap);
-        svgWidth = Math.max(svgWidth, totalSeatWidth + 400, 1200);
+        svgWidth = Math.max(svgWidth, totalSeatWidth + 500, 1300);
 
         rowGroups.forEach(group => {
           group.rows.forEach((row, ri) => {
@@ -1433,37 +1539,52 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
             const rowLabel = row.label || '';
             const isFirstRowInGroup = ri === 0;
-            svgContent += `  <text x="${60}" y="${y + seatHeight / 2 + 10}" class="row-label" text-anchor="end">${escXml(rowLabel)}</text>\n`;
 
             if (row.seatGroups) {
-              const allSeats = row.seatGroups.flat();
-              const rowWidth = allSeats.length * (seatWidth + seatGap);
+              let rowWidth = 0;
+              row.seatGroups.forEach((group, gi) => {
+                const groupSeats = group.filter(s => s !== null && s !== undefined).length;
+                rowWidth += groupSeats * (seatWidth + seatGap);
+                if (gi < row.seatGroups.length - 1) rowWidth += groupGap;
+              });
               let sx = Math.max(160, (svgWidth - rowWidth) / 2);
 
-              allSeats.forEach((seatNum) => {
-                if (seatNum === null || seatNum === undefined) {
+              svgContent += `  <text x="${sx - 10}" y="${y + seatHeight / 2 + 10}" class="row-label" text-anchor="end">${escXml(rowLabel)}</text>\n`;
+              svgContent += `  <text x="${sx + rowWidth + 10}" y="${y + seatHeight / 2 + 10}" class="row-label" text-anchor="start">${escXml(rowLabel)}</text>\n`;
+
+              row.seatGroups.forEach((group, gi) => {
+                if (gi > 0) {
+                  const aisleX = sx;
+                  const aisleH = seatHeight - 10;
+                  svgContent += `  <rect x="${aisleX}" y="${y + 5}" width="${groupGap}" height="${aisleH}" fill="#dbeafe" rx="3"/>\n`;
+                  svgContent += `  <text x="${aisleX + groupGap / 2}" y="${y + seatHeight / 2 + 6}" class="aisle-label" text-anchor="middle" font-size="16">过道</text>\n`;
+                  sx += groupGap;
+                }
+                group.forEach((seatNum) => {
+                  if (seatNum === null || seatNum === undefined) {
+                    sx += seatWidth + seatGap;
+                    return;
+                  }
+
+                  const name = attendeeMap[rowLabel + '_' + seatNum];
+
+                  if (isFirstRowInGroup) {
+                    const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+                    const numBoxY = y - numBoxHeight - 8;
+                    svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                    svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${seatNum}</text>\n`;
+                  }
+
+                  const fill = name ? '#dbeafe' : '#ffffff';
+                  svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                  if (seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
+                  if (name) {
+                    const displayName = name.replace(/\n/g, ' ');
+                    const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
+                    svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
+                  }
                   sx += seatWidth + seatGap;
-                  return;
-                }
-
-                const name = attendeeMap[rowLabel + '_' + seatNum];
-
-                if (isFirstRowInGroup) {
-                  const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
-                  const numBoxY = y - numBoxHeight - 8;
-                  svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
-                  svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${seatNum}</text>\n`;
-                }
-
-                const fill = name ? '#dbeafe' : '#ffffff';
-                svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
-                if (seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
-                if (name) {
-                  const displayName = name.replace(/\n/g, ' ');
-                  const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
-                  svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
-                }
-                sx += seatWidth + seatGap;
+                });
               });
             }
 
@@ -2149,7 +2270,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
           }
         });
         totalSeatWidth = maxRowSeats * (seatWidth + seatGap);
-        const svgWidth = totalSeatWidth + margin * 2 + 160;
+        const svgWidth = totalSeatWidth + margin * 2 + 200;
 
         venueHeight = margin + 50 + margin;
         venue.rows.forEach(row => { venueHeight += seatHeight + rowGap; if (row.hasAisleAfter) venueHeight += 40; });
@@ -2163,29 +2284,43 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
           group.rows.forEach((row, ri) => {
             const rowLabel = row.label || '';
             const isFirstRowInGroup = ri === 0;
-            svgContent += `<text x="${margin + 50}" y="${y + seatHeight / 2 + 5}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="end">${escXml(rowLabel)}</text>`;
 
             if (row.seatGroups) {
-              const allSeats = row.seatGroups.flat();
-              const rowWidth = allSeats.length * (seatWidth + seatGap);
+              let rowWidth = 0;
+              row.seatGroups.forEach((group, gi) => {
+                const groupSeats = group.filter(s => s !== null && s !== undefined).length;
+                rowWidth += groupSeats * (seatWidth + seatGap);
+                if (gi < row.seatGroups.length - 1) rowWidth += groupGap;
+              });
               let sx = Math.max(margin + 100, (svgWidth - rowWidth) / 2);
+              svgContent += `<text x="${sx - 8}" y="${y + seatHeight / 2 + 5}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="end">${escXml(rowLabel)}</text>`;
+              svgContent += `<text x="${sx + rowWidth + 8}" y="${y + seatHeight / 2 + 5}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="start">${escXml(rowLabel)}</text>`;
 
-              allSeats.forEach((seatNum) => {
-                if (seatNum === null || seatNum === undefined) {
+              row.seatGroups.forEach((group, gi) => {
+                if (gi > 0) {
+                  const aisleX = sx;
+                  const aisleH = seatHeight - 4;
+                  svgContent += `<rect x="${aisleX}" y="${y + 2}" width="${groupGap}" height="${aisleH}" fill="#dbeafe" rx="2"/>`;
+                  svgContent += `<text x="${aisleX + groupGap / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="8" fill="#94a3b8" text-anchor="middle" font-weight="bold">过道</text>`;
+                  sx += groupGap;
+                }
+                group.forEach((seatNum) => {
+                  if (seatNum === null || seatNum === undefined) {
+                    sx += seatWidth + seatGap;
+                    return;
+                  }
+                  const name = attendeeMap[rowLabel + '_' + seatNum];
+                  const fill = name ? '#dbeafe' : '#ffffff';
+                  svgContent += `<rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
+                  if (isFirstRowInGroup) {
+                    svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${seatNum}</text>`;
+                  }
+                  if (name) {
+                    const displayName = name.length > 4 ? name.substring(0, 3) + '...' : name;
+                    svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight - 6}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#1e293b" text-anchor="middle">${escXml(displayName)}</text>`;
+                  }
                   sx += seatWidth + seatGap;
-                  return;
-                }
-                const name = attendeeMap[rowLabel + '_' + seatNum];
-                const fill = name ? '#dbeafe' : '#ffffff';
-                svgContent += `<rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
-                if (isFirstRowInGroup) {
-                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${seatNum}</text>`;
-                }
-                if (name) {
-                  const displayName = name.length > 4 ? name.substring(0, 3) + '...' : name;
-                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight - 6}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#1e293b" text-anchor="middle">${escXml(displayName)}</text>`;
-                }
-                sx += seatWidth + seatGap;
+                });
               });
             }
 

@@ -291,6 +291,9 @@ async function openSeatCard() {
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
           <input type="radio" name="layoutMode" value="u-shape"> U型会场
         </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="layoutMode" value="hui-shape"> 回字型会场
+        </label>
       </div>
       <button class="btn btn-success" id="uploadBtn" onclick="uploadExcel()" disabled>上传表格</button>
     </div>
@@ -932,7 +935,7 @@ async function detectSheetModesForFile(file) {
     var data = await res.json();
     if (data.ok && data.sheets && data.sheets.length > 0) {
       detectedSheetModes = {};
-      var modeLabelMap = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场' };
+      var modeLabelMap = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'hui-shape': '回字型会场' };
       var html = '';
       data.sheets.forEach(function(s) {
         detectedSheetModes[s.name] = s.detectedMode;
@@ -944,6 +947,7 @@ async function detectSheetModesForFile(file) {
         html += '<option value="theater"' + (s.detectedMode === 'theater' ? ' selected' : '') + '>剧院会场</option>';
         html += '<option value="standard"' + (s.detectedMode === 'standard' ? ' selected' : '') + '>普通会场</option>';
         html += '<option value="u-shape"' + (s.detectedMode === 'u-shape' ? ' selected' : '') + '>U型会场</option>';
+        html += '<option value="hui-shape"' + (s.detectedMode === 'hui-shape' ? ' selected' : '') + '>回字型会场</option>';
         html += '</select>';
         html += '</div>';
       });
@@ -1088,7 +1092,7 @@ async function generatePreview() {
 
 function renderVenueTabs() {
   var html = '';
-  var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'custom': '自定义', 'auto': '自动' };
+  var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'hui-shape': '回字型', 'custom': '自定义', 'auto': '自动' };
   var isAdmin = userRole === 'admin';
   allData.venues.forEach(function(v) {
     var vm = v.layout || v.mode || 'theater';
@@ -1123,7 +1127,7 @@ async function selectVenue(id) {
     venueAttendees[id] = attendees;
   }
 
-  var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'custom': '自定义会场' };
+  var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'hui-shape': '回字型会场', 'custom': '自定义会场' };
   var currentMode = venue.layout || venue.mode || 'theater';
   document.getElementById('venueInfo').innerHTML =
     '<strong>' + esc(venue.description) + '</strong> ' +
@@ -1673,7 +1677,7 @@ function renderDragSeatMap() {
     html += '<div style="background:linear-gradient(135deg,var(--primary-dark),var(--primary));color:#fff;text-align:center;padding:8px;border-radius:6px 6px 24px 24px;font-size:12px;font-weight:600;letter-spacing:4px;margin-bottom:10px">' + esc(stage) + '</div>';
   }
 
-  if (venue.layout === 'u-shape') {
+  if (venue.layout === 'u-shape' || venue.layout === 'hui-shape') {
     html += renderUShapeDragMap(venue);
   } else if (isCustom) {
     html += renderCustomDragMap(venue);
@@ -1771,25 +1775,21 @@ function renderStandardDragMap(venue) {
   return html;
 }
 
-// 渲染 U 型会场拖拽图
+// 渲染 U 型/回字型会场拖拽图（位置结构法）
 function renderUShapeDragMap(venue) {
   var html = '';
-  var leftRows = [];
-  var rightRows = [];
-  var bottomRow = null;
-  var midIdx = Math.floor((venue.rows || []).length / 2);
-
-  (venue.rows || []).forEach(function(row, idx) {
-    var label = (row.label || '').replace(/\s+/g, '');
-    if (label === '底部') {
-      bottomRow = row;
-    } else if (idx < midIdx) {
-      leftRows.push(row);
-    } else {
-      rightRows.push(row);
-    }
+  // 位置结构法：以/^第.+列$/为锚点分拆行
+  var firstArm = -1, lastArm = -1;
+  (venue.rows || []).forEach(function(r, idx) {
+    var l = (r.label || '').replace(/\s+/g, '');
+    if (/^第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
   });
-  rightRows.reverse();
+  var topRows = firstArm > 0 ? venue.rows.slice(0, firstArm) : [];
+  var armRows = venue.rows.slice(Math.max(0, firstArm), lastArm + 1);
+  var bottomRows = lastArm >= 0 && lastArm < venue.rows.length - 1 ? venue.rows.slice(lastArm + 1) : [];
+  var midIdx = Math.floor(armRows.length / 2);
+  var leftRows = armRows.slice(0, midIdx);
+  var rightRows = armRows.slice(midIdx);
 
   // 容器宽度约束
   var container = document.getElementById('dragSeatMap');
@@ -1797,11 +1797,11 @@ function renderUShapeDragMap(venue) {
   availW = Math.max(300, availW);
   
   // 统一计算最大内容长度
-  var allRows = [].concat(leftRows, rightRows);
-  if (bottomRow) allRows.push(bottomRow);
+  var allRows = [].concat(topRows, leftRows, rightRows, bottomRows);
   var maxContentLen = 1;
   var maxSeatsInCol = 1;
-  var maxSeatsBottom = 1;
+  var maxSeatsBottom = 0;
+  var maxSeatsTop = 0;
   allRows.forEach(function(row) {
     var total = 0;
     if (row.seatGroups) {
@@ -1816,23 +1816,48 @@ function renderUShapeDragMap(venue) {
         });
       });
     }
-    if (row === bottomRow && total > maxSeatsBottom) maxSeatsBottom = total;
     if (total > maxSeatsInCol) maxSeatsInCol = total;
   });
+  bottomRows.forEach(function(r) { var t = (r.seatGroups[0] || []).length; if (t > maxSeatsBottom) maxSeatsBottom = t; });
+  topRows.forEach(function(r) { var t = (r.seatGroups[0] || []).length; if (t > maxSeatsTop) maxSeatsTop = t; });
+  var hMaxSeats = Math.max(maxSeatsTop, maxSeatsBottom);
   
-  // 底部横排座位
-  var bottomSW = Math.min(80, Math.max(32, Math.floor(availW / Math.max(maxSeatsBottom, 1)) - 2, maxContentLen * 12));
+  // 水平行座位宽度
+  var hSeatW = Math.min(80, Math.max(32, Math.floor(availW / Math.max(hMaxSeats, 1)) - 2, maxContentLen * 12));
   
   // 竖列：宽44px，高度按座位数+内容约束
   var colSW = 44;
   var colSH = Math.min(50, Math.max(36, maxContentLen * 12));
 
-  // 全场统一字号：取底部横排和竖列中较小的字体
+  // 全场统一字号
   var colFontSize = Math.max(7, Math.floor(Math.min((colSW - 4) / Math.max(maxContentLen, 1), colSH * 0.7, 14)));
-  var bottomFontSize = Math.max(7, Math.floor(Math.min((bottomSW - 4) / Math.max(maxContentLen, 1), 44 * 0.7, 14)));
-  var ushapeFontSize = Math.min(colFontSize, bottomFontSize);
+  var hFontSize = Math.max(7, Math.floor(Math.min((hSeatW - 4) / Math.max(maxContentLen, 1), 44 * 0.7, 14)));
+  var ushapeFontSize = Math.min(colFontSize, hFontSize);
 
   html += '<div style="display:flex;flex-direction:column;align-items:center">';
+
+  // ---- 顶部行（回字型顶部封闭）----
+  if (topRows.length > 0) {
+    topRows.forEach(function(topRow) {
+      html += '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:6px">';
+      html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-right:4px;flex-shrink:0">' + esc(topRow.label) + '</div>';
+      html += '<div style="display:flex;align-items:center;flex-wrap:nowrap">';
+      if (topRow.seatGroups && topRow.seatGroups[0]) {
+        topRow.seatGroups[0].forEach(function(seatNum) {
+          if (seatNum === null || seatNum === undefined) {
+            html += '<div style="width:14px;height:44px;flex-shrink:0;background:#dbeafe;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;color:#94a3b8;font-weight:600">过道</div>';
+            return;
+          }
+          var key = topRow.label + '_' + seatNum;
+          var attendee = currentDragSeating.seatOccupancy[key];
+          html += renderDragSeat(topRow.label, seatNum, attendee, false, { seatW: hSeatW, seatH: 44, globalFontSize: ushapeFontSize });
+        });
+      }
+      html += '</div></div>';
+    });
+  }
+
+  // ---- 左右臂 ----
   html += '<div style="display:flex;align-items:flex-start;flex-wrap:nowrap">';
 
   // 左侧
@@ -1883,23 +1908,25 @@ function renderUShapeDragMap(venue) {
 
   html += '</div>';
 
-  // 底部 — 横排
-  if (bottomRow) {
-    html += '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:8px">';
-    html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-right:4px;flex-shrink:0">' + esc(bottomRow.label) + '</div>';
-    html += '<div style="display:flex;align-items:center;flex-wrap:nowrap">';
-    if (bottomRow.seatGroups && bottomRow.seatGroups[0]) {
-      bottomRow.seatGroups[0].forEach(function(seatNum) {
-        if (seatNum === null || seatNum === undefined) {
-          html += '<div style="width:14px;height:44px;flex-shrink:0;background:#dbeafe;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;color:#94a3b8;font-weight:600">过道</div>';
-          return;
-        }
-        var key = bottomRow.label + '_' + seatNum;
-        var attendee = currentDragSeating.seatOccupancy[key];
-        html += renderDragSeat(bottomRow.label, seatNum, attendee, false, { seatW: bottomSW, seatH: 44, globalFontSize: ushapeFontSize });
-      });
-    }
-    html += '</div></div>';
+  // ---- 底部行（支持多行）----
+  if (bottomRows.length > 0) {
+    bottomRows.forEach(function(botRow) {
+      html += '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:8px">';
+      html += '<div style="font-size:10px;color:var(--text2);font-weight:600;margin-right:4px;flex-shrink:0">' + esc(botRow.label) + '</div>';
+      html += '<div style="display:flex;align-items:center;flex-wrap:nowrap">';
+      if (botRow.seatGroups && botRow.seatGroups[0]) {
+        botRow.seatGroups[0].forEach(function(seatNum) {
+          if (seatNum === null || seatNum === undefined) {
+            html += '<div style="width:14px;height:44px;flex-shrink:0;background:#dbeafe;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;color:#94a3b8;font-weight:600">过道</div>';
+            return;
+          }
+          var key = botRow.label + '_' + seatNum;
+          var attendee = currentDragSeating.seatOccupancy[key];
+          html += renderDragSeat(botRow.label, seatNum, attendee, false, { seatW: hSeatW, seatH: 44, globalFontSize: ushapeFontSize });
+        });
+      }
+      html += '</div></div>';
+    });
   }
 
   html += '</div>';
@@ -4509,12 +4536,12 @@ function renderCustomPreviewLocal() {
   var extraTop = 60;
   
   // 限制最大总数宽度为 2400px（超过则缩小）
-  var totalW = maxTotalSeats * (pSW + pSG) + extraLeft + 100;
+  var totalW = maxTotalSeats * (pSW + pSG) + extraLeft + 140;
   if (totalW > 2400) {
     pSW = Math.max(50, Math.floor((2400 - extraLeft - 100) / maxTotalSeats - pSG));
     pSH = Math.max(32, Math.floor(pSW * 0.625));
     aisleGap = Math.max(30, Math.floor(pSW * 0.7));
-    totalW = maxTotalSeats * (pSW + pSG) + extraLeft + 100;
+    totalW = maxTotalSeats * (pSW + pSG) + extraLeft + 140;
   }
   
   var sorted = rows.slice().sort(function(a, b) { return a.rowNum - b.rowNum; });
@@ -4538,7 +4565,6 @@ function renderCustomPreviewLocal() {
     group.forEach(function(row, rowIdxInGroup) {
       var isFirstInGroup = (rowIdxInGroup === 0);
       var rl = escHtml(row.label || '');
-      svg += '<text x="' + (extraLeft - 20) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="end" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
 
       var aisles = (row.aislePositions || []).slice();
       aisles.sort(function(a, b) { return a - b; });
@@ -4548,6 +4574,8 @@ function renderCustomPreviewLocal() {
       if (row.direction === 'horizontal') {
         var totalRowW = seatCount * (pSW + pSG) + aisles.length * aisleGap;
         var startX = extraLeft + (totalW - extraLeft - totalRowW) / 2;
+        svg += '<text x="' + (startX - 8) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="end" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
+        svg += '<text x="' + (startX + totalRowW + 8) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="start" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
         var cursorX = startX;
         for (var i = 0; i < seatCount; i++) {
           for (var a = 0; a < aisles.length; a++) {
@@ -4578,6 +4606,8 @@ function renderCustomPreviewLocal() {
         }
       } else {
         var colX = extraLeft + (totalW - extraLeft - pSW) / 2;
+        svg += '<text x="' + (colX - 8) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="end" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
+        svg += '<text x="' + (colX + pSW + 8) + '" y="' + (pY + pSH/2 + 5) + '" text-anchor="start" font-size="14" font-family="Microsoft YaHei, sans-serif" fill="#ef4444" font-weight="bold">' + rl + '</text>';
         var estSeatH = (seatCount > 1) ? Math.min(pSH, 160 / seatCount) : pSH;
         pRG = estSeatH + 8;
         var availH = seatCount * (estSeatH + pRG);
