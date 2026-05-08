@@ -1543,8 +1543,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
             if (row.seatGroups) {
               let rowWidth = 0;
               row.seatGroups.forEach((group, gi) => {
-                const groupSeats = group.filter(s => s !== null && s !== undefined).length;
-                rowWidth += groupSeats * (seatWidth + seatGap);
+                rowWidth += group.length * (seatWidth + seatGap);
                 if (gi < row.seatGroups.length - 1) rowWidth += groupGap;
               });
               let sx = Math.max(160, (svgWidth - rowWidth) / 2);
@@ -1554,7 +1553,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
               row.seatGroups.forEach((group, gi) => {
                 if (gi > 0) {
-                  const aisleX = sx;
+                  const aisleX = sx - seatGap / 2;
                   const aisleH = seatHeight - 10;
                   svgContent += `  <rect x="${aisleX}" y="${y + 5}" width="${groupGap}" height="${aisleH}" fill="#dbeafe" rx="3"/>\n`;
                   svgContent += `  <text x="${aisleX + groupGap / 2}" y="${y + seatHeight / 2 + 6}" class="aisle-label" text-anchor="middle" font-size="16">过道</text>\n`;
@@ -1562,7 +1561,10 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 }
                 group.forEach((seatNum) => {
                   if (seatNum === null || seatNum === undefined) {
-                    sx += seatWidth + seatGap;
+                    const aisleW = seatWidth + seatGap;
+                    svgContent += `  <rect x="${sx}" y="${y + 10}" width="${aisleW}" height="${seatHeight - 20}" fill="#dbeafe" rx="4"/>\n`;
+                    svgContent += `  <text x="${sx + aisleW / 2}" y="${y + seatHeight / 2 + 6}" class="aisle-label" text-anchor="middle" font-size="18">过道</text>\n`;
+                    sx += aisleW;
                     return;
                   }
 
@@ -2288,8 +2290,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
             if (row.seatGroups) {
               let rowWidth = 0;
               row.seatGroups.forEach((group, gi) => {
-                const groupSeats = group.filter(s => s !== null && s !== undefined).length;
-                rowWidth += groupSeats * (seatWidth + seatGap);
+                rowWidth += group.length * (seatWidth + seatGap);
                 if (gi < row.seatGroups.length - 1) rowWidth += groupGap;
               });
               let sx = Math.max(margin + 100, (svgWidth - rowWidth) / 2);
@@ -2298,7 +2299,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
 
               row.seatGroups.forEach((group, gi) => {
                 if (gi > 0) {
-                  const aisleX = sx;
+                  const aisleX = sx - seatGap / 2;
                   const aisleH = seatHeight - 4;
                   svgContent += `<rect x="${aisleX}" y="${y + 2}" width="${groupGap}" height="${aisleH}" fill="#dbeafe" rx="2"/>`;
                   svgContent += `<text x="${aisleX + groupGap / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="8" fill="#94a3b8" text-anchor="middle" font-weight="bold">过道</text>`;
@@ -2306,7 +2307,10 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
                 }
                 group.forEach((seatNum) => {
                   if (seatNum === null || seatNum === undefined) {
-                    sx += seatWidth + seatGap;
+                    const aisleW = seatWidth + seatGap;
+                    svgContent += `<rect x="${sx}" y="${y + 4}" width="${aisleW}" height="${seatHeight - 8}" fill="#dbeafe" rx="3"/>`;
+                    svgContent += `<text x="${sx + aisleW / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="8" fill="#94a3b8" text-anchor="middle" font-weight="bold">过道</text>`;
+                    sx += aisleW;
                     return;
                   }
                   const name = attendeeMap[rowLabel + '_' + seatNum];

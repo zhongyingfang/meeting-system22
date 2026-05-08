@@ -966,13 +966,10 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
             seatGroups.push(groupSeats);
           });
         } else {
-          // 标准模式：利用座位头的分组结构区分空座位（组内空列）和过道（组间）
+          // 标准模式：保留座位头的分组结构，组间过道在渲染时处理
           let seatNum = 1;
-          const flatGroup = [];
-          sh.groups.forEach((group, gi) => {
-            if (gi > 0) {
-              flatGroup.push(null);
-            }
+          sh.groups.forEach((group) => {
+            const groupSeats = [];
             group.forEach(seatPos => {
               const person = personNamesInRow.find(p => p.col === seatPos.col);
               if (person) {
@@ -986,12 +983,12 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
                   source: 'excel'
                 });
               }
-              flatGroup.push(seatNum);
+              groupSeats.push(seatNum);
               seatCols.push(seatPos.col);
               seatNum++;
             });
+            seatGroups.push(groupSeats);
           });
-          seatGroups.push(flatGroup);
         }
 
         venue.rows.push({ 
@@ -1006,34 +1003,33 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
       } else {
         // 无座位头信息
         if (!isTheaterMode) {
-          // 标准模式：扁平化，空位列用null占位
-          const flatList = [];
-          personNamesInRow.forEach((p, idx) => {
-            if (idx > 0) {
-              const gapCount = p.col - personNamesInRow[idx - 1].col - 1;
-              for (let g = 0; g < gapCount; g++) flatList.push(null);
+          // 标准模式：按列间隔分组（间隔>1列视为过道），保持多组结构
+          const positionGroups = [[personNamesInRow[0]]];
+          for (let i = 1; i < personNamesInRow.length; i++) {
+            if (personNamesInRow[i].col - personNamesInRow[i - 1].col > 1) {
+              positionGroups.push([]);
             }
-            flatList.push(p);
-          });
+            positionGroups[positionGroups.length - 1].push(personNamesInRow[i]);
+          }
           let seatNum = 1;
-          const flatGroup = [];
+          const seatGroups = [];
           const seatCols = [];
-          flatList.forEach(item => {
-            if (item === null) {
-              flatGroup.push(null);
-            } else {
+          positionGroups.forEach(group => {
+            const groupSeats = [];
+            group.forEach(person => {
               excelAttendees.push({
-                name: item.name, row: ri.label, seat: seatNum,
+                name: person.name, row: ri.label, seat: seatNum,
                 company: '', title: '', venueId: venueId, source: 'excel'
               });
-              flatGroup.push(seatNum);
-              seatCols.push(item.col);
+              groupSeats.push(seatNum);
+              seatCols.push(person.col);
               seatNum++;
-            }
+            });
+            seatGroups.push(groupSeats);
           });
           venue.rows.push({
             label: ri.label, rowNum: ri.rowNum, floor: ri.floor,
-            seatGroups: [flatGroup], seatCols: seatCols,
+            seatGroups: seatGroups, seatCols: seatCols,
             isAisle: false, hasAisleAfter: hasHorizontalAisleAfter
           });
         } else {
@@ -1084,6 +1080,15 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
         }
       }
     });
+
+    // 根据解析结构设置会场布局类型（用于SVG/preview渲染时的模式判断）
+    if (venue.rows.length > 0) {
+      if (seatHeaders.length > 0) {
+        venue.layout = 'standard';
+      } else if (sofaRows.length > 0) {
+        venue.layout = 'theater';
+      }
+    }
 
     // === 智能布局检测 ===
     // 如果常规方法未能解析出排数，尝试检测更多布局类型
