@@ -1857,6 +1857,12 @@ function renderUShapeDragMap(venue) {
     });
   }
 
+  // 计算动态分隔宽度：左臂与首座位对齐，右臂与末座位对齐
+  var topRowSeatsWidth = hMaxSeats * hSeatW + (hMaxSeats - 1) * 4;
+  var leftArmWidth = leftRows.length * colSW + Math.max(0, leftRows.length - 1) * 4;
+  var rightArmWidth = rightRows.length * colSW + Math.max(0, rightRows.length - 1) * 4;
+  var spacerWidth = Math.max(0, topRowSeatsWidth - leftArmWidth - rightArmWidth);
+
   // ---- 左右臂 ----
   html += '<div style="display:flex;align-items:flex-start;flex-wrap:nowrap">';
 
@@ -1882,7 +1888,7 @@ function renderUShapeDragMap(venue) {
     html += '</div>';
   }
 
-  html += '<div style="width:80px;flex-shrink:0"></div>';
+  html += '<div style="width:' + spacerWidth + 'px;flex-shrink:0"></div>';
 
   // 右侧
   if (rightRows.length > 0) {

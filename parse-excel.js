@@ -1914,6 +1914,19 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
             }
           }
         }
+        // 再检查上一行是否有标签（标签在座位号上方，如"前第一排"）
+        if (label === '顶部' && i > 0) {
+          const prevRow = data[i - 1];
+          if (prevRow) {
+            for (let ci = 0; ci < prevRow.length; ci++) {
+              const c = prevRow[ci];
+              if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
+                const t = c.trim();
+                if (!/^第.+列$/.test(t)) { label = t; break; }
+              }
+            }
+          }
+        }
         const sortedNums = nums.sort((a, b) => a - b);
         topRowData.push({
           label: label,

@@ -516,10 +516,14 @@ function renderUShapeSeatMap(venue, pRow, pSeat) {
 
   // 座位尺寸自适应
   var seatSize = Math.max(10, Math.min(20, Math.floor(Math.min(400, maxArmSeats * 24) / maxArmSeats) - 2));
+  // 计算动态分隔宽度：左臂与首座位对齐，右臂与末座位对齐
   var gap = 2;
+  var topRowWidth = hMaxSeats * (seatSize + gap);
+  var leftArmWidth = leftRows.length * (seatSize + gap);
+  var rightArmWidth = rightRows.length * (seatSize + gap);
+  var centerWidth = Math.max(0, topRowWidth - leftArmWidth - rightArmWidth);
   var fontSize = Math.max(6, Math.min(9, seatSize - 3));
   var sizeStyle = 'width:' + seatSize + 'px;height:' + seatSize + 'px;font-size:' + fontSize + 'px;';
-  var centerWidth = Math.max(40, hMaxSeats * (seatSize + gap) - seatSize * 2);
 
   var html = '<div class="seat-map-wrap" style="display: flex; flex-direction: column; align-items: center; width: 100%;"><div class="seat-map-title">' +
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
