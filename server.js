@@ -310,6 +310,13 @@ function backupData() {
 function writeData(data, skipBackup = false) {
   acquireLock();
   try {
+    // 确保所有参会者都有唯一 ID（防止 Excel 导入等场景缺少 id）
+    (data.attendees || []).forEach(a => {
+      if (!a.id) {
+        a.id = 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      }
+    });
+
     // 写入前先备份
     if (!skipBackup) {
       backupData();

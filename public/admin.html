@@ -2476,35 +2476,33 @@ async function saveEditAttendee() {
 async function deleteUnassignedAttendee(attendeeId, attendeeName) {
   if (!confirm('确定要删除参会者 "' + attendeeName + '" 吗？')) return;
   
-  // 立即从缓存中移除并更新UI
-  if (cachedUnassignedData && cachedUnassignedData.unassigned) {
-    var idx = cachedUnassignedData.unassigned.findIndex(function(a) { return a.id === attendeeId; });
-    if (idx > -1) {
-      cachedUnassignedData.unassigned.splice(idx, 1);
-      cachedUnassignedData.companies = Array.from(new Set(cachedUnassignedData.unassigned.filter(function(a) { return a.company; }).map(function(a) { return a.company; })));
-      cachedUnassignedData.titles = Array.from(new Set(cachedUnassignedData.unassigned.filter(function(a) { return a.title; }).map(function(a) { return a.title; })));
-      renderUnassignedListFromCache();
-    }
-  }
-  // 从选中列表中移除
-  var selIdx = selectedAttendees.indexOf(attendeeId);
-  if (selIdx > -1) {
-    selectedAttendees.splice(selIdx, 1);
-    updateSelectedCount();
-  }
-  
   try {
     var res = await authFetch('/api/attendees?id=' + encodeURIComponent(attendeeId), {
       method: 'DELETE'
     });
     var data = await res.json();
     if (data.ok) {
+      // API 成功后，从缓存中移除
+      if (cachedUnassignedData && cachedUnassignedData.unassigned) {
+        var idx = cachedUnassignedData.unassigned.findIndex(function(a) { return a.id === attendeeId; });
+        if (idx > -1) {
+          cachedUnassignedData.unassigned.splice(idx, 1);
+          cachedUnassignedData.companies = Array.from(new Set(cachedUnassignedData.unassigned.filter(function(a) { return a.company; }).map(function(a) { return a.company; })));
+          cachedUnassignedData.titles = Array.from(new Set(cachedUnassignedData.unassigned.filter(function(a) { return a.title; }).map(function(a) { return a.title; })));
+          renderUnassignedListFromCache();
+        }
+      }
+      // 从选中列表中移除
+      var selIdx = selectedAttendees.indexOf(attendeeId);
+      if (selIdx > -1) {
+        selectedAttendees.splice(selIdx, 1);
+        updateSelectedCount();
+      }
       showToast('已删除参会者');
       await loadDragSeating();
       await refreshData();
     } else {
       alert('删除失败: ' + (data.error || '未知错误'));
-      // 删除失败，重新加载数据恢复状态
       await loadDragSeating();
       await refreshData();
     }
@@ -2845,8 +2843,8 @@ async function clearAttendeeSeat(attendeeId) {
     var data = await res.json();
     if (data.ok) {
       showToast('座位已清除');
-      loadDragSeating();
-      refreshData();
+      await loadDragSeating();
+      await refreshData();
     } else {
       alert('清除失败: ' + (data.error || '未知错误'));
     }
@@ -2915,8 +2913,8 @@ async function clearAllSeats() {
     var data = await res.json();
     if (data.ok) {
       showToast('已清空 ' + data.clearedCount + ' 个座位');
-      loadDragSeating();
-      refreshData();
+      await loadDragSeating();
+      await refreshData();
     } else {
       alert('清空失败: ' + (data.error || '未知错误'));
     }

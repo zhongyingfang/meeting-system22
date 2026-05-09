@@ -779,13 +779,49 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
       }
     }
 
+    // 识别横向过道行（第一列为"过道"的行）
+    const horizontalAisleRows = new Map(); // excelRow -> label
+    
+    // 标准模式：同时检测任意列中的"过道"/"横向过道"（不包含座位号的行视为过道行）
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const firstCell = row[0];
+      if (typeof firstCell === 'string' && /^(过道|横向过道)$/.test(firstCell.trim())) {
+        horizontalAisleRows.set(i, '横向过道');
+        continue;
+      }
+      // 标准模式：检测任意列中的"过道"/"横向过道"（仅整行不包含座位号时）
+      if (!isTheaterMode) {
+        const hasAisleMarker = row.some(c => typeof c === 'string' && /^(过道|横向过道)$/.test(c.trim()));
+        if (hasAisleMarker) {
+          const hasSeatNum = row.some(c => isSeatNumber(c));
+          if (!hasSeatNum) {
+            horizontalAisleRows.set(i, '横向过道');
+          }
+        }
+      }
+    }
+
     // 添加沙发排（剧院和普通模式）
     if (sheetMode !== 'u-shape') {
       sofaRows.sort((a, b) => a.rowNum - b.rowNum);
       sofaRows.forEach((sr, srIdx) => {
+        // 检查该沙发排后是否有横向过道行
+        let sofaHasAisleAfter = false;
+        const nextSofaRow = srIdx < sofaRows.length - 1 ? sofaRows[srIdx + 1] : null;
+        const sofaCheckEnd = nextSofaRow ? nextSofaRow.excelRow : Math.min(sr.excelRow + 3, data.length);
+        for (let r = sr.excelRow + 1; r < sofaCheckEnd; r++) {
+          if (horizontalAisleRows.has(r)) {
+            sofaHasAisleAfter = true;
+            break;
+          }
+        }
+
         venue.rows.push({
           label: sr.label,
-          seatGroups: sr.groups.map(g => g.map(s => s.num))
+          seatGroups: sr.groups.map(g => g.map(s => s.num)),
+          isAisle: false,
+          hasAisleAfter: sofaHasAisleAfter
         });
         const colMap = {};
         sr.groups.forEach(g => g.forEach(s => { colMap[s.col] = s.num; }));
@@ -843,18 +879,6 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
       return best;
     }
 
-    // 识别横向过道行（第一列为"过道"的行）
-    const horizontalAisleRows = new Map(); // excelRow -> label
-    
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      // 只检查第一列是否为"过道"或"横向过道"（独立过道行，不是行内标记）
-      const firstCell = row[0];
-      if (typeof firstCell === 'string' && /^(过道|横向过道)$/.test(firstCell.trim())) {
-        horizontalAisleRows.set(i, '横向过道');
-      }
-    }
-
     // 关联普通排与座位头 - 使用座位头的过道信息精确分组
     rowInfos.sort((a, b) => a.rowNum - b.rowNum);
 
@@ -870,8 +894,6 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
           hasHorizontalAisleAfter = true;
           break;
         }
-      }
-      if (hasHorizontalAisleAfter) {
       }
       
       // 提取该排中的人名及其列位置
@@ -1099,6 +1121,35 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
       if (layoutResult) {
         venue.rows = layoutResult.rows;
         venue.layout = layoutResult.layout || sheetMode;
+        
+        // 为回退路径检测的行添加横向过道标记（仅普通模式）
+        if (!isTheaterMode && horizontalAisleRows.size > 0) {
+          const rowExcelPositions = [];
+          for (let i = 0; i < venue.rows.length; i++) {
+            const vr = venue.rows[i];
+            for (let di = 0; di < data.length; di++) {
+              const dRow = data[di];
+              const labelCell = dRow.find(c => typeof c === 'string' && c.trim() === vr.label);
+              if (labelCell) {
+                rowExcelPositions.push({ venueIdx: i, excelRow: di });
+                break;
+              }
+            }
+          }
+          rowExcelPositions.sort((a, b) => a.excelRow - b.excelRow);
+          for (let vi = 0; vi < rowExcelPositions.length; vi++) {
+            const current = rowExcelPositions[vi];
+            const next = vi < rowExcelPositions.length - 1 ? rowExcelPositions[vi + 1] : null;
+            const checkEnd = next ? next.excelRow : data.length;
+            for (let r = current.excelRow + 1; r < checkEnd; r++) {
+              if (horizontalAisleRows.has(r)) {
+                venue.rows[current.venueIdx].hasAisleAfter = true;
+                break;
+              }
+            }
+          }
+        }
+        
         if (layoutResult.attendees) {
           layoutResult.attendees.forEach(a => {
             if (!excelAttendees.find(e => e.name === a.name && e.row === a.row && e.seat === a.seat)) {
