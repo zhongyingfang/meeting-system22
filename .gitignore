@@ -27,4 +27,6 @@ SteamLibrary/
 
 # 临时/测试文件
 nul
+__pycache__/
+*.pyc
 venue-tabs-screenshot.png

@@ -11,6 +11,21 @@ console.log(`  版本: ${VERSION}`);
 console.log('==========================================');
 console.log('');
 
+// 复制目录函数
+function copyDir(src, dest) {
+    fs.mkdirSync(dest, { recursive: true });
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+    for (const entry of entries) {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+            copyDir(srcPath, destPath);
+        } else {
+            fs.copyFileSync(srcPath, destPath);
+        }
+    }
+}
+
 // 清理旧文件
 console.log('[1/5] 清理旧文件...');
 if (fs.existsSync(PACKAGE_NAME)) {
@@ -135,20 +150,3 @@ console.log('详细文档请查看：');
 console.log('  - README.md  (使用说明)');
 console.log('  - DEPLOY.md  (部署指南)');
 console.log('');
-
-// 复制目录函数
-function copyDir(src, dest) {
-    fs.mkdirSync(dest, { recursive: true });
-    const entries = fs.readdirSync(src, { withFileTypes: true });
-    
-    for (const entry of entries) {
-        const srcPath = path.join(src, entry.name);
-        const destPath = path.join(dest, entry.name);
-        
-        if (entry.isDirectory()) {
-            copyDir(srcPath, destPath);
-        } else {
-            fs.copyFileSync(srcPath, destPath);
-        }
-    }
-}

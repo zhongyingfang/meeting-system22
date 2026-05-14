@@ -18,8 +18,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import tempfile
 import base64
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont
-import os
+from PIL import Image
 import sys
 import re
 import hmac
@@ -763,8 +762,14 @@ def preprocess_special_chars(text):
     return final_text
 
 # 加载中文字体
+_cached_font_name = None
+
 def load_chinese_font():
-    """加载中文字体"""
+    """加载中文字体（结果缓存）"""
+    global _cached_font_name
+    if _cached_font_name is not None:
+        return _cached_font_name
+
     font_paths = []
     
     # 优先检查本地字体目录
@@ -816,17 +821,20 @@ def load_chinese_font():
                 for subfont_idx in [0, 1, 2, 3]:
                     try:
                         pdfmetrics.registerFont(TTFont(font_name, font_path, subfontIndex=subfont_idx))
+                        _cached_font_name = font_name
                         return font_name
                     except Exception:
                         continue
             else:
                 # 普通TTF/OTF文件
                 pdfmetrics.registerFont(TTFont(font_name, font_path))
+                _cached_font_name = font_name
                 return font_name
         except Exception as e:
             continue  # 静默失败，尝试下一个字体
     
     # 如果没有找到中文字体，返回默认字体
+    _cached_font_name = "Helvetica"
     return "Helvetica"
 
 # 创建必要的目录
@@ -991,12 +999,22 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
         c.setLineWidth(template_vars['border_width'])
         c.rect(x - card_width/2, y - card_height/2, card_width, card_height, stroke=1)
     
-    # 设置字体和颜色
+    # 设置字体和颜色 — 解析一次，复用
+    font_color_str = template_vars['font_color']
     try:
-        font_color = HexColor(template_vars['font_color'])
-        c.setFillColor(font_color)
+        font_color_obj = HexColor(font_color_str)
+        use_rgb_fallback = False
     except:
-        c.setFillColorRGB(0, 0, 0)  # 默认黑色
+        font_color_obj = None
+        use_rgb_fallback = True
+
+    def set_font_color():
+        if use_rgb_fallback:
+            c.setFillColorRGB(0, 0, 0)
+        else:
+            c.setFillColor(font_color_obj)
+
+    set_font_color()
     
     # 选择字体：优先使用自定义字体，然后使用系统字体
     font_name = 'Helvetica'  # 默认字体作为最终回退
@@ -1049,14 +1067,7 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
     
     # 保存当前状态
     c.saveState()
-    
-    # 先设置基础文字颜色
-    try:
-        font_color = HexColor(template_vars['font_color'])
-        c.setFillColor(font_color)
-    except:
-        c.setFillColorRGB(0, 0, 0)  # 默认黑色
-    
+
     # 处理立体效果（最底层）
     if "立体" in text_effects:
         stereo_offset = template_vars.get('stereo_offset', 1.0)
@@ -1075,11 +1086,7 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
         draw_string_with_spacing(c, text_x - stereo_offset, text_y + stereo_offset, name, char_spacing)
         
         # 恢复文字颜色
-        try:
-            font_color = HexColor(template_vars['font_color'])
-            c.setFillColor(font_color)
-        except:
-            c.setFillColorRGB(0, 0, 0)  # 默认黑色
+        set_font_color()
     
     # 处理阴影效果（中间层）
     if "阴影" in text_effects:
@@ -1096,11 +1103,7 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
         draw_string_with_spacing(c, text_x + shadow_offset, text_y - shadow_offset, name, char_spacing)
         
         # 恢复文字颜色
-        try:
-            font_color = HexColor(template_vars['font_color'])
-            c.setFillColor(font_color)
-        except:
-            c.setFillColorRGB(0, 0, 0)  # 默认黑色
+        set_font_color()
     
     # 处理勾边效果（最上层）
     if "勾边" in text_effects:
@@ -1127,11 +1130,7 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
             draw_string_with_spacing(c, text_x + dx, text_y + dy, name, char_spacing)
         
         # 恢复原始文字颜色
-        try:
-            font_color = HexColor(template_vars['font_color'])
-            c.setFillColor(font_color)
-        except:
-            c.setFillColorRGB(0, 0, 0)  # 默认黑色
+        set_font_color()
     
     # 绘制主文字
     draw_string_with_spacing(c, text_x, text_y, name, char_spacing)
@@ -1406,6 +1405,51 @@ def generate_pdf(names, template_vars, output_path):
     
     # 保存PDF
     c.save()
+
+def build_template_vars(page_size, card_type, background_color, card_width, card_height,
+                        border_width, border_style, border_color, font_family, font_size,
+                        font_weight, font_color, background_image, custom_font,
+                        selected_system_font, font_files, text_effects, shadow_offset,
+                        shadow_color, stroke_width, stroke_color, stereo_offset,
+                        stereo_color, text_offset_x, text_offset_y, char_spacing,
+                        name_position_list, paste_area_color, paste_area_height,
+                        show_seat_number, seat_number_font_size, seat_number_color):
+    """构建模板变量字典"""
+    return {
+        'page_size': page_size,
+        'card_type': card_type,
+        'background_color': background_color,
+        'card_width': card_width,
+        'card_height': card_height,
+        'border_width': border_width,
+        'border_style': border_style,
+        'border_color': border_color,
+        'card_background': background_color,
+        'font_family': font_family,
+        'font_size': font_size,
+        'font_weight': font_weight,
+        'font_color': font_color,
+        'background_image': background_image,
+        'custom_font': custom_font,
+        'selected_system_font': selected_system_font,
+        'font_files': font_files,
+        'text_effects': text_effects,
+        'shadow_offset': shadow_offset,
+        'shadow_color': shadow_color,
+        'stroke_width': stroke_width,
+        'stroke_color': stroke_color,
+        'stereo_offset': stereo_offset,
+        'stereo_color': stereo_color,
+        'text_offset_x': text_offset_x,
+        'text_offset_y': text_offset_y,
+        'char_spacing': char_spacing,
+        'name_position_list': name_position_list,
+        'paste_area_color': paste_area_color,
+        'paste_area_height': paste_area_height,
+        'show_seat_number': show_seat_number,
+        'seat_number_font_size': seat_number_font_size,
+        'seat_number_color': seat_number_color
+    }
 
 def main():
     """主程序"""
@@ -1860,43 +1904,17 @@ def main():
     with preview_container:
         with st.spinner("正在生成预览..."):
             try:
-                # 准备模板变量
-                template_vars = {
-                    'page_size': page_size,
-                    'card_type': card_type,
-                    'background_color': background_color,
-                    'card_width': card_width,
-                    'card_height': card_height,
-                    'border_width': border_width,
-                    'border_style': border_style,
-                    'border_color': border_color,
-                    'card_background': background_color,
-                    'font_family': font_family,
-                    'font_size': font_size,
-                    'font_weight': font_weight,
-                    'font_color': font_color,
-                    'background_image': background_image,
-                    'custom_font': custom_font,
-                    'selected_system_font': selected_system_font,
-                    'font_files': font_files,
-                    'text_effects': text_effects,
-                    'shadow_offset': shadow_offset,
-                    'shadow_color': shadow_color,
-                    'stroke_width': stroke_width,
-                    'stroke_color': stroke_color,
-                    'stereo_offset': stereo_offset,
-                    'stereo_color': stereo_color,
-                    'text_offset_x': text_offset_x,
-                    'text_offset_y': text_offset_y,
-                    'char_spacing': char_spacing,
-                    'name_position_list': name_position_list,
-                    'paste_area_color': paste_area_color,
-                    'paste_area_height': paste_area_height,
-                    'show_seat_number': show_seat_number,
-                    'seat_number_font_size': seat_number_font_size,
-                    'seat_number_color': seat_number_color
-                }
-                
+                template_vars = build_template_vars(
+                    page_size, card_type, background_color, card_width, card_height,
+                    border_width, border_style, border_color, font_family, font_size,
+                    font_weight, font_color, background_image, custom_font,
+                    selected_system_font, font_files, text_effects, shadow_offset,
+                    shadow_color, stroke_width, stroke_color, stereo_offset,
+                    stereo_color, text_offset_x, text_offset_y, char_spacing,
+                    name_position_list, paste_area_color, paste_area_height,
+                    show_seat_number, seat_number_font_size, seat_number_color
+                )
+
                 # 为预览保存上传的文件为临时文件
                 preview_temp_custom_font_path = None
                 preview_temp_custom_font_name = None
@@ -2053,43 +2071,17 @@ def main():
         if st.button("🚀 生成PDF文件", type="primary"):
             with st.spinner("正在生成座位牌..."):
                 try:
-                    # 准备模板变量
-                    template_vars = {
-                        'page_size': page_size,
-                        'card_type': card_type,
-                        'background_color': background_color,
-                        'card_width': card_width,
-                        'card_height': card_height,
-                        'border_width': border_width,
-                        'border_style': border_style,
-                        'border_color': border_color,
-                        'card_background': background_color,
-                        'font_family': font_family,
-                        'font_size': font_size,
-                        'font_weight': font_weight,
-                        'font_color': font_color,
-                        'background_image': background_image,
-                        'custom_font': custom_font,
-                        'selected_system_font': selected_system_font,
-                        'font_files': font_files,
-                        'text_effects': text_effects,
-                        'shadow_offset': shadow_offset,
-                        'shadow_color': shadow_color,
-                        'stroke_width': stroke_width,
-                        'stroke_color': stroke_color,
-                        'stereo_offset': stereo_offset,
-                        'stereo_color': stereo_color,
-                        'text_offset_x': text_offset_x,
-                        'text_offset_y': text_offset_y,
-                        'char_spacing': char_spacing,
-                        'name_position_list': name_position_list,
-                        'paste_area_color': paste_area_color,
-                        'paste_area_height': paste_area_height,
-                        'show_seat_number': show_seat_number,
-                        'seat_number_font_size': seat_number_font_size,
-                        'seat_number_color': seat_number_color
-                    }
-                    
+                    template_vars = build_template_vars(
+                        page_size, card_type, background_color, card_width, card_height,
+                        border_width, border_style, border_color, font_family, font_size,
+                        font_weight, font_color, background_image, custom_font,
+                        selected_system_font, font_files, text_effects, shadow_offset,
+                        shadow_color, stroke_width, stroke_color, stereo_offset,
+                        stereo_color, text_offset_x, text_offset_y, char_spacing,
+                        name_position_list, paste_area_color, paste_area_height,
+                        show_seat_number, seat_number_font_size, seat_number_color
+                    )
+
                     # 在调用generate_pdf之前，先保存上传的文件为临时文件
                     temp_custom_font_path = None
                     temp_custom_font_name = None

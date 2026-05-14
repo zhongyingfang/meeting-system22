@@ -390,6 +390,23 @@ function findSeatConflict(data, attendee) {
   );
 }
 
+// 记录已删除参会者（防止自动分析时重新创建）
+function recordDeletedAttendee(data, a) {
+  if (!data.deletedAttendees) data.deletedAttendees = [];
+  const base = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+  if (!data.deletedAttendees.includes(base)) data.deletedAttendees.push(base);
+  const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (normalizedName) {
+    const nk = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
+    if (!data.deletedAttendees.includes(nk)) data.deletedAttendees.push(nk);
+  }
+}
+
+// XML 转义
+function escXml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // ==================== Express 配置 ====================
 
 app.use(express.json({ limit: '50mb' }));
@@ -1716,11 +1733,6 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
   }
 });
 
-// XML 转义
-function escXml(str) {
-  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 // 自动分析已上传表格的布局（从 uploaded.xlsx 重新解析）
 app.post('/api/analyze-layout', requireAdmin, (req, res) => {
   try {
@@ -2561,20 +2573,7 @@ app.delete('/api/venues/:id', requireAdmin, (req, res) => {
 
   // 记录被删除会场参会者信息到 deletedAttendees，防止自动分析时重新创建
   if (venueAttendees.length > 0) {
-    if (!data.deletedAttendees) data.deletedAttendees = [];
-    venueAttendees.forEach(a => {
-      const deletedKey = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
-      if (!data.deletedAttendees.includes(deletedKey)) {
-        data.deletedAttendees.push(deletedKey);
-      }
-      const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
-      if (normalizedName) {
-        const normalizedKey = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
-        if (!data.deletedAttendees.includes(normalizedKey)) {
-          data.deletedAttendees.push(normalizedKey);
-        }
-      }
-    });
+    venueAttendees.forEach(a => recordDeletedAttendee(data, a));
   }
 
   data.attendees = data.attendees.map(a => {
@@ -2708,25 +2707,11 @@ app.delete('/api/attendees', requireAuth, (req, res) => {
 
   // 记录被删除的参会者信息，防止自动分析时重新创建
   if (!data.deletedAttendees) data.deletedAttendees = [];
-  toBeDeleted.forEach(a => {
-    // 记录关键信息用于匹配
-    const deletedKey = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
-    if (!data.deletedAttendees.includes(deletedKey)) {
-      data.deletedAttendees.push(deletedKey);
-    }
-    // 同时记录规范化的名字用于匹配
-    const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
-    if (normalizedName) {
-      const normalizedKey = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
-      if (!data.deletedAttendees.includes(normalizedKey)) {
-        data.deletedAttendees.push(normalizedKey);
-      }
-    }
-  });
+  toBeDeleted.forEach(a => recordDeletedAttendee(data, a));
 
   const deletedCount = beforeCount - data.attendees.length;
   writeData(data);
-  
+
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   auditLog('DELETE_ATTENDEES', ip, {
     id: id || null,
@@ -2752,23 +2737,9 @@ app.post('/api/attendees/batch-delete', requireAuth, (req, res) => {
   // 先保存要删除的参会者信息
   const toBeDeleted = data.attendees.filter(a => idsSet.has(a.id));
   data.attendees = data.attendees.filter(a => !idsSet.has(a.id));
-  
-  // 记录被删除的参会者信息，防止自动分析时重新创建
-  if (!data.deletedAttendees) data.deletedAttendees = [];
-  toBeDeleted.forEach(a => {
-    const deletedKey = `${a.name || ''}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
-    if (!data.deletedAttendees.includes(deletedKey)) {
-      data.deletedAttendees.push(deletedKey);
-    }
-    const normalizedName = (a.name || '').trim().toLowerCase().replace(/\s+/g, '');
-    if (normalizedName) {
-      const normalizedKey = `${normalizedName}|${a.venueId || ''}|${a.row || ''}|${a.seat || ''}`;
-      if (!data.deletedAttendees.includes(normalizedKey)) {
-        data.deletedAttendees.push(normalizedKey);
-      }
-    }
-  });
-  
+
+  toBeDeleted.forEach(a => recordDeletedAttendee(data, a));
+
   const deletedCount = beforeCount - data.attendees.length;
   writeData(data);
   

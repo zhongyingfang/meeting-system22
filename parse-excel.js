@@ -8,6 +8,10 @@ const path = require('path');
 const cnNums = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,
   '十一':11,'十二':12,'十三':13,'十四':14,'十五':15,'十六':16,'十七':17,'十八':18,'十九':19,'二十':20,'二十一':21,
   '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'11':11,'12':12,'13':13,'14':14,'15':15,'16':16,'17':17,'18':18,'19':19,'20':20,'21':21 };
+const numToCn = {};
+for (const [k, v] of Object.entries(cnNums)) {
+  if (!numToCn[v] && /^[一二三四五六七八九十]+$/.test(k)) numToCn[v] = k;
+}
 
 const cnToNum = {
   '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
@@ -340,7 +344,7 @@ function detectLayoutType(data, venueId) {
           floorRowCounter[currentFloor || 'default'] = (floorRowCounter[currentFloor || 'default'] || 0) + 1;
           const rowNum = floorRowCounter[currentFloor || 'default'];
           const groups = groupByGap(seatPositions);
-          const fullLabel = currentFloor ? `${currentFloor}第${Object.keys(cnNums).find(k => cnNums[k] === rowNum) || rowNum}排` : `第${Object.keys(cnNums).find(k => cnNums[k] === rowNum) || rowNum}排`;
+          const fullLabel = currentFloor ? `${currentFloor}第${numToCn[rowNum] || rowNum}排` : `第${numToCn[rowNum] || rowNum}排`;
           
           rows.push({
             label: fullLabel,
@@ -456,7 +460,7 @@ function detectLayoutType(data, venueId) {
   if (seatNumberRows.length > 0) {
     seatNumberRows.forEach((sr, idx) => {
       const rowNum = idx + 1;
-      const label = `第${Object.keys(cnNums).find(k => cnNums[k] === rowNum) || rowNum}排`;
+      const label = `第${numToCn[rowNum] || rowNum}排`;
       rows.push({
         label: label,
         rowNum: rowNum,
@@ -498,7 +502,7 @@ function detectLayoutType(data, venueId) {
         group.forEach((person, personIdx) => {
           attendees.push({
             name: person.name,
-            row: `第${Object.keys(cnNums).find(k => cnNums[k] === i + 1) || (i + 1)}排`,
+            row: `第${numToCn[i + 1] || (i + 1)}排`,
             seat: seatNum + personIdx,
             company: '',
             title: '',
@@ -513,7 +517,7 @@ function detectLayoutType(data, venueId) {
       
       const rowNum = i + 1;
       rows.push({
-        label: `第${Object.keys(cnNums).find(k => cnNums[k] === rowNum) || rowNum}排`,
+        label: `第${numToCn[rowNum] || rowNum}排`,
         rowNum: rowNum,
         seatGroups: seatGroups
       });
@@ -1554,7 +1558,7 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
           const seats = [];
           for (let s = 1; s <= perRow; s++) seats.push(s);
           venue.rows.push({
-            label: '第' + Object.keys(cnNums).find(k => cnNums[k] === r) + '排',
+            label: '第' + (numToCn[r] || r) + '排',
             seatGroups: [seats]
           });
         }
@@ -2155,7 +2159,7 @@ function detectStandardLayout(data, venueId) {
   if (seatNumberRows.length > 0) {
     seatNumberRows.forEach((sr, idx) => {
       const rowNum = idx + 1;
-      const label = `第${Object.keys(cnNums).find(k => cnNums[k] === rowNum) || rowNum}排`;
+      const label = `第${numToCn[rowNum] || rowNum}排`;
       rows.push({
         label: label,
         rowNum: rowNum,
@@ -2195,7 +2199,7 @@ function detectStandardLayout(data, venueId) {
         group.forEach((person, personIdx) => {
           attendees.push({
             name: person.name,
-            row: `第${Object.keys(cnNums).find(k => cnNums[k] === i + 1) || (i + 1)}排`,
+            row: `第${numToCn[i + 1] || (i + 1)}排`,
             seat: seatNum + personIdx,
             company: '',
             title: '',
@@ -2210,7 +2214,7 @@ function detectStandardLayout(data, venueId) {
 
       const rowNum = i + 1;
       rows.push({
-        label: `第${Object.keys(cnNums).find(k => cnNums[k] === rowNum) || rowNum}排`,
+        label: `第${numToCn[rowNum] || rowNum}排`,
         rowNum: rowNum,
         seatGroups: seatGroups
       });
