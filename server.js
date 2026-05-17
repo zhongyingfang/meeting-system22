@@ -1526,8 +1526,9 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       }
 
       // 按分组渲染座位图
-      const isStandardMode = venue.layout === 'standard' || venue.mode === 'standard';
-      
+      const isTheaterMode = venue.layout === 'theater' || venue.mode === 'theater';
+      const isStandardMode = !isTheaterMode && (venue.layout === 'standard' || venue.mode === 'standard');
+
       if (isStandardMode) {
         // 标准模式：每排独立居中渲染
         // 按座位数分组——连续相同座位数的排为一组，只在每组首排显示座位号
@@ -1623,7 +1624,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const aisleX = (svgWidth - aisleWidth) / 2;
               svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>\n`;
               svgContent += `  <text x="${svgWidth / 2}" y="${aisleY + 22}" class="aisle-label" text-anchor="middle">横向过道</text>\n`;
-              y += aisleHeightVal + 30;
+              y += aisleHeightVal + 56;
             }
           });
         });
@@ -1650,69 +1651,85 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       }
       svgWidth = Math.max(svgWidth, totalSeatWidth + 400, 1200);
 
-      // 渲染每一排
-      venue.rows.forEach((row, rowIdx) => {
+      // 剧院模式：连续相同座位模式的行为一组，仅组首行显示座位号
+      const startX = 180;
+      const theaterGroups = [];
+      venue.rows.forEach((row) => {
         if (row.isAisle) {
+          theaterGroups.push({ type: 'aisle' });
+          return;
+        }
+        const pattern = row.seatGroups ? row.seatGroups.map(g => (g || []).filter(x => x !== null && x !== undefined).length).join(',') : '';
+        const last = theaterGroups[theaterGroups.length - 1];
+        if (last && last.type === 'seats' && last.pattern === pattern) {
+          last.rows.push(row);
+        } else {
+          theaterGroups.push({ type: 'seats', pattern, rows: [row] });
+        }
+      });
+
+      theaterGroups.forEach((group) => {
+        if (group.type === 'aisle') {
           y += aisleHeight;
           return;
         }
+        group.rows.forEach((row, ri) => {
+          const isFirstInGroup = ri === 0;
+          const rowLabel = row.label || '';
+          const labelY = y + seatHeight / 2 + 10;
 
-        const rowLabel = row.label || `第${rowIdx + 1}排`;
-        const labelY = y + seatHeight / 2 + 10;
-        const startX = 160;
-        
-        // 排号标签（左侧）
-        svgContent += `  <text x="${startX - 20}" y="${labelY}" class="row-label" text-anchor="end">${escXml(rowLabel)}</text>\n`;
-        
-        // 逐组渲染
-        if (row.seatGroups) {
-          let x = startX;
-          for (let gi = 0; gi < maxGroupCount; gi++) {
-            const groupSeats = row.seatGroups[gi] || [];
-            const groupMax = maxSeatsPerGroup[gi] || 0;
-            
-            const groupActualWidth = groupSeats.length * (seatWidth + seatGap);
-            const groupMaxWidth = groupMax * (seatWidth + seatGap);
-            const offset = groupMax > groupSeats.length ? (groupMaxWidth - groupActualWidth) / 2 : 0;
-            
-            let sx = x + offset;
-            
-            groupSeats.forEach((seatNum) => {
-              const name = attendeeMap[rowLabel + '_' + seatNum];
-              
-              if (seatNum) {
-                const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
-                const numBoxY = y - numBoxHeight - 8;
-                svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
-                svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${seatNum}</text>\n`;
-              }
-              
-              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
-              if (seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
-              if (name) {
-                const displayName = name.replace(/\n/g, ' ');
-                const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
-                svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
-              }
-              sx += seatWidth + seatGap;
-            });
-            
-            x += groupMaxWidth;
-            if (gi < maxGroupCount - 1) x += groupGap - seatGap;
+          // 排号标签（左侧左对齐，右侧右对齐）
+          svgContent += `  <text x="16" y="${labelY}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+          svgContent += `  <text x="${svgWidth - 16}" y="${labelY}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+
+          if (row.seatGroups) {
+            let x = startX;
+            for (let gi = 0; gi < maxGroupCount; gi++) {
+              const groupSeats = row.seatGroups[gi] || [];
+              const groupMax = maxSeatsPerGroup[gi] || 0;
+              const groupActualWidth = groupSeats.length * (seatWidth + seatGap);
+              const groupMaxWidth = groupMax * (seatWidth + seatGap);
+              const offset = groupMax > groupSeats.length ? (groupMaxWidth - groupActualWidth) / 2 : 0;
+              let sx = x + offset;
+
+              groupSeats.forEach((seatNum) => {
+                const name = attendeeMap[rowLabel + '_' + seatNum];
+
+                // 座位号仅组首行显示
+                if (isFirstInGroup && seatNum) {
+                  const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
+                  const numBoxY = y - numBoxHeight - 8;
+                  svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
+                  svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${seatNum}</text>\n`;
+                }
+
+                svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                if (rowLabel && seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
+                if (name) {
+                  const displayName = name.replace(/\n/g, ' ');
+                  const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
+                  svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
+                }
+                sx += seatWidth + seatGap;
+              });
+
+              x += groupMaxWidth;
+              if (gi < maxGroupCount - 1) x += groupGap - seatGap;
+            }
           }
-        }
 
-        y += seatHeight + rowGap;
-        if (row.hasAisleAfter) {
-          y += 20;
-          const aisleY = y;
-          const aisleHeightVal = 30;
-          const aisleWidth = totalSeatWidth + 80;
-          const aisleX = (svgWidth - aisleWidth) / 2;
-          svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>\n`;
-          svgContent += `  <text x="${svgWidth / 2}" y="${aisleY + 22}" class="aisle-label" text-anchor="middle">横向过道</text>\n`;
-          y += aisleHeightVal + 30;
-        }
+          y += seatHeight + rowGap;
+          if (row.hasAisleAfter) {
+            y += 20;
+            const aisleY = y;
+            const aisleHeightVal = 30;
+            const aisleWidth = totalSeatWidth + 80;
+            const aisleX = (svgWidth - aisleWidth) / 2;
+            svgContent += `  <rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>\n`;
+            svgContent += `  <text x="${svgWidth / 2}" y="${aisleY + 22}" class="aisle-label" text-anchor="middle">横向过道</text>\n`;
+            y += aisleHeightVal + 56;
+          }
+        });
       });
       }
       svgContent += renderRegionOverlays(venue, regionSeatPositions);
@@ -2265,7 +2282,8 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       let svgContent = `<rect width="100%" height="100%" fill="#f8fafc"/>`;
       let y = margin;
 
-      const isStandardMode = venue.layout === 'standard' || venue.mode === 'standard';
+      const isTheaterMode = venue.layout === 'theater' || venue.mode === 'theater';
+      const isStandardMode = !isTheaterMode && (venue.layout === 'standard' || venue.mode === 'standard');
 
       if (isStandardMode) {
         // 标准模式：每排独立居中，按座位数分组，只在每组首排显示座位号
@@ -2356,74 +2374,91 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
               const aisleX = (svgWidth - aisleWidth) / 2;
               svgContent += `<rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>`;
               svgContent += `<text x="${svgWidth / 2}" y="${aisleY + 14}" font-family="Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">横向过道</text>`;
-              y += aisleHeightVal + 10;
+              y += aisleHeightVal + 24;
             }
           });
         });
 
         previewVenues.push({ name: venue.name, width: svgWidth, height: venueHeight, svgContent: svgContent });
       } else {
-      
+
       // 标题
       svgContent += `<text x="${svgWidth / 2}" y="${y + 30}" font-family="Microsoft YaHei, sans-serif" font-size="16" font-weight="bold" fill="#1e293b" text-anchor="middle">${escXml(venue.name)}</text>`;
       y += 50;
       
       if (venue.rows && venue.rows.length > 0) {
         const startX = margin + 100;
-        
-        venue.rows.forEach((row, rowIdx) => {
-          const rowLabel = row.label || `第${rowIdx + 1}排`;
-          
-          // 排号标签
-          svgContent += `<text x="${startX - 10}" y="${y + seatHeight / 2 + 5}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="end">${escXml(rowLabel)}</text>`;
-          
-          if (row.seatGroups) {
-            // 逐组渲染，每组使用最大宽度，较少的座位居中
-            let x = startX;
-            for (let gi = 0; gi < maxGroupCount; gi++) {
-              const groupSeats = row.seatGroups[gi] || [];
-              const groupMax = maxSeatsPerGroup[gi] || groupSeats.length;
-              
-              // 计算该组占用的实际宽度
-              const groupActualWidth = groupSeats.length * (seatWidth + seatGap);
-              const groupMaxWidth = groupMax * (seatWidth + seatGap);
-              
-              // 偏移量：居中对齐
-              const offset = (groupMaxWidth - groupActualWidth) / 2;
-              let sx = x + offset;
-              
-              groupSeats.forEach((seatNum) => {
-                const name = attendeeMap[rowLabel + '_' + seatNum];
-                svgContent += `<rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
-                if (seatNum) {
-                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${seatNum}</text>`;
-                }
-                if (name) {
-                  const displayName = name.length > 4 ? name.substring(0, 3) + '...' : name;
-                  svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight - 6}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#1e293b" text-anchor="middle">${escXml(displayName)}</text>`;
-                }
-                sx += seatWidth + seatGap;
-              });
-              
-              x += groupMaxWidth;
-              if (gi < maxGroupCount - 1) x += groupGap - seatGap;
-            }
-          }
-          
-          y += seatHeight + rowGap;
-          if (row.hasAisleAfter) {
-            y += 10;
-            const aisleY = y;
-            const aisleHeightVal = 20;
-            const aisleWidth = totalSeatWidth + 80;
-            const aisleX = (svgWidth - aisleWidth) / 2;
-            svgContent += `<rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>`;
-            svgContent += `<text x="${svgWidth / 2}" y="${aisleY + 14}" font-family="Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">横向过道</text>`;
-            y += aisleHeightVal + 10;
+
+        // 连续相同座位模式的行为一组，仅组首行显示座位号
+        const previewGroups = [];
+        venue.rows.forEach((row) => {
+          const pattern = row.seatGroups ? row.seatGroups.map(g => (g || []).filter(x => x !== null && x !== undefined).length).join(',') : '';
+          const last = previewGroups[previewGroups.length - 1];
+          if (last && last.pattern === pattern) {
+            last.rows.push(row);
+          } else {
+            previewGroups.push({ pattern, rows: [row] });
           }
         });
+
+        previewGroups.forEach((group) => {
+          group.rows.forEach((row, ri) => {
+            const isFirstInGroup = ri === 0;
+            const rowLabel = row.label || '';
+
+            // 排号标签（左侧左对齐，右侧右对齐）
+            const labelY = y + seatHeight / 2 + 5;
+            svgContent += `<text x="${margin}" y="${labelY}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="start">${escXml(rowLabel)}</text>`;
+            svgContent += `<text x="${svgWidth - margin}" y="${labelY}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#64748b" text-anchor="end">${escXml(rowLabel)}</text>`;
+
+            if (row.seatGroups) {
+              // 逐组渲染，每组使用最大宽度，较少的座位居中
+              let x = startX;
+              for (let gi = 0; gi < maxGroupCount; gi++) {
+                const groupSeats = row.seatGroups[gi] || [];
+                const groupMax = maxSeatsPerGroup[gi] || groupSeats.length;
+
+                // 计算该组占用的实际宽度
+                const groupActualWidth = groupSeats.length * (seatWidth + seatGap);
+                const groupMaxWidth = groupMax * (seatWidth + seatGap);
+
+                // 偏移量：居中对齐
+                const offset = (groupMaxWidth - groupActualWidth) / 2;
+                let sx = x + offset;
+
+                groupSeats.forEach((seatNum) => {
+                  const name = attendeeMap[rowLabel + '_' + seatNum];
+                  svgContent += `<rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
+                  if (isFirstInGroup && seatNum) {
+                    svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#64748b" text-anchor="middle">${seatNum}</text>`;
+                  }
+                  if (name) {
+                    const displayName = name.length > 4 ? name.substring(0, 3) + '...' : name;
+                    svgContent += `<text x="${sx + seatWidth / 2}" y="${y + seatHeight - 6}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#1e293b" text-anchor="middle">${escXml(displayName)}</text>`;
+                  }
+                  sx += seatWidth + seatGap;
+                });
+
+                x += groupMaxWidth;
+                if (gi < maxGroupCount - 1) x += groupGap - seatGap;
+              }
+            }
+
+            y += seatHeight + rowGap;
+            if (row.hasAisleAfter) {
+              y += 10;
+              const aisleY = y;
+              const aisleHeightVal = 20;
+              const aisleWidth = totalSeatWidth + 80;
+              const aisleX = (svgWidth - aisleWidth) / 2;
+              svgContent += `<rect x="${aisleX}" y="${aisleY}" width="${aisleWidth}" height="${aisleHeightVal}" fill="#dbeafe" rx="4"/>`;
+              svgContent += `<text x="${svgWidth / 2}" y="${aisleY + 14}" font-family="Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">横向过道</text>`;
+              y += aisleHeightVal + 24;
+            }
+          });
+        });
       }
-      
+
       previewVenues.push({
         name: venue.name,
         width: svgWidth,
