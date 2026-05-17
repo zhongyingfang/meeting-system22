@@ -1359,10 +1359,10 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const topSeats = topRow.seatGroups[0] || [];
               if (topSeats.length > 0) {
                 const topLabel = topRow.label || '';
-                svgContent += `  <text x="${leftStartX}" y="${y + 24}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(topLabel)}</text>\n`;
                 const topRowWidth = topSeats.length * (seatWidth + seatGap) - seatGap;
                 const hAreaCenter = bottomStartX + hWidth / 2;
                 let tx = hAreaCenter - topRowWidth / 2;
+                svgContent += `  <text x="${tx - 16}" y="${y + 24}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(topLabel)}</text>\n`;
                 const isFirstInGroup = ri === 0;
                 topSeats.forEach((sn) => {
                   const name = attendeeMap[topRow.label + '_' + sn];
@@ -1428,9 +1428,9 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const sx = leftColXs[idx];
 
               if (leftFirstInGroupCols.has(idx)) {
-                // 座位号
-                const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
-                const numBoxY = y - numBoxHeight - 8;
+                // 座位号放在座位框左侧16px
+                const numBoxX = sx - numBoxWidth - 16;
+                const numBoxY = y + (seatHeight - numBoxHeight) / 2;
                 svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
                 svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
               }
@@ -1455,9 +1455,9 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const sx = rightColXs[idx];
 
               if (rightFirstInGroupCols.has(idx)) {
-                // 座位号
-                const numBoxX = sx + (seatWidth - numBoxWidth) / 2;
-                const numBoxY = y - numBoxHeight - 8;
+                // 座位号放在座位框左侧16px
+                const numBoxX = sx - numBoxWidth - 16;
+                const numBoxY = y + (seatHeight - numBoxHeight) / 2;
                 svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
                 svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
               }
@@ -1492,10 +1492,10 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const botSeats = botRow.seatGroups[0] || [];
               if (botSeats.length > 0) {
                 const botLabel = botRow.label || '';
-                svgContent += `  <text x="${leftStartX}" y="${y - 10}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(botLabel)}</text>\n`;
                 const botRowWidth = botSeats.length * (seatWidth + seatGap) - seatGap;
                 const hAreaCenter = bottomStartX + hWidth / 2;
                 let bx = hAreaCenter - botRowWidth / 2;
+                svgContent += `  <text x="${bx - 16}" y="${y - 10}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(botLabel)}</text>\n`;
                 const isFirstInGroup = ri === 0;
                 botSeats.forEach((sn) => {
                   const name = attendeeMap[botRow.label + '_' + sn];
