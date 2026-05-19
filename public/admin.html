@@ -206,6 +206,10 @@ async function openSeatCard() {
       <input type="text" id="editAttendeeName" placeholder="请输入姓名">
     </div>
     <div class="form-group">
+      <label>英文名（选填）</label>
+      <input type="text" id="editAttendeeNameEn" placeholder="请输入英文名">
+    </div>
+    <div class="form-group">
       <label>单位</label>
       <input type="text" id="editAttendeeCompany" placeholder="请输入单位">
     </div>
@@ -387,6 +391,16 @@ async function openSeatCard() {
         <label>系统副标题</label>
         <input type="text" id="configSiteSubtitle" placeholder="如：座位查询系统">
       </div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+      <div class="form-group" style="flex:1;min-width:200px">
+        <label>会议英文名称（选填）</label>
+        <input type="text" id="configSiteTitleEn" placeholder="如：Data Innovation Conference">
+      </div>
+      <div class="form-group" style="flex:1;min-width:200px">
+        <label>系统副标题英文（选填）</label>
+        <input type="text" id="configSiteSubtitleEn" placeholder="如：Seat Lookup System">
+      </div>
       <button class="btn btn-primary" onclick="saveSiteConfig()" style="align-self:flex-end">保存设置</button>
     </div>
   </div>
@@ -439,6 +453,7 @@ async function openSeatCard() {
     <h2>添加单个参会者</h2>
     <div class="add-form">
       <div class="form-group"><label>姓名 *</label><input type="text" id="addName" placeholder="姓名"></div>
+      <div class="form-group"><label>英文名（选填）</label><input type="text" id="addNameEn" placeholder="英文名"></div>
       <div class="form-group">
         <label>排 *</label>
         <select id="addRow"></select>
@@ -774,6 +789,8 @@ async function loadSiteConfig() {
     var data = await res.json();
     document.getElementById('configSiteTitle').value = data.siteTitle || '';
     document.getElementById('configSiteSubtitle').value = data.siteSubtitle || '';
+    document.getElementById('configSiteTitleEn').value = data.siteTitleEn || '';
+    document.getElementById('configSiteSubtitleEn').value = data.siteSubtitleEn || '';
   } catch (err) {
     console.error('加载配置失败:', err);
   }
@@ -783,13 +800,15 @@ async function loadSiteConfig() {
 async function saveSiteConfig() {
   var siteTitle = document.getElementById('configSiteTitle').value.trim();
   var siteSubtitle = document.getElementById('configSiteSubtitle').value.trim();
+  var siteTitleEn = document.getElementById('configSiteTitleEn').value.trim();
+  var siteSubtitleEn = document.getElementById('configSiteSubtitleEn').value.trim();
   if (!siteTitle) return alert('系统标题不能为空');
 
   try {
     var res = await authFetch('/api/site-config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ siteTitle: siteTitle, siteSubtitle: siteSubtitle })
+      body: JSON.stringify({ siteTitle: siteTitle, siteSubtitle: siteSubtitle, siteTitleEn: siteTitleEn, siteSubtitleEn: siteSubtitleEn })
     });
     var data = await res.json();
     if (data.ok) {
@@ -1257,6 +1276,7 @@ async function importAttendees(mode) {
 
 async function addPerson() {
   var name = document.getElementById('addName').value.trim();
+  var nameEn = document.getElementById('addNameEn').value.trim();
   var row = document.getElementById('addRow').value;
   var seat = parseInt(document.getElementById('addSeat').value);
   var company = document.getElementById('addCompany').value.trim();
@@ -1265,12 +1285,12 @@ async function addPerson() {
 
   var res = await authFetch('/api/attendees', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, row: row, seat: seat, company: company, title: title, venueId: currentVenueId })
+    body: JSON.stringify({ name: name, nameEn: nameEn, row: row, seat: seat, company: company, title: title, venueId: currentVenueId })
   });
   var data = await res.json();
   if (data.ok) {
     showToast('已添加 ' + name);
-    ['addName','addSeat','addCompany','addTitle'].forEach(function(id) { document.getElementById(id).value = ''; });
+    ['addName','addNameEn','addSeat','addCompany','addTitle'].forEach(function(id) { document.getElementById(id).value = ''; });
     document.getElementById('addRow').selectedIndex = 0;
     refreshData();
   } else {
@@ -1288,6 +1308,7 @@ async function editAttendeeFromList(attendeeId) {
   
   editingAttendeeId = attendeeId;
   document.getElementById('editAttendeeName').value = attendee.name || '';
+  document.getElementById('editAttendeeNameEn').value = attendee.nameEn || '';
   document.getElementById('editAttendeeCompany').value = attendee.company || '';
   document.getElementById('editAttendeeTitle').value = attendee.title || '';
   document.getElementById('editAttendeeModal').classList.add('show');
@@ -2434,6 +2455,7 @@ function editUnassignedAttendee(attendeeId) {
     if (attendee) {
       editingAttendeeId = attendeeId;
       document.getElementById('editAttendeeName').value = attendee.name || '';
+      document.getElementById('editAttendeeNameEn').value = attendee.nameEn || '';
       document.getElementById('editAttendeeCompany').value = attendee.company || '';
       document.getElementById('editAttendeeTitle').value = attendee.title || '';
       document.getElementById('editAttendeeModal').classList.add('show');
@@ -2450,6 +2472,7 @@ function closeEditAttendeeModal() {
 // 保存编辑的参会者信息
 async function saveEditAttendee() {
   var name = document.getElementById('editAttendeeName').value.trim();
+  var nameEn = document.getElementById('editAttendeeNameEn').value.trim();
   var company = document.getElementById('editAttendeeCompany').value.trim();
   var title = document.getElementById('editAttendeeTitle').value.trim();
   
@@ -2462,7 +2485,7 @@ async function saveEditAttendee() {
     var res = await authFetch('/api/attendees/' + editingAttendeeId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, company: company, title: title })
+      body: JSON.stringify({ name: name, nameEn: nameEn, company: company, title: title })
     });
     var data = await res.json();
     if (data.ok) {

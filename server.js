@@ -418,18 +418,22 @@ app.get('/api/site-config', (req, res) => {
   const config = readConfig();
   res.json({
     siteTitle: config.siteTitle || '数据创新发展大会',
-    siteSubtitle: config.siteSubtitle || '座位查询系统'
+    siteSubtitle: config.siteSubtitle || '座位查询系统',
+    siteTitleEn: config.siteTitleEn || '',
+    siteSubtitleEn: config.siteSubtitleEn || ''
   });
 });
 
 // 修改系统标题（需认证）
 app.put('/api/site-config', requireAdmin, (req, res) => {
   const config = readConfig();
-  const { siteTitle, siteSubtitle } = req.body;
+  const { siteTitle, siteSubtitle, siteTitleEn, siteSubtitleEn } = req.body;
   if (siteTitle !== undefined) config.siteTitle = siteTitle.trim();
   if (siteSubtitle !== undefined) config.siteSubtitle = siteSubtitle.trim();
+  if (siteTitleEn !== undefined) config.siteTitleEn = siteTitleEn.trim();
+  if (siteSubtitleEn !== undefined) config.siteSubtitleEn = siteSubtitleEn.trim();
   writeConfig(config);
-  res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle });
+  res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle, siteTitleEn: config.siteTitleEn, siteSubtitleEn: config.siteSubtitleEn });
 });
 
 // 修改主办方密码（管理员专属）
@@ -536,7 +540,15 @@ app.get('/api/qrcode', async (req, res) => {
 });
 
 // 静态文件（index.html 公开访问）
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 // 上传文件静态访问
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -641,14 +653,17 @@ app.get('/api/search', (req, res) => {
   }
 
   const data = readData();
+  const config = readConfig();
   const results = data.attendees
     .filter(a => {
       const n = (a.name || '').replace(/\s+/g, '');
-      return n === rawName || n.includes(rawName) || rawName.includes(n);
+      const nEn = ((a.nameEn || '').replace(/\s+/g, '')).toLowerCase();
+      const q = rawName.toLowerCase();
+      return n === rawName || n.includes(rawName) || rawName.includes(n) || nEn === q || nEn.includes(q) || q.includes(nEn);
     })
     .map(a => {
       const venue = data.venues.find(v => v.id === a.venueId);
-      return { ...a, venueName: venue ? venue.name : '未知', venue };
+      return { ...a, venueName: venue ? venue.name : '未知', venue, siteTitleEn: config.siteTitleEn || '' };
     });
 
   // 写入缓存
@@ -2795,8 +2810,9 @@ app.put('/api/attendees/:id', requireAuth, (req, res) => {
     return res.status(404).json({ error: '参会者不存在' });
   }
   
-  const { name, company, title } = req.body;
+  const { name, nameEn, company, title } = req.body;
   if (name) attendee.name = name.trim();
+  if (nameEn !== undefined) attendee.nameEn = nameEn.trim();
   if (company !== undefined) attendee.company = company.trim();
   if (title !== undefined) attendee.title = title.trim();
   

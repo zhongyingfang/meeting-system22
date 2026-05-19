@@ -70,6 +70,12 @@
   .seat-detail-item { background: #f1f5f9; border-radius: 10px; padding: 12px 8px; text-align: center; }
   .seat-detail-item .label { font-size: 11px; color: var(--text2); margin-bottom: 2px; }
   .seat-detail-item .value { font-size: 18px; font-weight: 700; color: var(--primary); }
+  .seat-detail-item .value-en { font-size: 12px; color: var(--text2); font-weight: 400; margin-top: 2px; }
+  .name-cn { font-size: 18px; font-weight: 700; }
+  .name-en { font-size: 13px; color: var(--text2); font-weight: 400; margin-top: 2px; }
+  .multi-name-cn { font-weight: 600; font-size: 15px; }
+  .multi-name-en { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .header-en { font-size: 14px; opacity: .8; margin-top: 4px; position: relative; z-index: 1; }
   .venue-badge {
     background: linear-gradient(135deg, var(--primary), var(--primary-light));
     color: #fff; border-radius: 8px; padding: 8px 12px; margin-bottom: 16px;
@@ -149,20 +155,24 @@
   .no-result svg { width: 48px; height: 48px; color: #cbd5e1; margin-bottom: 12px; }
   .tip { text-align: center; padding: 40px 20px; color: var(--text2); font-size: 13px; line-height: 1.8; }
   .tip svg { width: 64px; height: 64px; color: #cbd5e1; margin-bottom: 12px; }
+  .tip-en { display: block; color: #94a3b8; font-size: 11px; margin-top: 4px; }
+  .sub-en { display: block; color: #94a3b8; font-size: 12px; font-weight: 400; margin-top: 2px; }
   .footer { text-align: center; padding: 20px; color: var(--text2); font-size: 11px; }
 </style>
 </head>
 <body>
 <div class="header">
   <h1 id="siteTitle">数据创新发展大会</h1>
+  <p class="header-en" id="siteTitleEn" style="display:none"></p>
   <p id="siteSubtitle">座位查询系统</p>
+  <p class="header-en" id="siteSubtitleEn" style="display:none"></p>
 </div>
 
 <div class="search-section">
   <div class="search-box">
-    <label>请输入您的姓名查询座位</label>
+    <label>请输入您的姓名查询座位<span class="sub-en">Enter your name to find your seat</span></label>
     <div class="input-wrapper">
-      <input type="text" id="nameInput" placeholder="请输入姓名..." autocomplete="off" autofocus>
+      <input type="text" id="nameInput" placeholder="请输入姓名... / Enter name..." autocomplete="off" autofocus>
       <button class="search-btn" onclick="doSearch()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
@@ -177,7 +187,7 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
     </svg>
-    <p>输入您的姓名<br>即可快速定位您的座位</p>
+    <p>输入您的姓名<br>即可快速定位您的座位<span class="tip-en">Enter your name<br>to quickly locate your seat</span></p>
   </div>
 </div>
 
@@ -192,6 +202,14 @@ async function loadSiteConfig() {
     document.getElementById('siteTitle').textContent = data.siteTitle;
     document.getElementById('siteSubtitle').textContent = data.siteSubtitle;
     document.title = data.siteTitle + ' - ' + data.siteSubtitle;
+    if (data.siteTitleEn) {
+      document.getElementById('siteTitleEn').textContent = data.siteTitleEn;
+      document.getElementById('siteTitleEn').style.display = '';
+    }
+    if (data.siteSubtitleEn) {
+      document.getElementById('siteSubtitleEn').textContent = data.siteSubtitleEn;
+      document.getElementById('siteSubtitleEn').style.display = '';
+    }
   } catch (e) {}
 }
 loadSiteConfig();
@@ -199,6 +217,7 @@ loadSiteConfig();
 var nameInput = document.getElementById('nameInput');
 var resultArea = document.getElementById('resultArea');
 var currentResults = null;
+var lastSearchIsEn = false;
 var TIP_HTML = '<div class="tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><p>输入您的姓名<br>即可快速定位您的座位</p></div>';
 
 // 防抖定时器：只在用户停止输入后才记录查询统计
@@ -233,6 +252,7 @@ nameInput.addEventListener('input', function() {
 // 执行搜索，trackStats 控制是否记录到查询统计
 async function performSearch(name, trackStats) {
   if (!name) return;
+  lastSearchIsEn = /^[a-zA-Z\s]+$/.test(name.trim());
   try {
     var url = '/api/search?name=' + encodeURIComponent(name);
     if (trackStats) url += '&track=1';
@@ -240,8 +260,8 @@ async function performSearch(name, trackStats) {
     var data = await res.json();
     currentResults = data.results;
     if (data.results.length === 0) showNoResult(name);
-    else if (data.results.length === 1) showResult(data.results[0], false);
-    else showMulti(data.results);
+    else if (data.results.length === 1) showResult(data.results[0], false, lastSearchIsEn);
+    else showMulti(data.results, lastSearchIsEn);
   } catch(e) { resultArea.innerHTML = '<div class="no-result"><p>查询失败，请重试</p></div>'; }
 }
 
@@ -260,12 +280,11 @@ function showNoResult(name) {
     '<p style="margin-top:8px;font-size:12px;color:#94a3b8">请确认姓名是否正确，或联系工作人员</p></div></div>';
 }
 
-function showResult(person, hasDup) {
-  resultArea.innerHTML = renderPersonCard(person, hasDup);
+function showResult(person, hasDup, isEnSearch) {
+  resultArea.innerHTML = renderPersonCard(person, hasDup, isEnSearch);
 }
 
-function showMulti(results) {
-  // 检测是否有同名（完全相同的姓名出现多次）
+function showMulti(results, isEnSearch) {
   var nameCount = {};
   results.forEach(function(p) { nameCount[p.name] = (nameCount[p.name] || 0) + 1; });
   var hasDup = Object.values(nameCount).some(function(c) { return c > 1; });
@@ -282,11 +301,17 @@ function showMulti(results) {
     var info = esc(p.venueName);
     if (p.company) info += ' | ' + esc(p.company);
     if (p.title) info += ' ' + esc(p.title);
+    var nameHtml = '<div class="multi-name-cn">' + esc(p.name) + '</div>';
+    if (p.nameEn) nameHtml += '<div class="multi-name-en">' + esc(p.nameEn) + '</div>';
+    var seatLabel = esc(p.row) + '<br>' + p.seat + '座';
+    if (p.nameEn) {
+      seatLabel = esc(p.row) + '<br>' + p.seat + '座';
+    }
     html += '<div class="multi-item" onclick="selectPerson(' + i + ')" id="p-' + i + '">' +
       '<div class="left"><div class="avatar">' + esc(p.name.charAt(0)) + '</div>' +
-      '<div><div class="name">' + esc(p.name) + '</div>' +
+      '<div>' + nameHtml +
       '<div class="sub">' + info + '</div></div></div>' +
-      '<div class="badge">' + esc(p.row) + '<br>' + p.seat + '座</div></div>';
+      '<div class="badge">' + seatLabel + '</div></div>';
   });
   html += '</div><div id="selectedMap"></div>';
   resultArea.innerHTML = html;
@@ -295,10 +320,10 @@ function showMulti(results) {
 function selectPerson(i) {
   var p = currentResults[i];
   document.querySelectorAll('.multi-item').forEach(function(el, j) { el.classList.toggle('active', j === i); });
-  document.getElementById('selectedMap').innerHTML = renderPersonCard(p, false);
+  document.getElementById('selectedMap').innerHTML = renderPersonCard(p, false, lastSearchIsEn);
 }
 
-function renderPersonCard(p, hasDup) {
+function renderPersonCard(p, hasDup, isEnSearch) {
   var dupHtml = '';
   if (hasDup) {
     dupHtml = '<div class="dup-notice">' +
@@ -307,14 +332,23 @@ function renderPersonCard(p, hasDup) {
       '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
       '存在同名参会者，请根据<strong>会场</strong>和<strong>单位</strong>信息确认您的座位</div>';
   }
+  var nameHtml = '<div class="name-cn">' + esc(p.name) + '</div>';
+  if (p.nameEn) nameHtml += '<div class="name-en">' + esc(p.nameEn) + '</div>';
+  var showEn = p.nameEn || isEnSearch;
+  var seatRowHtml = '<div class="value">' + esc(p.row) + '</div>';
+  var seatNumHtml = '<div class="value">' + p.seat + ' 号</div>';
+  if (showEn) {
+    seatRowHtml = '<div class="value">' + esc(p.row) + '</div><div class="value-en">' + esc(translateRow(p.row)) + '</div>';
+    seatNumHtml = '<div class="value">' + p.seat + ' 号</div><div class="value-en">Seat ' + p.seat + '</div>';
+  }
   return '<div class="result-card">' + dupHtml +
     '<div class="result-header"><div class="result-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>' +
-    '<div class="result-info"><h3>' + esc(p.name) + '</h3><p>' + esc(p.company || '') + ' ' + esc(p.title || '') + '</p></div></div>' +
+    '<div class="result-info"><h3>' + nameHtml + '</h3><p>' + esc(p.company || '') + ' ' + esc(p.title || '') + '</p></div></div>' +
     '<div class="venue-badge">' + esc(p.venueName) + '</div>' +
     '<div class="seat-detail">' +
     '<div class="seat-detail-item"><div class="label">会场</div><div class="value" style="font-size:13px">' + esc(p.venueName) + '</div></div>' +
-    '<div class="seat-detail-item"><div class="label">排</div><div class="value">' + esc(p.row) + '</div></div>' +
-    '<div class="seat-detail-item"><div class="label">座位号</div><div class="value">' + p.seat + ' 号</div></div></div>' +
+    '<div class="seat-detail-item"><div class="label">排</div>' + seatRowHtml + '</div>' +
+    '<div class="seat-detail-item"><div class="label">座位号</div>' + seatNumHtml + '</div></div>' +
     (p.venue ? renderSeatMap(p.venue, p) : '') + '</div>';
 }
 
@@ -746,6 +780,54 @@ function renderCustomSeatMap(venue, pRow, pSeat) {
     '<div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>您的座位</div>' +
     '</div></div>';
   return html;
+}
+
+function translateRow(rowLabel) {
+  if (!rowLabel) return '';
+  var s = rowLabel.trim().replace(/\s+/g, '');
+  // 一楼沙发第一排、一楼第X排、二楼第X排 等
+  var floorSofaMatch = s.match(/^(一楼|二楼|三楼|四楼|五楼|六楼|七楼|八楼|九楼|十楼)沙发[第]?([一二三四五六七八九十]+|\d+)[排]$/);
+  if (floorSofaMatch) {
+    var floorMap = { '一楼':'1F','二楼':'2F','三楼':'3F','四楼':'4F','五楼':'5F','六楼':'6F','七楼':'7F','八楼':'8F','九楼':'9F','十楼':'10F' };
+    var cnNum = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var n = floorSofaMatch[2];
+    var num = /^\d+$/.test(n) ? parseInt(n) : (cnNum[n] || n);
+    return floorMap[floorSofaMatch[1]] + ' Row ' + num + ' (Sofa)';
+  }
+  // 一楼第X排、二楼第X排
+  var floorMatch = s.match(/^(一楼|二楼|三楼|四楼|五楼|六楼|七楼|八楼|九楼|十楼)第([一二三四五六七八九十]+|\d+)[排]$/);
+  if (floorMatch) {
+    var floorMap2 = { '一楼':'1F','二楼':'2F','三楼':'3F','四楼':'4F','五楼':'5F','六楼':'6F','七楼':'7F','八楼':'8F','九楼':'9F','十楼':'10F' };
+    var cnNum2 = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var n2 = floorMatch[2];
+    var num2 = /^\d+$/.test(n2) ? parseInt(n2) : (cnNum2[n2] || n2);
+    return floorMap2[floorMatch[1]] + ' Row ' + num2;
+  }
+  // 沙发第一排、沙发第二排 → Row 1 (Sofa)
+  var sofaMatch = s.match(/^沙发[第]?([一二三四五六七八九十]+|\d+)[排]$/);
+  if (sofaMatch) {
+    var cnNum3 = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var n3 = sofaMatch[1];
+    var num3 = /^\d+$/.test(n3) ? parseInt(n3) : (cnNum3[n3] || n3);
+    return 'Row ' + num3 + ' (Sofa)';
+  }
+  // 第X排 → Row X
+  var rowMatch = s.match(/^第([一二三四五六七八九十]+|\d+)[排]$/);
+  if (rowMatch) {
+    var cnNum4 = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var n4 = rowMatch[1];
+    var num4 = /^\d+$/.test(n4) ? parseInt(n4) : (cnNum4[n4] || n4);
+    return 'Row ' + num4;
+  }
+  // 第X列 → Column X
+  var colMatch = s.match(/^第([一二三四五六七八九十]+|\d+)[列]$/);
+  if (colMatch) {
+    var cnNum5 = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var n5 = colMatch[1];
+    var num5 = /^\d+$/.test(n5) ? parseInt(n5) : (cnNum5[n5] || n5);
+    return 'Column ' + num5;
+  }
+  return rowLabel;
 }
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
