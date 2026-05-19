@@ -541,9 +541,9 @@ function detectSheetMode(data) {
     const row = data[i];
     const colLabels = row.filter(c => typeof c === 'string' && /^第.+列$/.test(c.trim()));
     if (colLabels.length >= 2) {
-      // 检查标题行上方是否有连续数字 → 回字型
-      if (i > 0) {
-        const numCount = data[i - 1].filter(c => typeof c === 'number').length;
+      // 检查标题行上方任意行是否有连续数字 → 回字型（不仅限紧邻行）
+      for (let j = 0; j < i; j++) {
+        const numCount = data[j].filter(c => typeof c === 'number').length;
         if (numCount >= 3) return 'hui-shape';
       }
       return 'u-shape';
@@ -613,7 +613,7 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
       const uResult = detectUShapeLayout(data, venueId, venue, excelAttendees);
       if (uResult && uResult.rows.length > 0) {
         venue.rows = uResult.rows;
-        venue.layout = sheetMode;  // 'u-shape' 或 'hui-shape'
+        venue.layout = uResult.layout || sheetMode;  // 优先用检测结果
         if (uResult.attendees) {
           uResult.attendees.forEach(a => {
             if (!excelAttendees.find(e => e.name === a.name && e.row === a.row && e.seat === a.seat)) {
@@ -1688,396 +1688,334 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
 function detectUShapeLayout(data, venueId, venue, excelAttendees) {
   const result = { rows: [], attendees: [] };
 
-  let uColumnHeaderRow = -1;
-  let uColumnHeaders = [];
-  let uSeatNumCols = [];
+  // ===================================================================
+  // Phase 2: 多行列标题收集 — 扫描可能跨行的"第X列"标签
+  // ===================================================================
+  let firstLabelRow = -1;
+  const allColumnHeaders = [];
 
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
+    if (!row) continue;
     const colLabels = [];
-    const seatLabelCols = [];
     row.forEach((c, ci) => {
-      if (typeof c === 'string') {
-        const trimmed = c.trim();
-        if (/^第.+列$/.test(trimmed)) {
-          colLabels.push({ col: ci, label: trimmed });
-        }
-        if (trimmed === '座位号') {
-          seatLabelCols.push(ci);
-        }
+      if (typeof c === 'string' && /^第.+列$/.test(c.trim())) {
+        colLabels.push({ col: ci, label: c.trim() });
       }
     });
-    if (colLabels.length >= 2) {
-      uColumnHeaderRow = i;
-      uColumnHeaders = colLabels.sort((a, b) => a.col - b.col);
-      if (seatLabelCols.length > 0) {
-        uSeatNumCols = seatLabelCols.sort((a, b) => a - b);
-      }
-      break;
+    if (colLabels.length >= 2 && firstLabelRow < 0) {
+      firstLabelRow = i;
     }
-  }
-
-  // 如果在列头行未找到座位号标签，在后续行中查找
-  if (uColumnHeaders.length >= 2 && uSeatNumCols.length < 2) {
-    const allSeatCols = new Set();
-    for (let i = uColumnHeaderRow + 1; i < Math.min(uColumnHeaderRow + 4, data.length); i++) {
-      const row = data[i];
-      if (!row) continue;
-      row.forEach((c, ci) => {
-        if (typeof c === 'string' && c.trim() === '座位号') {
-          allSeatCols.add(ci);
-        }
-      });
-    }
-    if (allSeatCols.size >= 2) {
-      uSeatNumCols = Array.from(allSeatCols).sort((a, b) => a - b);
-    }
-  }
-
-  // ===== 数据驱动：当无"座位号"标签时，通过数字密度推断座位列 =====
-  // 核心思想：人名不会是全数字，一排/一列全是数字的就是座位号
-  if (uColumnHeaders.length >= 2 && uSeatNumCols.length < 2) {
-    const hMid = Math.floor(uColumnHeaders.length / 2);
-    const leftHeaders = uColumnHeaders.slice(0, hMid);
-    const rightHeaders = uColumnHeaders.slice(hMid);
-    const headerColSet = new Set(uColumnHeaders.map(h => h.col));
-
-    // 扫描标题行下方30行，统计每列的数字个数
-    const scanRows = Math.min(uColumnHeaderRow + 30, data.length);
-    const colNums = {};
-    for (let ri = uColumnHeaderRow + 1; ri < scanRows; ri++) {
-      const row = data[ri]; if (!row) continue;
-      for (let ci = 0; ci < row.length; ci++) {
-        if (typeof row[ci] === 'number') {
-          colNums[ci] = (colNums[ci] || 0) + 1;
+    // 从首个标签行及其后续2行中收集所有列标签（去重）
+    if (firstLabelRow >= 0 && i <= firstLabelRow + 2) {
+      for (const cl of colLabels) {
+        if (!allColumnHeaders.find(h => h.col === cl.col)) {
+          allColumnHeaders.push(cl);
         }
       }
     }
+  }
 
-    // 在左组标题附近找数字密度最高的列
-    let bestLeft = -1, bestLeftCnt = 0;
-    const leftMin = Math.max(0, leftHeaders[0].col - 2);
-    const leftMax = Math.min(leftHeaders[leftHeaders.length - 1].col + 1, (data[0] || []).length - 1);
-    for (let ci = leftMin; ci <= leftMax; ci++) {
-      if (headerColSet.has(ci)) continue;
-      const cnt = colNums[ci] || 0;
-      if (cnt > bestLeftCnt && cnt >= 3) { bestLeftCnt = cnt; bestLeft = ci; }
+  if (allColumnHeaders.length < 2) return result;
+
+  allColumnHeaders.sort((a, b) => a.col - b.col);
+
+  // 按最大间隙分割左/右组
+  let maxGap = 0, splitIdx = Math.ceil(allColumnHeaders.length / 2);
+  for (let j = 1; j < allColumnHeaders.length; j++) {
+    const gap = allColumnHeaders[j].col - allColumnHeaders[j - 1].col;
+    if (gap > maxGap) { maxGap = gap; splitIdx = j; }
+  }
+
+  const leftHeaders = allColumnHeaders.slice(0, splitIdx);
+  const rightHeaders = allColumnHeaders.slice(splitIdx);
+  const innerLeftCol = leftHeaders[leftHeaders.length - 1].col;
+  const innerRightCol = rightHeaders[0].col;
+  const labelColSet = new Set(allColumnHeaders.map(h => h.col));
+
+  // 辅助：在座位号行附近查找文本标签
+  function findNearbyLabel(rowIdx, maxRow) {
+    // 先查下一行（包含标签行本身）
+    if (rowIdx + 1 <= maxRow) {
+      const nextRow = data[rowIdx + 1];
+      if (nextRow) {
+        for (let ci = 0; ci < nextRow.length; ci++) {
+          const c = nextRow[ci];
+          if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
+            const t = c.trim();
+            if (!/^第.+列$/.test(t)) return t;
+          }
+        }
+      }
     }
-
-    // 在右组标题附近找数字密度最高的列
-    let bestRight = -1, bestRightCnt = 0;
-    const rightMin = Math.max(0, rightHeaders[0].col - 2);
-    const rightMax = Math.min(rightHeaders[rightHeaders.length - 1].col + 1, (data[0] || []).length - 1);
-    for (let ci = rightMin; ci <= rightMax; ci++) {
-      if (headerColSet.has(ci)) continue;
-      const cnt = colNums[ci] || 0;
-      if (cnt > bestRightCnt && cnt >= 3) { bestRightCnt = cnt; bestRight = ci; }
+    // 再查上一行
+    if (rowIdx > 0) {
+      const prevRow = data[rowIdx - 1];
+      if (prevRow) {
+        for (let ci = 0; ci < prevRow.length; ci++) {
+          const c = prevRow[ci];
+          if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
+            const t = c.trim();
+            if (!/^第.+列$/.test(t)) return t;
+          }
+        }
+      }
     }
+    return '顶部';
+  }
 
-    if (bestLeft >= 0 && bestRight >= 0 && bestLeft !== bestRight) {
-      uSeatNumCols = [Math.min(bestLeft, bestRight), Math.max(bestLeft, bestRight)];
+  // ===================================================================
+  // Phase 1: 顶部横排检测 → 判定回字型 vs U型
+  // ===================================================================
+  let isHuiShape = false;
+  const topRowData = [];
+
+  for (let i = 0; i < firstLabelRow; i++) {
+    const row = data[i];
+    if (!row) continue;
+    const numCols = [];
+    row.forEach((c, ci) => {
+      if (typeof c === 'number' && ci > innerLeftCol && ci < innerRightCol && !labelColSet.has(ci)) {
+        numCols.push({ col: ci, num: c });
+      }
+    });
+    if (numCols.length >= 2) {
+      isHuiShape = true;
+      const sorted = numCols.map(n => n.num).sort((a, b) => a - b);
+      topRowData.push({
+        label: findNearbyLabel(i, firstLabelRow),
+        seatGroups: [fillMissingSeatNumbers(sorted)]
+      });
     }
   }
 
-  if (uColumnHeaders.length >= 2) {
-    // 如果没有找到座位号列，使用列头所在列作为座位列
-    const leftSeatCol = uSeatNumCols.length >= 2 ? uSeatNumCols[0] : -1;
-    const rightSeatCol = uSeatNumCols.length >= 2 ? uSeatNumCols[uSeatNumCols.length - 1] : -1;
+  // ===================================================================
+  // Phase 3: 每列独立发现座位号列
+  // ===================================================================
+  const scanStart = firstLabelRow + 1;
+  const scanEnd = Math.min(firstLabelRow + 31, data.length);
 
-    const midIdx = Math.floor(uColumnHeaders.length / 2);
-    const leftCols = uColumnHeaders.slice(0, midIdx);
-    const rightCols = uColumnHeaders.slice(midIdx);
+  // 预计算各列数字密度
+  const colNumCounts = {};
+  for (let ri = scanStart; ri < scanEnd; ri++) {
+    const row = data[ri];
+    if (!row) continue;
+    row.forEach((c, ci) => {
+      if (typeof c === 'number') colNumCounts[ci] = (colNumCounts[ci] || 0) + 1;
+    });
+  }
 
-    const innerLeftCol = leftCols[leftCols.length - 1];
-    const innerRightCol = rightCols[0];
+  // 每列独立查找座位号列（距离优先：从近到远扫描，找到第一个数字≥3的列）
+  const claimedSeatCols = new Set();
+  const headerSeatMap = []; // { header, seatCol }
+  for (const header of allColumnHeaders) {
+    const lc = header.col;
+    let bestCol = -1, bestCnt = 0;
 
-    let bottomNums = [];
-    let bottomRowIdx = -1;
-    const bottomColMap = {};
+    // 距离优先：先扫描距离1，再距离2，再距离3
+    for (let d = 1; d <= 3; d++) {
+      let found = false;
+      const isLeft = allColumnHeaders.indexOf(header) < splitIdx;
+      const offsets = isLeft ? [-d, 0, d] : [d, 0, -d];
+      for (const dc of offsets) {
+        const cc = lc + dc;
+        if (cc < 0) continue;
+        // 不排除标签列：同一列可能标签在上、数字在下（如右侧列）
+        if (claimedSeatCols.has(cc)) continue;
+        const cnt = colNumCounts[cc] || 0;
+        if (cnt >= 3 && cnt > bestCnt) { bestCnt = cnt; bestCol = cc; found = true; }
+      }
+      if (found) break; // 取最近的
+    }
 
-    for (let i = uColumnHeaderRow + 1; i < data.length; i++) {
-      const row = data[i];
-      if (!row) continue;
-      const nums = [];
-      row.forEach((c, ci) => {
-        if (typeof c === 'number') nums.push({ col: ci, num: c });
-      });
-      const innerBottomNums = nums.filter(n =>
-        n.col > innerLeftCol.col && n.col < innerRightCol.col &&
-        n.col !== leftSeatCol && n.col !== rightSeatCol
-      );
-      if (innerBottomNums.length >= 2) {
-        innerBottomNums.sort((a, b) => a.col - b.col);
-        bottomNums = innerBottomNums.map(n => n.num);
-        bottomRowIdx = i;
-        innerBottomNums.forEach(n => { bottomColMap[n.col] = n.num; });
+    if (bestCol >= 0) {
+      claimedSeatCols.add(bestCol);
+      headerSeatMap.push({ header, seatCol: bestCol });
+    }
+  }
+
+  // Fallback: 无专属座位号列的标签，共享最近的已分配座位号列（兼容旧格式）
+  for (const header of allColumnHeaders) {
+    if (headerSeatMap.find(m => m.header.col === header.col)) continue;
+    let bestCol = -1, bestDist = Infinity;
+    for (const sc of claimedSeatCols) {
+      const dist = Math.abs(sc - header.col);
+      if (dist < bestDist) { bestDist = dist; bestCol = sc; }
+    }
+    if (bestCol >= 0) {
+      headerSeatMap.push({ header, seatCol: bestCol });
+    }
+  }
+
+  // 按标签列索引排序，保证输出顺序正确
+  headerSeatMap.sort((a, b) => a.header.col - b.header.col);
+
+  // ===================================================================
+  // Phase 4: 每列独立读取座位号
+  // ===================================================================
+  const sideDataRows = new Set();
+
+  for (const { header, seatCol } of headerSeatMap) {
+    const seatNums = [];
+    let reading = false;
+
+    for (let ri = scanStart; ri < data.length; ri++) {
+      const row = data[ri];
+      if (!row) { if (reading) break; continue; }
+      const val = row[seatCol];
+      if (typeof val === 'number') {
+        seatNums.push(val);
+        sideDataRows.add(ri);
+        reading = true;
+      } else if (reading) {
         break;
       }
     }
 
-    if (bottomNums.length === 0 && leftSeatCol >= 0 && rightSeatCol >= 0) {
-      for (let i = uColumnHeaderRow + 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row) continue;
-        const middleNums = [];
-        row.forEach((c, ci) => {
-          if (typeof c === 'number' && ci > leftCols[leftCols.length - 1].col && ci < rightCols[0].col &&
-              ci !== leftSeatCol && ci !== rightSeatCol) {
-            middleNums.push({ col: ci, num: c });
-          }
-        });
-        if (middleNums.length >= 2) {
-          middleNums.sort((a, b) => a.col - b.col);
-          bottomNums = middleNums.map(n => n.num);
-          bottomRowIdx = i;
-          middleNums.forEach(n => { bottomColMap[n.col] = n.num; });
-          break;
-        }
-      }
-    }
-
-    const pairedRows = [];
-    const stopRow = bottomRowIdx >= 0 ? bottomRowIdx + 1 : data.length;
-    for (let i = uColumnHeaderRow + 1; i < stopRow; i++) {
-      const row = data[i];
-      const leftVal = leftSeatCol >= 0 ? row[leftSeatCol] : null;
-      const rightVal = rightSeatCol >= 0 ? row[rightSeatCol] : null;
-      if (typeof leftVal === 'number' && typeof rightVal === 'number') {
-        pairedRows.push({ excelRow: i, leftNum: leftVal, rightNum: rightVal });
-      }
-    }
-
-    leftCols.forEach((leftCol, colIdx) => {
-      let leftSeatNums = pairedRows.map(r => r.leftNum);
-      if (colIdx === 0 && bottomRowIdx >= 0) {
-        for (let i = bottomRowIdx + 1; i < data.length; i++) {
-          const row = data[i];
-          if (!row) continue;
-          const val = row[leftSeatCol];
-          if (typeof val === 'number') {
-            leftSeatNums.push(val);
-          }
-        }
-      }
-      if (leftSeatNums.length > 0) {
-        leftSeatNums = fillMissingSeatNumbers(leftSeatNums);
-        result.rows.push({
-          label: leftCol.label,
-          seatGroups: [leftSeatNums]
-        });
-      }
-    });
-
-    rightCols.forEach((rightCol, colIdx) => {
-      let rightSeatNums = pairedRows.map(r => r.rightNum);
-      if (colIdx === rightCols.length - 1 && bottomRowIdx >= 0) {
-        for (let i = bottomRowIdx + 1; i < data.length; i++) {
-          const row = data[i];
-          if (!row) continue;
-          const val = row[rightSeatCol];
-          if (typeof val === 'number') {
-            rightSeatNums.push(val);
-          }
-        }
-      }
-      if (rightSeatNums.length > 0) {
-        rightSeatNums = fillMissingSeatNumbers(rightSeatNums);
-        result.rows.push({
-          label: rightCol.label,
-          seatGroups: [rightSeatNums]
-        });
-      }
-    });
-
-    // ===== 回字型：检测顶部行（列标题行上方的高数字密度行）=====
-    // 核心思想：标题上方凡是数字密集的行就是顶部座位行
-    const topRowData = [];
-    for (let i = 0; i < uColumnHeaderRow; i++) {
-      const row = data[i];
-      if (!row) continue;
-      const nums = [];
-      row.forEach((c, ci) => {
-        if (typeof c === 'number' && ci > innerLeftCol.col && ci < innerRightCol.col &&
-            ci !== leftSeatCol && ci !== rightSeatCol) {
-          nums.push(c);
-        }
+    if (seatNums.length > 0) {
+      result.rows.push({
+        label: header.label,
+        seatGroups: [fillMissingSeatNumbers(seatNums)]
       });
-      if (nums.length >= 2) {
-        // 查找下一行的标签文本（标签通常在座位行下方）
-        let label = '顶部';
-        if (i + 1 < data.length) {
-          const nextRow = data[i + 1];
-          if (nextRow) {
-            for (let ci = 0; ci < nextRow.length; ci++) {
-              const c = nextRow[ci];
-              if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
-                const t = c.trim();
-                // 排除列标题模式
-                if (!/^第.+列$/.test(t)) { label = t; break; }
-              }
-            }
-          }
-        }
-        // 再检查上一行是否有标签（标签在座位号上方，如"前第一排"）
-        if (label === '顶部' && i > 0) {
-          const prevRow = data[i - 1];
-          if (prevRow) {
-            for (let ci = 0; ci < prevRow.length; ci++) {
-              const c = prevRow[ci];
-              if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
-                const t = c.trim();
-                if (!/^第.+列$/.test(t)) { label = t; break; }
-              }
-            }
-          }
-        }
-        const sortedNums = nums.sort((a, b) => a - b);
-        topRowData.push({
-          label: label,
-          seatGroups: [fillMissingSeatNumbers(sortedNums)]
-        });
-      }
     }
-    // 顶部行插入到 result.rows 开头
-    for (let ti = topRowData.length - 1; ti >= 0; ti--) {
-      result.rows.unshift(topRowData[ti]);
-    }
+  }
 
-    // ===== 多底部行检测：扫描第一个底部行之后的后续底部座位行 =====
-    const allBottomRows = [];
-    if (bottomNums.length > 0) {
-      // 从混合行相邻行查找首行底部标签（不再硬编码"底部"）
-      let firstBotLabel = '底部';
-      if (bottomRowIdx + 1 < data.length) {
-        const nextRow = data[bottomRowIdx + 1];
+  // ===================================================================
+  // Phase 5: 底部横排检测
+  // ===================================================================
+  const sideEndRow = sideDataRows.size > 0 ? Math.max(...sideDataRows) : firstLabelRow;
+  const allSeatCols = new Set(headerSeatMap.map(m => m.seatCol));
+
+  // 向前回溯：找到第一个包含中间区域数字的行（可能在 sideEndRow 之前的混合行）
+  let bottomScanStart = sideEndRow;
+  for (let ri = sideEndRow; ri >= Math.max(sideEndRow - 5, firstLabelRow + 1); ri--) {
+    const row = data[ri];
+    if (!row) continue;
+    let hasMiddle = false;
+    row.forEach((c, ci) => {
+      if (typeof c === 'number' && ci > allColumnHeaders[0].col && ci < allColumnHeaders[allColumnHeaders.length - 1].col) {
+        hasMiddle = true;
+      }
+    });
+    if (hasMiddle) bottomScanStart = ri;
+  }
+
+  // Phase 5: 使用完整列范围（从最左到最右列标签），不限于内边界
+  const outerLeftCol = allColumnHeaders[0].col;
+  const outerRightCol = allColumnHeaders[allColumnHeaders.length - 1].col;
+
+  const allBottomRows = [];
+  for (let i = bottomScanStart; i < data.length; i++) {
+    const row = data[i];
+    if (!row) continue;
+
+    // 判断当前行是否为混合行（离 sideEndRow 近 + 多数座位号列有数字 → 侧列数据仍在继续）
+    let sideColCount = 0;
+    for (const sc of allSeatCols) {
+      if (typeof row[sc] === 'number') sideColCount++;
+    }
+    const nearSideEnd = (i <= sideEndRow + 2);
+    const hasSideData = allSeatCols.size > 0 && nearSideEnd && sideColCount >= Math.ceil(allSeatCols.size / 2);
+
+    const nums = [];
+    row.forEach((c, ci) => {
+      if (typeof c === 'number' && ci > outerLeftCol && ci < outerRightCol) {
+        if (hasSideData && allSeatCols.has(ci)) return;
+        nums.push(c);
+      }
+    });
+    if (nums.length >= 2) {
+      const sorted = nums.sort((a, b) => a - b);
+      let label = '底部';
+      if (i + 1 < data.length) {
+        const nextRow = data[i + 1];
         if (nextRow) {
           for (let ci = 0; ci < nextRow.length; ci++) {
             const c = nextRow[ci];
             if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
               const t = c.trim();
-              if (!/^第.+列$/.test(t)) { firstBotLabel = t; break; }
+              if (!/^第.+列$/.test(t)) { label = t; break; }
             }
           }
         }
       }
-      allBottomRows.push({ nums: bottomNums, rowIdx: bottomRowIdx, label: firstBotLabel });
+      allBottomRows.push({ nums: fillMissingSeatNumbers(sorted), rowIdx: i, label });
+      i++; // 跳过标签行
     }
-    // 继续向后扫描更多底部行
-    if (bottomRowIdx >= 0) {
-      const innerLCol = innerLeftCol.col;
-      const innerRCol = innerRightCol.col;
-      for (let i = bottomRowIdx + 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row) continue;
-        const nums = [];
-        row.forEach((c, ci) => {
-          if (typeof c === 'number' && ci > innerLCol && ci < innerRCol &&
-              ci !== leftSeatCol && ci !== rightSeatCol) {
-            nums.push(c);
-          }
-        });
-        if (nums.length >= 2) {
-          let label = '底部';
-          if (i + 1 < data.length) {
-            const nextRow = data[i + 1];
-            if (nextRow) {
-              for (let ci = 0; ci < nextRow.length; ci++) {
-                const c = nextRow[ci];
-                if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
-                  const t = c.trim();
-                  if (!/^第.+列$/.test(t)) { label = t; break; }
-                }
-              }
-            }
-          }
-          const sortedNums = nums.sort((a, b) => a - b);
-          allBottomRows.push({ nums: sortedNums, rowIdx: i, label: label });
-          // 跳过标签行继续查找
-          i++;
-        }
-      }
-    }
-    // 推入所有底部行
-    allBottomRows.forEach(bRow => {
-      if (bRow.nums.length > 0) {
-        result.rows.push({
-          label: bRow.label,
-          seatGroups: [bRow.nums]
-        });
-      }
-    });
+  }
 
-    leftCols.forEach(leftCol => {
-      for (let i = uColumnHeaderRow + 1; i < (bottomRowIdx >= 0 ? bottomRowIdx + 1 : data.length); i++) {
-        const row = data[i];
-        const seatVal = row[leftSeatCol];
-        const nameVal = row[leftCol.col];
-        if (typeof seatVal === 'number' && typeof nameVal === 'string' && nameVal.trim() && !isLayoutKeyword(nameVal)) {
-          result.attendees.push({
-            name: nameVal.trim(),
-            row: leftCol.label,
-            seat: seatVal,
-            company: '', title: '',
-            venueId: venueId,
-            source: 'excel'
-          });
-        }
-      }
-    });
+  // ===== 组装结果 =====
 
-    rightCols.forEach(rightCol => {
-      for (let i = uColumnHeaderRow + 1; i < (bottomRowIdx >= 0 ? bottomRowIdx + 1 : data.length); i++) {
-        const row = data[i];
-        const seatVal = row[rightSeatCol];
-        const nameVal = row[rightCol.col];
-        if (typeof seatVal === 'number' && typeof nameVal === 'string' && nameVal.trim() && !isLayoutKeyword(nameVal)) {
-          result.attendees.push({
-            name: nameVal.trim(),
-            row: rightCol.label,
-            seat: seatVal,
-            company: '', title: '',
-            venueId: venueId,
-            source: 'excel'
-          });
-        }
-      }
-    });
-
-    // ===== 提取底部行参会者姓名（支持多底部行）=====
-    allBottomRows.forEach(bRow => {
-      for (let ri = bRow.rowIdx - 1; ri < Math.min(bRow.rowIdx + 3, data.length); ri++) {
-        if (ri < 0 || ri === bRow.rowIdx) continue;
-        const nameRow = data[ri];
-        if (!nameRow) continue;
-        // 构建该底部行的列→座位号映射
-        const bColMap = {};
-        bRow.nums.forEach((num, idx) => {
-          // 需要知道数字在行中的列位置
-          const numRow = data[bRow.rowIdx];
-          let foundCol = -1;
-          if (numRow) {
-            for (let ci = innerLeftCol.col + 1; ci < innerRightCol.col; ci++) {
-              if (numRow[ci] === num) { foundCol = ci; break; }
-            }
-          }
-          if (foundCol >= 0) bColMap[foundCol] = num;
-        });
-        nameRow.forEach((cell, ci) => {
-          if (typeof cell === 'string' && cell.trim() && !isLayoutKeyword(cell) && bColMap[ci] !== undefined) {
-            result.attendees.push({
-              name: cell.trim(),
-              row: bRow.label,
-              seat: bColMap[ci],
-              company: '', title: '',
-              venueId: venueId,
-              source: 'excel'
-            });
-          }
-        });
-      }
+  // 顶部行置于开头
+  for (let ti = topRowData.length - 1; ti >= 0; ti--) {
+    result.rows.unshift({
+      label: topRowData[ti].label,
+      seatGroups: topRowData[ti].seatGroups
     });
   }
 
+  // 底部行追加到末尾
+  allBottomRows.forEach(bRow => {
+    result.rows.push({
+      label: bRow.label,
+      seatGroups: [bRow.nums]
+    });
+  });
+
+  // ===== 提取参会者姓名 =====
+  // 侧列参会者：每列独立检查标签列和座位列
+  for (const { header, seatCol } of headerSeatMap) {
+    const labelCol = header.col;
+    for (let ri = scanStart; ri < data.length; ri++) {
+      const row = data[ri];
+      if (!row) continue;
+      const seatVal = row[seatCol];
+      const nameVal = row[labelCol];
+      if (typeof seatVal === 'number' && typeof nameVal === 'string' && nameVal.trim() && !isLayoutKeyword(nameVal)) {
+        result.attendees.push({
+          name: nameVal.trim(),
+          row: header.label,
+          seat: seatVal,
+          company: '', title: '',
+          venueId: venueId,
+          source: 'excel'
+        });
+      }
+    }
+  }
+
+  // 底部行参会者
+  allBottomRows.forEach(bRow => {
+    for (let ri = bRow.rowIdx - 1; ri < Math.min(bRow.rowIdx + 3, data.length); ri++) {
+      if (ri < 0 || ri === bRow.rowIdx) continue;
+      const nameRow = data[ri];
+      if (!nameRow) continue;
+      const bColMap = {};
+      const numRow = data[bRow.rowIdx];
+      if (numRow) {
+        for (let ci = outerLeftCol + 1; ci < outerRightCol; ci++) {
+          if (typeof numRow[ci] === 'number' && bRow.nums.includes(numRow[ci])) {
+            bColMap[ci] = numRow[ci];
+          }
+        }
+      }
+      nameRow.forEach((cell, ci) => {
+        if (typeof cell === 'string' && cell.trim() && !isLayoutKeyword(cell) && bColMap[ci] !== undefined) {
+          result.attendees.push({
+            name: cell.trim(),
+            row: bRow.label,
+            seat: bColMap[ci],
+            company: '', title: '',
+            venueId: venueId,
+            source: 'excel'
+          });
+        }
+      });
+    }
+  });
+
+  // 回传布局类型
+  result.layout = isHuiShape ? 'hui-shape' : 'u-shape';
   return result;
 }
 

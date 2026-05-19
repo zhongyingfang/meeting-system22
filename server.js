@@ -1322,7 +1322,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const hSeatCount = Math.max(maxTopSeats, maxBottomSeats);
         const maxArmLen = Math.max(...uArmRows.map(r => r.seatGroups[0] ? r.seatGroups[0].length : 0), 0);
 
-        const colGap = 30;
+        // 列间距需容纳座位号牌（numBoxWidth 60 + 左侧16px间隙 + 余量）
+        const colGap = Math.max(30, numBoxWidth + 16 + 24);  // 100
         const labelRowHeight = 50;
 
         // 计算左臂宽度（各列宽度累加）
@@ -1331,8 +1332,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const rightArmWidth = rightArmRows.reduce((sum, col) => sum + seatWidth + colGap, 0) - (rightArmRows.length > 0 ? colGap : 0);
         // 水平行（顶部/底部）宽度（取最大值）
         const hWidth = hSeatCount > 0 ? hSeatCount * (seatWidth + seatGap) - seatGap : 0;
-        // 水平行和臂之间的间距
-        const armBottomGap = 60;
+        // 水平行和臂之间的间距（需容纳右臂内侧座位号牌）
+        const armBottomGap = Math.max(60, numBoxWidth + 16 + 24);  // 100
         // 总宽度
         const totalWidth = leftArmWidth + (hWidth > 0 ? armBottomGap + hWidth + armBottomGap : 0) + rightArmWidth;
         
@@ -1470,8 +1471,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               const sx = rightColXs[idx];
 
               if (rightFirstInGroupCols.has(idx)) {
-                // 座位号放在座位框左侧16px
-                const numBoxX = sx - numBoxWidth - 16;
+                // 右臂座位号放座位框右侧（外侧），避免与中间区域重叠
+                const numBoxX = sx + seatWidth + 16;
                 const numBoxY = y + (seatHeight - numBoxHeight) / 2;
                 svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
                 svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
@@ -1536,6 +1537,15 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         }
 
         y += 60;
+        // 右臂座位号在右侧溢出，确保 SVG 足够宽
+        const rightOverflow = rightArmRows.length > 0 ? numBoxWidth + 16 : 0;
+        if (totalWidth + rightOverflow > svgWidth) {
+          svgWidth = Math.ceil(totalWidth + rightOverflow + 80);
+          svgContent = svgContent.replace(
+            /^<svg [^>]*>/m,
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${totalHeight}" viewBox="0 0 ${svgWidth} ${totalHeight}">`
+          );
+        }
         svgContent += renderRegionOverlays(venue, regionSeatPositions);
         return;
       }
