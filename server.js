@@ -953,6 +953,10 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           totalHeight += 30 + uBottomRows.length * (seatHeight + 30); // 底部行
         }
         totalHeight += 60; // 底部间距
+      } else if (venue.layout === 'banquet' && venue.rows && venue.rows.length > 0) {
+        // 宴会桌高度：上座位 + 间距 + 桌子 + 间距 + 下座位 + 行间距
+        const bTableH = seatHeight + 12 + 40 + 12 + seatHeight + rowGap;
+        venue.rows.forEach(() => { totalHeight += bTableH; });
       } else if (venue.rows && venue.rows.length > 0) {
         // 普通渲染方式的高度计算：每行 = seatHeight + rowGap + 可能的过道
         venue.rows.forEach(row => {
@@ -1298,6 +1302,91 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           /^<svg [^>]*>/m,
           `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${totalHeight}" viewBox="0 0 ${svgWidth} ${totalHeight}">`
         );
+        svgContent += renderRegionOverlays(venue, regionSeatPositions);
+        return;
+      }
+
+      // 宴会桌式SVG渲染：每桌独立显示，上3下3座位，不显示座位号
+      if (venue.layout === 'banquet') {
+        const tSeatW = seatWidth;       // 200
+        const tSeatH = seatHeight;      // 80
+        const tSeatGap = seatGap;       // 40
+        const tableBodyW = tSeatW * 3 + tSeatGap * 2;  // 680
+        const tableBodyH = 40;
+        const tableGap = 100;           // 桌间水平间距
+        const seatTableGap = 12;        // 座位与桌子间距
+        const tableUnitH = tSeatH + seatTableGap + tableBodyH + seatTableGap + tSeatH;
+
+        let maxRowWidth = 0;
+        venue.rows.forEach(row => {
+          const groups = row.seatGroups || [];
+          if (groups.length === 0) return;
+          const rw = groups.length * tableBodyW + (groups.length - 1) * tableGap;
+          maxRowWidth = Math.max(maxRowWidth, rw);
+        });
+        svgWidth = Math.max(svgWidth, maxRowWidth + 500, 1300);
+
+        venue.rows.forEach(row => {
+          const groups = row.seatGroups || [];
+          if (groups.length === 0) { y += 30; return; }
+
+          const tablesPerRow = groups.length;
+          const rowWidth = tablesPerRow * tableBodyW + (tablesPerRow - 1) * tableGap;
+          const rowStartX = Math.max(200, (svgWidth - rowWidth) / 2);
+          const rowLabel = row.label || '';
+
+          // 排标签（左右两侧）
+          const labelY = y + tableUnitH / 2 + 6;
+          svgContent += `  <text x="${rowStartX - 16}" y="${labelY}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+          svgContent += `  <text x="${rowStartX + rowWidth + 16}" y="${labelY}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+
+          groups.forEach((group, gi) => {
+            const tx = rowStartX + gi * (tableBodyW + tableGap);
+
+            // 上排3个座位（座位1,2,3），不显示座位号
+            for (let si = 0; si < 3 && si < group.length; si++) {
+              const seatNum = group[si];
+              const sx = tx + si * (tSeatW + tSeatGap);
+              const topSeatY = y;
+              const name = attendeeMap[rowLabel + '_' + seatNum];
+              const fill = name ? '#dbeafe' : '#ffffff';
+
+              svgContent += `  <rect x="${sx}" y="${topSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: topSeatY, w: tSeatW, h: tSeatH };
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
+                svgContent += `  <text x="${sx + tSeatW / 2}" y="${topSeatY + tSeatH / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+              }
+            }
+
+            // 桌子本体
+            const tby = y + tSeatH + seatTableGap;
+            svgContent += `  <rect x="${tx}" y="${tby}" width="${tableBodyW}" height="${tableBodyH}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3" rx="8"/>\n`;
+            const tableNum = (row.tableNums || [])[gi] || 0;
+            svgContent += `  <text x="${tx + tableBodyW / 2}" y="${tby + tableBodyH / 2 + 8}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}</text>\n`;
+
+            // 下排3个座位（座位4,5,6），不显示座位号
+            const bottomSeatY = tby + tableBodyH + seatTableGap;
+            for (let si = 3; si < 6 && si < group.length; si++) {
+              const seatNum = group[si];
+              const sx = tx + (si - 3) * (tSeatW + tSeatGap);
+              const name = attendeeMap[rowLabel + '_' + seatNum];
+              const fill = name ? '#dbeafe' : '#ffffff';
+
+              svgContent += `  <rect x="${sx}" y="${bottomSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: bottomSeatY, w: tSeatW, h: tSeatH };
+              if (name) {
+                const dn = name.replace(/\n/g, ' ');
+                const fs = dn.length > 6 ? 28 : dn.length > 4 ? 34 : 40;
+                svgContent += `  <text x="${sx + tSeatW / 2}" y="${bottomSeatY + tSeatH / 2 + fs / 3}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>\n`;
+              }
+            }
+          });
+
+          y += tableUnitH + rowGap;
+        });
+        svgWidth = Math.max(svgWidth, maxRowWidth + 500, 1300);
         svgContent += renderRegionOverlays(venue, regionSeatPositions);
         return;
       }

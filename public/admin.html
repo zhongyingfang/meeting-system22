@@ -298,6 +298,9 @@ async function openSeatCard() {
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
           <input type="radio" name="layoutMode" value="hui-shape"> 回字型会场
         </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="layoutMode" value="banquet"> 宴会桌式
+        </label>
       </div>
       <button class="btn btn-success" id="uploadBtn" onclick="uploadExcel()" disabled>上传表格</button>
     </div>
@@ -954,7 +957,7 @@ async function detectSheetModesForFile(file) {
     var data = await res.json();
     if (data.ok && data.sheets && data.sheets.length > 0) {
       detectedSheetModes = {};
-      var modeLabelMap = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'hui-shape': '回字型会场' };
+      var modeLabelMap = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'hui-shape': '回字型会场', 'banquet': '宴会桌式' };
       var html = '';
       data.sheets.forEach(function(s) {
         detectedSheetModes[s.name] = s.detectedMode;
@@ -967,6 +970,7 @@ async function detectSheetModesForFile(file) {
         html += '<option value="standard"' + (s.detectedMode === 'standard' ? ' selected' : '') + '>普通会场</option>';
         html += '<option value="u-shape"' + (s.detectedMode === 'u-shape' ? ' selected' : '') + '>U型会场</option>';
         html += '<option value="hui-shape"' + (s.detectedMode === 'hui-shape' ? ' selected' : '') + '>回字型会场</option>';
+        html += '<option value="banquet"' + (s.detectedMode === 'banquet' ? ' selected' : '') + '>宴会桌式</option>';
         html += '</select>';
         html += '</div>';
       });
@@ -1111,7 +1115,7 @@ async function generatePreview() {
 
 function renderVenueTabs() {
   var html = '';
-  var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'hui-shape': '回字型', 'custom': '自定义', 'auto': '自动' };
+  var modeLabel = { 'theater': '剧院', 'standard': '普通', 'u-shape': 'U型', 'hui-shape': '回字型', 'banquet': '宴会桌', 'custom': '自定义', 'auto': '自动' };
   var isAdmin = userRole === 'admin';
   allData.venues.forEach(function(v) {
     var vm = v.layout || v.mode || 'theater';
@@ -1146,7 +1150,7 @@ async function selectVenue(id) {
     venueAttendees[id] = attendees;
   }
 
-  var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'hui-shape': '回字型会场', 'custom': '自定义会场' };
+  var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'hui-shape': '回字型会场', 'banquet': '宴会桌式', 'custom': '自定义会场' };
   var currentMode = venue.layout || venue.mode || 'theater';
   document.getElementById('venueInfo').innerHTML =
     '<strong>' + esc(venue.description) + '</strong> ' +
@@ -1700,6 +1704,8 @@ function renderDragSeatMap() {
 
   if (venue.layout === 'u-shape' || venue.layout === 'hui-shape') {
     html += renderUShapeDragMap(venue);
+  } else if (venue.layout === 'banquet') {
+    html += renderBanquetDragMap(venue);
   } else if (isCustom) {
     html += renderCustomDragMap(venue);
   } else {
@@ -1793,6 +1799,103 @@ function renderStandardDragMap(venue) {
       html += '<div style="height:16px;display:flex;align-items:center;justify-content:center;margin:4px 0"><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div><span style="padding:0 8px;font-size:8px;color:#94a3b8;font-weight:600">过道</span><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div></div>';
     }
   });
+  return html;
+}
+
+// 渲染宴会桌式会场拖拽图（每桌独立：上3座 + 桌子 + 下3座）
+function renderBanquetDragMap(venue) {
+  var html = '';
+  if (!venue.rows || venue.rows.length === 0) {
+    return '<div style="text-align:center;color:var(--text2);padding:20px">会场暂无座位布局，请先上传 Excel</div>';
+  }
+
+  var container = document.getElementById('dragSeatMap');
+  if (container) container.style.overflowX = 'visible';
+
+  var cardW = (container && container.parentElement) ? container.parentElement.clientWidth - 40 : 700;
+  cardW = Math.max(400, cardW);
+
+  // 找最大桌子数的一排
+  var maxTablesInRow = 1;
+  venue.rows.forEach(function(row) {
+    if (row.seatGroups && row.seatGroups.length > maxTablesInRow) {
+      maxTablesInRow = row.seatGroups.length;
+    }
+  });
+
+  // 预留左右标签宽度，计算座位尺寸使其完整显示
+  var labelReserve = 120;
+  var maxSeatsAcross = maxTablesInRow * 3;
+  var availForSeats = cardW - labelReserve - maxTablesInRow * 6;
+  var idealSW = Math.min(50, Math.floor(availForSeats / maxSeatsAcross) - 2);
+  var seatW = Math.max(24, idealSW);
+  var seatH = Math.min(36, Math.max(22, seatW * 0.75));
+  var tableW = seatW * 3 + 8;
+  var tableH = 20;
+  var tableGap = Math.max(6, Math.floor(seatW * 0.6));
+  var fsize = Math.max(7, Math.floor(Math.min((seatW - 2) / 3, seatH * 0.55, 12)));
+
+  // 找最长名字，调整字号
+  var maxNameLen = 1;
+  venue.rows.forEach(function(row) {
+    (row.seatGroups || []).forEach(function(group) {
+      group.forEach(function(seatNum) {
+        if (seatNum == null) return;
+        var key = row.label + '_' + seatNum;
+        var att = currentDragSeating.seatOccupancy[key];
+        if (att && att.name && att.name.length > maxNameLen) maxNameLen = att.name.length;
+      });
+    });
+  });
+  fsize = Math.max(6, Math.min(fsize, Math.floor((seatW - 2) / Math.max(maxNameLen, 1))));
+
+  var labelStyle = 'font-size:11px;font-weight:700;color:#ef4444;flex-shrink:0;width:56px;display:flex;align-items:center;';
+
+  venue.rows.forEach(function(row) {
+    var groups = row.seatGroups || [];
+    if (groups.length === 0) return;
+
+    // 整行：左标签 + 桌子行 + 右标签
+    html += '<div style="display:flex;align-items:center;justify-content:center;margin-bottom:16px">';
+    html += '<div style="' + labelStyle + 'justify-content:flex-end;padding-right:6px">' + esc(row.label) + '</div>';
+    html += '<div style="display:flex;align-items:flex-start;gap:' + tableGap + 'px">';
+
+    groups.forEach(function(group, gi) {
+      if (!group || group.length === 0) return;
+      var tableNum = (row.tableNums || [])[gi] || 0;
+
+      html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
+      // 上排3座
+      html += '<div style="display:flex;gap:2px">';
+      for (var si = 0; si < 3 && si < group.length; si++) {
+        var seatNum = group[si];
+        var key = row.label + '_' + seatNum;
+        var att = currentDragSeating.seatOccupancy[key];
+        html += renderDragSeat(row.label, seatNum, att, false, { seatW: seatW, seatH: seatH, globalFontSize: fsize });
+      }
+      html += '</div>';
+      // 桌子本体
+      html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:2px solid #f59e0b;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#92400e;margin:5px 0">桌' + tableNum + '</div>';
+      // 下排3座
+      html += '<div style="display:flex;gap:2px">';
+      for (var si = 3; si < 6 && si < group.length; si++) {
+        var seatNum = group[si];
+        var key = row.label + '_' + seatNum;
+        var att = currentDragSeating.seatOccupancy[key];
+        html += renderDragSeat(row.label, seatNum, att, false, { seatW: seatW, seatH: seatH, globalFontSize: fsize });
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+    html += '<div style="' + labelStyle + 'justify-content:flex-start;padding-left:6px">' + esc(row.label) + '</div>';
+    html += '</div>';
+    if (row.hasAisleAfter) {
+      html += '<div style="height:14px;display:flex;align-items:center;justify-content:center;margin:4px 0"><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div><span style="padding:0 6px;font-size:8px;color:#94a3b8">过道</span><div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px"></div></div>';
+    }
+  });
+
   return html;
 }
 

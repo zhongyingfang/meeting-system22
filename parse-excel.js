@@ -537,6 +537,17 @@ function detectLayoutType(data, venueId) {
  * @returns {string} 'u-shape' | 'theater' | 'standard'
  */
 function detectSheetMode(data) {
+  // 宴会桌式检测：行中有"第X排"标签且同行有数字（桌子号码）
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (!row) continue;
+    const hasRowLabel = row.some(c => typeof c === 'string' && /^第.+排$/.test(c.trim()));
+    if (hasRowLabel) {
+      const numCount = row.filter(c => typeof c === 'number').length;
+      if (numCount >= 2) return 'banquet';
+    }
+  }
+
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
     const colLabels = row.filter(c => typeof c === 'string' && /^第.+列$/.test(c.trim()));
@@ -605,6 +616,31 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
       rows: [],
       mode: sheetMode
     };
+
+    // ================================================================
+    // 宴会桌式模式：直接执行宴会桌检测，跳过所有其他逻辑
+    // ================================================================
+    if (sheetMode === 'banquet') {
+      const bResult = detectBanquetLayout(data, venueId, venue, excelAttendees);
+      if (bResult && bResult.rows.length > 0) {
+        venue.rows = bResult.rows;
+        venue.layout = bResult.layout || sheetMode;
+        if (bResult.attendees) {
+          bResult.attendees.forEach(a => {
+            if (!excelAttendees.find(e => e.name === a.name && e.row === a.row && e.seat === a.seat)) {
+              excelAttendees.push(a);
+            }
+          });
+        }
+      }
+      let totalSeats = 0;
+      venue.rows.forEach(r => {
+        r.seatGroups.forEach(g => { totalSeats += g.length; });
+      });
+      venue.totalSeats = totalSeats;
+      result.venues.push(venue);
+      return;
+    }
 
     // ================================================================
     // U型会场模式：直接执行U型检测，跳过所有其他逻辑
@@ -2016,6 +2052,62 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
 
   // 回传布局类型
   result.layout = isHuiShape ? 'hui-shape' : 'u-shape';
+  return result;
+}
+
+/**
+ * 宴会桌式布局检测
+ * 特征：行中有"第X排"标签（如第一排、第二排、第1排），同行数字为桌子号码。
+ * 每张桌子自动生成6个座位（上3下3），座位号 = 桌子号 * 10 + 1~6。
+ */
+function detectBanquetLayout(data, venueId, venue, excelAttendees) {
+  const result = { rows: [], attendees: [], layout: 'banquet' };
+
+  // 收集所有包含"第X排"标签的行
+  const rowEntries = [];
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (!row) continue;
+    const labelCell = row.find(c => typeof c === 'string' && /^第.+排$/.test(c.trim()));
+    if (!labelCell) continue;
+
+    const tableNums = [];
+    row.forEach(c => {
+      if (typeof c === 'number') tableNums.push(c);
+    });
+
+    if (tableNums.length > 0) {
+      rowEntries.push({ label: labelCell.trim(), tableNums });
+    }
+  }
+
+  if (rowEntries.length === 0) return result;
+
+  // 按排号排序（支持中文数字和阿拉伯数字）
+  rowEntries.sort((a, b) => {
+    const aNum = parseRowLabel(a.label) || 0;
+    const bNum = parseRowLabel(b.label) || 0;
+    return aNum - bNum;
+  });
+
+  // 每排每张桌子独立为一个seatGroup（6个座位：上3下3），座位号全局顺序编号
+  let seatCounter = 1;
+  for (const entry of rowEntries) {
+    const groups = [];
+    for (const tn of entry.tableNums) {
+      const tableSeats = [];
+      for (let s = 0; s < 6; s++) {
+        tableSeats.push(seatCounter++);
+      }
+      groups.push(tableSeats);
+    }
+    result.rows.push({
+      label: entry.label,
+      seatGroups: groups,
+      tableNums: entry.tableNums
+    });
+  }
+
   return result;
 }
 
