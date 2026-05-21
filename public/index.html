@@ -303,11 +303,13 @@ function showMulti(results, isEnSearch) {
     if (p.title) info += ' ' + esc(p.title);
     var nameHtml = '<div class="multi-name-cn">' + esc(p.name) + '</div>';
     if (p.nameEn) nameHtml += '<div class="multi-name-en">' + esc(p.nameEn) + '</div>';
-    var seatLabel = esc(p.row) + '<br>' + p.seat + '座';
-    if (p.nameEn) {
-      seatLabel = esc(p.row) + '<br>' + p.seat + '座';
-    }
-    html += '<div class="multi-item" onclick="selectPerson(' + i + ')" id="p-' + i + '">' +
+	    var isBq2 = p.venue && p.venue.layout === 'banquet';
+	    var tInfo2 = isBq2 ? findTableForSeat(p.venue, p.row, parseInt(p.seat)) : null;
+	    var seatLabel = (isBq2 && tInfo2) ? (esc(p.row) + '<br>第' + tInfo2.tableNum + '桌 ' + tInfo2.seatInTable + '号') : (esc(p.row) + '<br>' + p.seat + '座');
+	    if (p.nameEn) {
+	      seatLabel = (isBq2 && tInfo2) ? (esc(p.row) + '<br>Table ' + tInfo2.tableNum + ' #' + tInfo2.seatInTable) : (esc(p.row) + '<br>' + p.seat + '座');
+	    }
+	    html += '<div class="multi-item" onclick="selectPerson(' + i + ')" id="p-' + i + '">' +
       '<div class="left"><div class="avatar">' + esc(p.name.charAt(0)) + '</div>' +
       '<div>' + nameHtml +
       '<div class="sub">' + info + '</div></div></div>' +
@@ -341,15 +343,66 @@ function renderPersonCard(p, hasDup, isEnSearch) {
     seatRowHtml = '<div class="value">' + esc(p.row) + '</div><div class="value-en">' + esc(translateRow(p.row)) + '</div>';
     seatNumHtml = '<div class="value">' + p.seat + ' 号</div><div class="value-en">Seat ' + p.seat + '</div>';
   }
+
+  // 宴会桌式：解析桌号与桌内座位号，展示4栏（会场 | 排 | 桌 | 座位号）
+  var isBanquet = p.venue && p.venue.layout === 'banquet';
+  var banquetTableInfo = null;
+  if (isBanquet) {
+    banquetTableInfo = findTableForSeat(p.venue, p.row, parseInt(p.seat));
+  }
+
+  var seatDetailHtml = '';
+  var detailGridStyle = '';
+  if (isBanquet && banquetTableInfo) {
+    detailGridStyle = ' style="grid-template-columns: 1fr 1fr 1fr 1fr"';
+    var tableNumHtml = '<div class="value">第' + banquetTableInfo.tableNum + '桌</div>';
+    var seatInTableHtml = '<div class="value">' + banquetTableInfo.seatInTable + ' 号</div>';
+    if (showEn) {
+      tableNumHtml = '<div class="value">第' + banquetTableInfo.tableNum + '桌</div><div class="value-en">Table ' + banquetTableInfo.tableNum + '</div>';
+      seatInTableHtml = '<div class="value">' + banquetTableInfo.seatInTable + ' 号</div><div class="value-en">Seat ' + banquetTableInfo.seatInTable + '</div>';
+    }
+    seatDetailHtml =
+      '<div class="seat-detail-item"><div class="label">会场</div><div class="value" style="font-size:13px">' + esc(p.venueName) + '</div></div>' +
+      '<div class="seat-detail-item"><div class="label">排</div>' + seatRowHtml + '</div>' +
+      '<div class="seat-detail-item"><div class="label">桌</div>' + tableNumHtml + '</div>' +
+      '<div class="seat-detail-item"><div class="label">座位号</div>' + seatInTableHtml + '</div>';
+  } else {
+    seatDetailHtml =
+      '<div class="seat-detail-item"><div class="label">会场</div><div class="value" style="font-size:13px">' + esc(p.venueName) + '</div></div>' +
+      '<div class="seat-detail-item"><div class="label">排</div>' + seatRowHtml + '</div>' +
+      '<div class="seat-detail-item"><div class="label">座位号</div>' + seatNumHtml + '</div>';
+  }
+
   return '<div class="result-card">' + dupHtml +
     '<div class="result-header"><div class="result-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>' +
     '<div class="result-info"><h3>' + nameHtml + '</h3><p>' + esc(p.company || '') + ' ' + esc(p.title || '') + '</p></div></div>' +
     '<div class="venue-badge">' + esc(p.venueName) + '</div>' +
-    '<div class="seat-detail">' +
-    '<div class="seat-detail-item"><div class="label">会场</div><div class="value" style="font-size:13px">' + esc(p.venueName) + '</div></div>' +
-    '<div class="seat-detail-item"><div class="label">排</div>' + seatRowHtml + '</div>' +
-    '<div class="seat-detail-item"><div class="label">座位号</div>' + seatNumHtml + '</div></div>' +
+    '<div class="seat-detail"' + detailGridStyle + '>' +
+    seatDetailHtml + '</div>' +
     (p.venue ? renderSeatMap(p.venue, p) : '') + '</div>';
+}
+
+// 在宴会venue.rows中查找seatNum所属的桌子号和桌内座位号
+function findTableForSeat(venue, personRow, seatNum) {
+  var rowLabel = (personRow || '').replace(/\s+/g, '');
+  if (!venue || !venue.rows) return null;
+  for (var ri = 0; ri < venue.rows.length; ri++) {
+    var row = venue.rows[ri];
+    var rl = (row.label || '').replace(/\s+/g, '');
+    if (rl !== rowLabel) continue;
+    var groups = row.seatGroups || [];
+    var tableNums = row.tableNums || [];
+    for (var gi = 0; gi < groups.length; gi++) {
+      var group = groups[gi];
+      if (group.indexOf(seatNum) >= 0) {
+        return {
+          tableNum: tableNums[gi] || 0,
+          seatInTable: seatNum - group[0] + 1
+        };
+      }
+    }
+  }
+  return null;
 }
 
 function renderSeatMap(venue, person) {
@@ -364,6 +417,11 @@ function renderSeatMap(venue, person) {
   // 自定义布局专用渲染
   if (venue.layout === 'custom' && venue.customRows && venue.customRows.length > 0) {
     return renderCustomSeatMap(venue, pRow, pSeat);
+  }
+
+  // 宴会桌式专用渲染
+  if (venue.layout === 'banquet') {
+    return renderBanquetSeatMap(venue, pRow, pSeat);
   }
 
   // 判断是否为标准模式（与后端 /api/generate-preview 逻辑一致）
@@ -512,6 +570,93 @@ function renderSeatMap(venue, person) {
         '<span style="padding:0 8px;font-size:8px;color:#94a3b8;font-weight:600;">过道</span>' +
         '<div style="flex:1;height:2px;background:#cbd5e1;border-radius:1px;"></div>' +
         '</div>';
+    }
+  });
+
+  html += '</div><div class="legend">' +
+    '<div class="legend-item"><div class="legend-dot" style="background:#dde3ed"></div>座位</div>' +
+    '<div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>您的座位</div></div></div>';
+  return html;
+}
+
+// 宴会桌式会场全貌图：每桌独立显示，上3座 + 桌子 + 下3座，紧凑适配手机
+function renderBanquetSeatMap(venue, pRow, pSeat) {
+  if (!venue.rows || venue.rows.length === 0) {
+    return '<div class="seat-map-wrap"><div class="seat-map-title">座位分布图 - 全貌</div><div style="text-align:center;color:var(--text2);padding:20px">暂无会场布局数据</div></div>';
+  }
+
+  var containerWidth = Math.min(window.innerWidth - 40, 760);
+  var labelWidth = 36;
+
+  // 找最大桌子数
+  var maxTablesInRow = 1;
+  venue.rows.forEach(function(row) {
+    if (row.seatGroups && row.seatGroups.length > maxTablesInRow) {
+      maxTablesInRow = row.seatGroups.length;
+    }
+  });
+
+  // 紧凑尺寸：每个座位小方块，桌子横条
+  var seatSz = Math.min(18, Math.floor((containerWidth - labelWidth - 20 - maxTablesInRow * 4) / (maxTablesInRow * 3)));
+  seatSz = Math.max(10, seatSz);
+  var tableW = seatSz * 3 + 6;
+  var tableH = Math.max(8, Math.floor(seatSz * 0.5));
+  var gap = Math.max(3, Math.floor(seatSz * 0.4));
+  var fsize = Math.max(6, Math.min(9, seatSz - 2));
+  var rowGap = Math.max(8, Math.floor(seatSz * 0.8));
+
+  var html = '<div class="seat-map-wrap"><div class="seat-map-title">' +
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
+    '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+    '座位分布图 - 全貌</div>' +
+    '<div class="stage">' + esc(venue.stageName || '舞台') + '</div>' +
+    '<div class="seat-map" style="padding:8px 0">';
+
+  venue.rows.forEach(function(row) {
+    var groups = row.seatGroups || [];
+    if (groups.length === 0) return;
+
+    var rowLabel = (row.label || '').replace(/\s+/g, '');
+    var isTargetRow = (rowLabel === pRow);
+
+    // 行标签 + 桌子行
+    html += '<div style="display:flex;align-items:center;justify-content:center;margin-bottom:' + rowGap + 'px">';
+    html += '<div style="width:' + labelWidth + 'px;font-size:10px;font-weight:700;color:#ef4444;text-align:right;padding-right:4px;flex-shrink:0">' + esc(row.label) + '</div>';
+    html += '<div style="display:flex;align-items:flex-start;gap:' + gap + 'px">';
+
+    groups.forEach(function(group, gi) {
+      if (!group || group.length === 0) return;
+      var tableNum = (row.tableNums || [])[gi] || 0;
+
+      html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
+      // 上排座位 (0,1,2)
+      html += '<div style="display:flex;gap:1px">';
+      for (var si = 0; si < 3 && si < group.length; si++) {
+        var seatNum = group[si];
+        var isHit = isTargetRow && seatNum === pSeat;
+        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="width:' + seatSz + 'px;height:' + seatSz + 'px;font-size:' + fsize + 'px" title="' + esc(rowLabel) + '桌' + tableNum + ' ' + (si + 1) + '号座">' + (isHit ? (si + 1) : '') + '</div>';
+      }
+      html += '</div>';
+      // 桌子
+      html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, fsize - 1) + 'px;font-weight:700;color:#92400e;margin:' + Math.max(2, Math.floor(tableH * 0.3)) + 'px 0">桌' + tableNum + '</div>';
+      // 下排座位 (3,4,5)
+      html += '<div style="display:flex;gap:1px">';
+      for (var si = 3; si < 6 && si < group.length; si++) {
+        var seatNum = group[si];
+        var isHit = isTargetRow && seatNum === pSeat;
+        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="width:' + seatSz + 'px;height:' + seatSz + 'px;font-size:' + fsize + 'px" title="' + esc(rowLabel) + '桌' + tableNum + ' ' + (si + 1) + '号座">' + (isHit ? (si + 1) : '') + '</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+    html += '<div style="width:' + labelWidth + 'px;font-size:10px;font-weight:700;color:#ef4444;text-align:left;padding-left:4px;flex-shrink:0">' + esc(row.label) + '</div>';
+    html += '</div>';
+
+    if (row.hasAisleAfter) {
+      html += '<div style="height:10px;display:flex;align-items:center;justify-content:center;margin:' + Math.floor(rowGap / 2) + 'px 0"><div style="flex:1;height:1.5px;background:#cbd5e1;border-radius:1px"></div><span style="padding:0 6px;font-size:7px;color:#94a3b8">过道</span><div style="flex:1;height:1.5px;background:#cbd5e1;border-radius:1px"></div></div>';
     }
   });
 
