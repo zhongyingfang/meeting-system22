@@ -659,7 +659,7 @@ app.get('/api/search', (req, res) => {
       const n = (a.name || '').replace(/\s+/g, '');
       const nEn = ((a.nameEn || '').replace(/\s+/g, '')).toLowerCase();
       const q = rawName.toLowerCase();
-      return n === rawName || n.includes(rawName) || rawName.includes(n) || nEn === q || nEn.includes(q) || q.includes(nEn);
+      return n === rawName || n.includes(rawName) || nEn === q || nEn.includes(q);
     })
     .map(a => {
       const venue = data.venues.find(v => v.id === a.venueId);
