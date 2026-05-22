@@ -855,7 +855,54 @@ app.get('/api/export-seating', requireAdmin, (req, res) => {
   }
 });
 
-// 导出座位安排表（SVG 矢量图，适合喷绘）
+// 中文标签转英文（SVG 导出用）
+function translateRowLabelSVG(label) {
+  if (!label) return '';
+  const s = label.trim().replace(/\s+/g, '');
+  const cnNumMap = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+  function parseCn(s) {
+    if (/^\d+$/.test(s)) return parseInt(s);
+    if (cnNumMap[s]) return cnNumMap[s];
+    let m = s.match(/^十([一二三四五六七八九])$/);
+    if (m) return 10 + cnNumMap[m[1]];
+    m = s.match(/^([二三四五六七八九])十$/);
+    if (m) return cnNumMap[m[1]] * 10;
+    m = s.match(/^([二三四五六七八九])十([一二三四五六七八九])$/);
+    if (m) return cnNumMap[m[1]] * 10 + cnNumMap[m[2]];
+    return s;
+  }
+  const dirs = { '前':'Front','后':'Back','左':'Left','右':'Right','内前':'Inner Front','内后':'Inner Back' };
+  const floors = { '一楼':'1F','二楼':'2F','三楼':'3F','四楼':'4F','五楼':'5F','六楼':'6F','七楼':'7F','八楼':'8F','九楼':'9F','十楼':'10F' };
+  // 方向+第X排/列
+  let m = s.match(/^(前|后|左|右|内前|内后)第([一二三四五六七八九十]+|\d+)([排列])$/);
+  if (m) return dirs[m[1]] + ' ' + (m[3] === '列' ? 'Col' : 'Row') + ' ' + parseCn(m[2]);
+  m = s.match(/^(前|后|左|右|内前|内后)(\d+|[一二三四五六七八九十]+)([排列])$/);
+  if (m) return dirs[m[1]] + ' ' + (m[3] === '列' ? 'Col' : 'Row') + ' ' + parseCn(m[2]);
+  // 楼层+沙发+第X排
+  m = s.match(/^(一楼|二楼|三楼|四楼|五楼|六楼|七楼|八楼|九楼|十楼)沙发[第]?([一二三四五六七八九十]+|\d+)[排]$/);
+  if (m) return floors[m[1]] + ' Row ' + parseCn(m[2]) + ' (Sofa)';
+  // 楼层+第X排
+  m = s.match(/^(一楼|二楼|三楼|四楼|五楼|六楼|七楼|八楼|九楼|十楼)第([一二三四五六七八九十]+|\d+)[排]$/);
+  if (m) return floors[m[1]] + ' Row ' + parseCn(m[2]);
+  // 沙发第X排
+  m = s.match(/^沙发[第]?([一二三四五六七八九十]+|\d+)[排]$/);
+  if (m) return 'Row ' + parseCn(m[1]) + ' (Sofa)';
+  // 第X排
+  m = s.match(/^第([一二三四五六七八九十]+|\d+)[排]$/);
+  if (m) return 'Row ' + parseCn(m[1]);
+  // 第X列
+  m = s.match(/^第([一二三四五六七八九十]+|\d+)[列]$/);
+  if (m) return 'Column ' + parseCn(m[1]);
+  // X排/列（无第）
+  m = s.match(/^(\d+|[一二三四五六七八九十]+)[排]$/);
+  if (m) return 'Row ' + parseCn(m[1]);
+  m = s.match(/^(\d+|[一二三四五六七八九十]+)[列]$/);
+  if (m) return 'Column ' + parseCn(m[1]);
+  // 桌X → Table X
+  m = s.match(/^桌(\d+)$/);
+  if (m) return 'Table ' + m[1];
+  return label;
+}
 
 // 导出座位安排表（SVG 矢量图，适合喷绘）
 app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
@@ -863,6 +910,19 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     const data = readData();
     const config = readConfig();
     const siteTitle = config.siteTitle || '会议';
+    const showEn = !!(config.siteTitleEn && config.siteTitleEn.trim());
+
+    // 双语标签辅助函数：中文 + 英文（小字第二行）
+    function bilingualLabel(cnText, x, y, anchor, fontSize, color) {
+      let html = `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="${color || '#ef4444'}" font-size="${fontSize}" font-weight="bold">${escXml(cnText)}</text>`;
+      if (showEn) {
+        const enText = translateRowLabelSVG(cnText);
+        const enSize = Math.max(18, Math.round(fontSize * 0.6));
+        const enY = y + enSize + 4;
+        html += `\n  <text x="${x}" y="${enY}" text-anchor="${anchor}" fill="#94a3b8" font-size="${enSize}">${escXml(enText)}</text>`;
+      }
+      return html;
+    }
 
     // 座位参数
     const seatWidth = 200;
@@ -1230,8 +1290,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
                 if (i === 0) {
                   const lastSx = x + w - seatW;
-                  svgContent += `  <text x="${sx - 15}" y="${sy + seatH/2 + 8}" class="row-label" text-anchor="end" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
-                  svgContent += `  <text x="${lastSx + seatW + 15}" y="${sy + seatH/2 + 8}" class="row-label" text-anchor="start" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+                  svgContent += `  ` + bilingualLabel(rowLabel, sx - 15, sy + seatH/2 + 8, 'end', Math.max(28, Math.min(40, h/1.8)), '#ef4444') + `\n`;
+                  svgContent += `  ` + bilingualLabel(rowLabel, lastSx + seatW + 15, sy + seatH/2 + 8, 'start', Math.max(28, Math.min(40, h/1.8)), '#ef4444') + `\n`;
                 }
 
                 // 座位号蓝色方块（仅组内第一排显示）
@@ -1277,7 +1337,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 const name = attendeeMap[rowLabel + '_' + sn];
 
                 if (i === 0) {
-                  svgContent += `  <text x="${sx + seatW/2}" y="${sy - 15}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="${Math.max(28, Math.min(40, h/1.8))}" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+                  svgContent += `  ` + bilingualLabel(rowLabel, sx + seatW/2, sy - 15, 'middle', Math.max(28, Math.min(40, h/1.8)), '#ef4444') + `\n`;
                 }
 
                 // 座位号蓝色方块（仅组内第一排显示）
@@ -1352,8 +1412,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
           // 排标签（左右两侧）
           const labelY = y + tableUnitH / 2 + 6;
-          svgContent += `  <text x="${rowStartX - 16}" y="${labelY}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
-          svgContent += `  <text x="${rowStartX + rowWidth + 16}" y="${labelY}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+          svgContent += `  ` + bilingualLabel(rowLabel, rowStartX - 16, labelY, 'end', 36, '#ef4444') + `\n`;
+          svgContent += `  ` + bilingualLabel(rowLabel, rowStartX + rowWidth + 16, labelY, 'start', 36, '#ef4444') + `\n`;
 
           groups.forEach((group, gi) => {
             const tx = rowStartX + gi * (tableBodyW + tableGap);
@@ -1379,7 +1439,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
             const tby = y + tSeatH + seatTableGap;
             svgContent += `  <rect x="${tx}" y="${tby}" width="${tableBodyW}" height="${tableBodyH}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3" rx="8"/>\n`;
             const tableNum = (row.tableNums || [])[gi] || 0;
-            svgContent += `  <text x="${tx + tableBodyW / 2}" y="${tby + tableBodyH / 2 + 8}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}</text>\n`;
+            svgContent += `  ` + bilingualLabel('桌' + tableNum, tx + tableBodyW / 2, tby + tableBodyH / 2 + 8, 'middle', 28, '#92400e') + `\n`;
 
             // 下排3个座位（座位4,5,6），不显示座位号
             const bottomSeatY = tby + tableBodyH + seatTableGap;
@@ -1482,7 +1542,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 const topRowWidth = topSeats.length * (seatWidth + seatGap) - seatGap;
                 const hAreaCenter = bottomStartX + hWidth / 2;
                 let tx = hAreaCenter - topRowWidth / 2;
-                svgContent += `  <text x="${tx - 16}" y="${y + 24}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(topLabel)}</text>\n`;
+                svgContent += `  ` + bilingualLabel(topLabel, tx - 16, y + 24, 'end', 36, '#ef4444') + `\n`;
                 const isFirstInGroup = ri === 0;
                 topSeats.forEach((sn) => {
                   const name = attendeeMap[topRow.label + '_' + sn];
@@ -1529,11 +1589,11 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const labelY = y;
         leftArmRows.forEach((col, idx) => {
           const cx = leftColXs[idx] + seatWidth / 2;
-          svgContent += `  <text x="${cx}" y="${labelY}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="36" font-weight="bold">${escXml(col.label)}</text>\n`;
+          svgContent += `  ` + bilingualLabel(col.label, cx, labelY, 'middle', 36, '#ef4444') + `\n`;
         });
         rightArmRows.forEach((col, idx) => {
           const cx = rightColXs[idx] + seatWidth / 2;
-          svgContent += `  <text x="${cx}" y="${labelY}" class="row-label" text-anchor="middle" fill="#ef4444" font-size="36" font-weight="bold">${escXml(col.label)}</text>\n`;
+          svgContent += `  ` + bilingualLabel(col.label, cx, labelY, 'middle', 36, '#ef4444') + `\n`;
         });
         y += labelRowHeight;
 
@@ -1615,7 +1675,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 const botRowWidth = botSeats.length * (seatWidth + seatGap) - seatGap;
                 const hAreaCenter = bottomStartX + hWidth / 2;
                 let bx = hAreaCenter - botRowWidth / 2;
-                svgContent += `  <text x="${bx - 16}" y="${y - 10}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(botLabel)}</text>\n`;
+                svgContent += `  ` + bilingualLabel(botLabel, bx - 16, y - 10, 'end', 36, '#ef4444') + `\n`;
                 const isFirstInGroup = ri === 0;
                 botSeats.forEach((sn) => {
                   const name = attendeeMap[botRow.label + '_' + sn];
@@ -1702,8 +1762,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               });
               let sx = Math.max(160, (svgWidth - rowWidth) / 2);
 
-              svgContent += `  <text x="${sx - 10}" y="${y + seatHeight / 2 + 10}" class="row-label" text-anchor="end">${escXml(rowLabel)}</text>\n`;
-              svgContent += `  <text x="${sx + rowWidth + 10}" y="${y + seatHeight / 2 + 10}" class="row-label" text-anchor="start">${escXml(rowLabel)}</text>\n`;
+              svgContent += `  ` + bilingualLabel(rowLabel, sx - 10, y + seatHeight / 2 + 10, 'end', 32, '#ef4444') + `\n`;
+              svgContent += `  ` + bilingualLabel(rowLabel, sx + rowWidth + 10, y + seatHeight / 2 + 10, 'start', 32, '#ef4444') + `\n`;
 
               row.seatGroups.forEach((group, gi) => {
                 if (gi > 0) {
@@ -1808,8 +1868,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           const labelY = y + seatHeight / 2 + 10;
 
           // 排号标签（左侧左对齐，右侧右对齐）
-          svgContent += `  <text x="16" y="${labelY}" class="row-label" text-anchor="start" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
-          svgContent += `  <text x="${svgWidth - 16}" y="${labelY}" class="row-label" text-anchor="end" fill="#ef4444" font-size="36" font-weight="bold">${escXml(rowLabel)}</text>\n`;
+          svgContent += `  ` + bilingualLabel(rowLabel, 16, labelY, 'start', 36, '#ef4444') + `\n`;
+          svgContent += `  ` + bilingualLabel(rowLabel, svgWidth - 16, labelY, 'end', 36, '#ef4444') + `\n`;
 
           if (row.seatGroups) {
             let x = startX;
