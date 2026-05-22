@@ -344,6 +344,14 @@ function normalizeRowLabel(raw) {
   if (!raw) return raw;
   let s = raw.trim().replace(/\s+/g, '');
 
+  // 方向前缀标准化: 前/后/左/右/内前/内后 + 第X排/列
+  var dirMatch = s.match(/^(前|后|左|右|内前|内后)[第]?(\d+|[一二三四五六七八九十]+)([排列])$/);
+  if (dirMatch) {
+    let num = dirMatch[2];
+    if (/^\d+$/.test(num)) num = numToCn[parseInt(num)] || num;
+    return dirMatch[1] + '第' + num + dirMatch[3];
+  }
+
   const sofaMatch = s.match(/^沙发[第]?(\d+|[一二三四五六七八九十]+)排?$/);
   if (sofaMatch) {
     let num = sofaMatch[1];

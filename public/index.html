@@ -945,6 +945,27 @@ function renderCustomSeatMap(venue, pRow, pSeat, showEn) {
 function translateRow(rowLabel) {
   if (!rowLabel) return '';
   var s = rowLabel.trim().replace(/\s+/g, '');
+  // 方向前缀: 前/后/左/右/内前/内后 + 第X排/列
+  var dirMap = { '前':'Front','后':'Back','左':'Left','右':'Right','内前':'Inner Front','内后':'Inner Back' };
+  var dirMatch = s.match(/^(前|后|左|右|内前|内后)第([一二三四五六七八九十]+|\d+)([排列])$/);
+  if (dirMatch) {
+    var d = dirMap[dirMatch[1]];
+    var cnNumD = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var dn = dirMatch[2];
+    var dnum = /^\d+$/.test(dn) ? parseInt(dn) : (cnNumD[dn] || dn);
+    var dtype = dirMatch[3] === '列' ? 'Col' : 'Row';
+    return d + ' ' + dtype + ' ' + dnum;
+  }
+  // 方向前缀无"第": 前X排/列
+  var dirMatch2 = s.match(/^(前|后|左|右|内前|内后)(\d+|[一二三四五六七八九十]+)([排列])$/);
+  if (dirMatch2) {
+    var d2 = dirMap[dirMatch2[1]];
+    var cnNumD2 = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var dn2 = dirMatch2[2];
+    var dnum2 = /^\d+$/.test(dn2) ? parseInt(dn2) : (cnNumD2[dn2] || dn2);
+    var dtype2 = dirMatch2[3] === '列' ? 'Col' : 'Row';
+    return d2 + ' ' + dtype2 + ' ' + dnum2;
+  }
   // 一楼沙发第一排、一楼第X排、二楼第X排 等
   var floorSofaMatch = s.match(/^(一楼|二楼|三楼|四楼|五楼|六楼|七楼|八楼|九楼|十楼)沙发[第]?([一二三四五六七八九十]+|\d+)[排]$/);
   if (floorSofaMatch) {
