@@ -912,14 +912,13 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     const siteTitle = config.siteTitle || '会议';
     const showEn = !!(config.siteTitleEn && config.siteTitleEn.trim());
 
-    // 双语标签辅助函数：中文 + 英文（小字第二行）
+    // 双语标签辅助函数：中文 + 英文（等大字体，第二行）
     function bilingualLabel(cnText, x, y, anchor, fontSize, color) {
       let html = `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="${color || '#ef4444'}" font-size="${fontSize}" font-weight="bold">${escXml(cnText)}</text>`;
       if (showEn) {
         const enText = translateRowLabelSVG(cnText);
-        const enSize = Math.max(18, Math.round(fontSize * 0.6));
-        const enY = y + enSize + 4;
-        html += `\n  <text x="${x}" y="${enY}" text-anchor="${anchor}" fill="#94a3b8" font-size="${enSize}">${escXml(enText)}</text>`;
+        const enY = y + fontSize + 6;
+        html += `\n  <text x="${x}" y="${enY}" text-anchor="${anchor}" fill="#64748b" font-size="${fontSize}">${escXml(enText)}</text>`;
       }
       return html;
     }
@@ -1439,7 +1438,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
             const tby = y + tSeatH + seatTableGap;
             svgContent += `  <rect x="${tx}" y="${tby}" width="${tableBodyW}" height="${tableBodyH}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3" rx="8"/>\n`;
             const tableNum = (row.tableNums || [])[gi] || 0;
-            svgContent += `  ` + bilingualLabel('桌' + tableNum, tx + tableBodyW / 2, tby + tableBodyH / 2 + 8, 'middle', 28, '#92400e') + `\n`;
+            svgContent += `  <text x="${tx + tableBodyW / 2}" y="${tby + tableBodyH / 2 + 8}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}` + (showEn ? '  Table ' + tableNum : '') + `</text>\n`;
 
             // 下排3个座位（座位4,5,6），不显示座位号
             const bottomSeatY = tby + tableBodyH + seatTableGap;
