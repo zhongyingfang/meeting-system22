@@ -987,6 +987,22 @@ function translateRow(rowLabel) {
     var num5 = /^\d+$/.test(n5) ? parseInt(n5) : (cnNum5[n5] || n5);
     return 'Column ' + num5;
   }
+  // X排（无第前缀）→ Row X
+  var rowMatch2 = s.match(/^(\d+|[一二三四五六七八九十]+)[排]$/);
+  if (rowMatch2) {
+    var cnNum6 = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var n6 = rowMatch2[1];
+    var num6 = /^\d+$/.test(n6) ? parseInt(n6) : (cnNum6[n6] || n6);
+    return 'Row ' + num6;
+  }
+  // X列（无第前缀）→ Column X
+  var colMatch2 = s.match(/^(\d+|[一二三四五六七八九十]+)[列]$/);
+  if (colMatch2) {
+    var cnNum7 = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+    var n7 = colMatch2[1];
+    var num7 = /^\d+$/.test(n7) ? parseInt(n7) : (cnNum7[n7] || n7);
+    return 'Column ' + num7;
+  }
   return rowLabel;
 }
 

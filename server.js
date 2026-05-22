@@ -358,6 +358,13 @@ function normalizeRowLabel(raw) {
     return '第' + num + '排';
   }
 
+  const colMatch = s.match(/^[第]?(\d+|[一二三四五六七八九十]+)列$/);
+  if (colMatch) {
+    let num = colMatch[1];
+    if (/^\d+$/.test(num)) num = numToCn[parseInt(num)] || num;
+    return '第' + num + '列';
+  }
+
   return s;
 }
 
@@ -365,7 +372,7 @@ function normalizeRowLabel(raw) {
 function cleanAttendee(a) {
   return {
     ...a,
-    name: (a.name || '').trim().replace(/\s+/g, ''),
+    name: (a.name || '').trim(),
     row: normalizeRowLabel(a.row),
     seat: typeof a.seat === 'string' ? parseInt(a.seat) : a.seat,
     company: (a.company || '').trim(),
