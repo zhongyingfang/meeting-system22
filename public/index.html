@@ -334,7 +334,7 @@ function renderPersonCard(p, hasDup, isEnSearch) {
   }
   var nameHtml = '<div class="name-cn">' + esc(p.name) + '</div>';
   if (p.nameEn) nameHtml += '<div class="name-en">' + esc(p.nameEn) + '</div>';
-  var showEn = p.nameEn || isEnSearch;
+  var showEn = p.nameEn || isEnSearch || (p.siteTitleEn && p.siteTitleEn.trim());
   var seatRowHtml = '<div class="value">' + esc(p.row) + '</div>';
   var seatNumHtml = '<div class="value">' + p.seat + ' 号</div>';
   if (showEn) {
