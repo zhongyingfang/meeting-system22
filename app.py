@@ -957,7 +957,7 @@ def get_sub_name(name, name_en):
     return ''
 
 
-def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, is_mirror, position=None):
+def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, is_mirror, position=None, mirror_mode='rotate'):
     """绘制单个座位牌"""
     # 预处理特殊字符
     name = preprocess_special_chars(name)
@@ -972,11 +972,16 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
     # 保存当前绘图状态
     c.saveState()
     
-    # 如果需要镜像显示（整体上下镜像）
+    # 镜像显示：三角台卡用180°旋转（折叠后两面可读），普通座位牌用水平翻转（透明卡套两面左→右读）
     if is_mirror:
-        c.translate(x, y)
-        c.rotate(180)
-        c.translate(-x, -y)
+        if mirror_mode == 'flip':
+            c.translate(x, 0)
+            c.scale(-1, 1)
+            c.translate(-x, 0)
+        else:
+            c.translate(x, y)
+            c.rotate(180)
+            c.translate(-x, -y)
     
     # 绘制卡片背景
     try:
@@ -1418,7 +1423,7 @@ def generate_pdf(names, template_vars, output_path):
             draw_namecard(c, x, top_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, False)
             
             # 绘制下半部分（镜像显示，折叠后从另一面看是正的）
-            draw_namecard(c, x, bottom_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True)
+            draw_namecard(c, x, bottom_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position, 'flip')
             
             # 绘制折叠线（虚线）- 在两部分的交界处
             c.setStrokeColorRGB(0.5, 0.5, 0.5)
@@ -1456,8 +1461,8 @@ def generate_pdf(names, template_vars, output_path):
             
             # 上半部分（正常显示）
             draw_namecard(c, x, slot_center_y + card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, False, position)
-            # 下半部分（镜像显示，从另一面看是正的）
-            draw_namecard(c, x, slot_center_y - card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position)
+            # 下半部分（水平翻转，透明卡套背面从左向右读）
+            draw_namecard(c, x, slot_center_y - card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position, 'flip')
     
     # 清理临时文件
     if image_path:
