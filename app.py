@@ -699,15 +699,16 @@ def preprocess_special_chars(text):
     
     # 特殊字符映射表
     char_mapping = {
-        '\u00B7': '-',
-        '\u2022': '-',
-        '\u2219': '-',
-        '\u22C5': '-',
-        '\u30FB': '-',
-        '·': '-',
-        '•': '-',
-        '．': '-',
-        '。': '-',
+        '\u00B7': '·',
+        '\u2022': '·',
+        '\u2219': '·',
+        '\u22C5': '·',
+        '\u30FB': '·',
+        '·': '·',
+        '•': '·',
+        '．': '·',
+        '。': '·',
+        '-': '·',
         '，': ',',
         '、': ',',
         '；': ';',
@@ -950,7 +951,7 @@ def get_sub_name(name, name_en):
         return ''
     has_cn = bool(re.search(r'[一-鿿]', name))
     if has_cn and name_en and name_en.strip():
-        return name_en.strip()
+        return name_en.strip().replace('-', '·')
     if has_cn and not (name_en and name_en.strip()):
         return to_pinyin(name)
     return ''
@@ -1164,14 +1165,38 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
             sub_font_size = int(template_vars['font_size'] * sub_ratio)
             sub_gap_mm = template_vars.get('sub_gap', 2)
             sub_color = template_vars.get('sub_color', '#555555')
-            # 设置副名字体（与主文字同族，更小字号）
-            if custom_font_name:
-                try:
-                    c.setFont(custom_font_name, sub_font_size)
-                except:
-                    c.setFont(font_name, sub_font_size)
+            # 设置副名字体
+            sub_font_sel = template_vars.get('sub_font', '（跟随主字体）')
+            if sub_font_sel and sub_font_sel != '（跟随主字体）':
+                # 使用独立选择的副名字体
+                font_files_map = template_vars.get('font_files', {})
+                if sub_font_sel in font_files_map:
+                    from reportlab.pdfbase import pdfmetrics
+                    from reportlab.pdfbase.ttfonts import TTFont
+                    font_path = font_files_map[sub_font_sel]
+                    reg_name = 'sub_' + sub_font_sel
+                    try:
+                        c.setFont(reg_name, sub_font_size)
+                    except:
+                        try:
+                            pdfmetrics.registerFont(TTFont(reg_name, font_path))
+                            c.setFont(reg_name, sub_font_size)
+                        except:
+                            c.setFont(sub_font_sel, sub_font_size)
+                else:
+                    try:
+                        c.setFont(sub_font_sel, sub_font_size)
+                    except:
+                        c.setFont(font_name, sub_font_size)
             else:
-                c.setFont(font_name, sub_font_size)
+                # 跟随主字体
+                if custom_font_name:
+                    try:
+                        c.setFont(custom_font_name, sub_font_size)
+                    except:
+                        c.setFont(font_name, sub_font_size)
+                else:
+                    c.setFont(font_name, sub_font_size)
             try:
                 c.setFillColor(HexColor(sub_color))
             except:
@@ -1461,7 +1486,8 @@ def build_template_vars(page_size, card_type, background_color, card_width, card
                         stereo_color, text_offset_x, text_offset_y, char_spacing,
                         name_position_list, paste_area_color, paste_area_height,
                         show_seat_number, seat_number_font_size, seat_number_color,
-                        show_sub=False, sub_ratio=55, sub_gap=2, sub_color='#555555'):
+                        show_sub=False, sub_ratio=55, sub_gap=2, sub_color='#555555',
+                        sub_font='（跟随主字体）'):
     """构建模板变量字典"""
     return {
         'page_size': page_size,
@@ -1500,7 +1526,8 @@ def build_template_vars(page_size, card_type, background_color, card_width, card
         'show_sub': show_sub,
         'sub_ratio': sub_ratio,
         'sub_gap': sub_gap,
-        'sub_color': sub_color
+        'sub_color': sub_color,
+        'sub_font': sub_font
     }
 
 def main():
@@ -1635,10 +1662,17 @@ def main():
         sub_ratio = st.sidebar.slider("副名字号比例(%)", 30, 100, 55, 5)
         sub_gap = st.sidebar.slider("副名间距(mm)", 0, 15, 2, 1)
         sub_color = st.sidebar.color_picker("副名颜色", "#555555")
+        # 副名字体选择
+        sub_font_options = ["（跟随主字体）"] + ["Microsoft YaHei", "SimHei", "Arial", "Times New Roman"]
+        if available_fonts:
+            sub_font_options += available_fonts
+        sub_font = st.sidebar.selectbox("副名字体", sub_font_options, index=0,
+            help="选择副名（英文/拼音）使用的字体")
     else:
         sub_ratio = 55
         sub_gap = 2
         sub_color = "#555555"
+        sub_font = "（跟随主字体）"
 
     border_width = st.sidebar.slider("边框宽度", 0, 10, 0)
     border_style = st.sidebar.selectbox("边框样式", ["solid", "dashed", "dotted"])
@@ -1979,7 +2013,7 @@ def main():
                     stereo_color, text_offset_x, text_offset_y, char_spacing,
                     name_position_list, paste_area_color, paste_area_height,
                     show_seat_number, seat_number_font_size, seat_number_color,
-                    show_sub, sub_ratio, sub_gap, sub_color
+                    show_sub, sub_ratio, sub_gap, sub_color, sub_font
                 )
 
                 # 为预览保存上传的文件为临时文件
@@ -2147,7 +2181,7 @@ def main():
                         stereo_color, text_offset_x, text_offset_y, char_spacing,
                         name_position_list, paste_area_color, paste_area_height,
                         show_seat_number, seat_number_font_size, seat_number_color,
-                        show_sub, sub_ratio, sub_gap, sub_color
+                        show_sub, sub_ratio, sub_gap, sub_color, sub_font
                     )
 
                     # 在调用generate_pdf之前，先保存上传的文件为临时文件
