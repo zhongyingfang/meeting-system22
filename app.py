@@ -1984,25 +1984,28 @@ def main():
 
                 raw_names = df[name_column].dropna().astype(str).tolist()
 
-                # 单元格双语拆分选项
+                # 检测单元格是否含换行（中英文双语排版）
+                has_newlines = any('\n' in str(c) for c in raw_names)
                 cell_bilingual = st.checkbox("单元格含中英文双语（按换行拆分，英文在上）",
-                    value=False, help="单元格内第一行英文、第二行中文时勾选，自动拆分显示")
+                    value=has_newlines, help="单元格内第一行英文、第二行中文时勾选，自动拆分显示")
                 if cell_bilingual:
                     names = []
                     name_position_list = []
                     for cell in raw_names:
-                        lines = cell.strip().split('\n')
+                        cell_str = str(cell).strip()
+                        lines = cell_str.split('\n')
                         if len(lines) >= 2:
                             en_part = lines[0].strip()
                             cn_part = lines[1].strip()
                             names.append(en_part)
                             name_position_list.append((en_part, '', cn_part))
                         else:
-                            names.append(cell.strip())
-                            name_position_list.append((cell.strip(), '', ''))
+                            names.append(cell_str)
+                            name_position_list.append((cell_str, '', ''))
                     st.success(f"成功导入 {len(names)} 个姓名（双语拆分模式）")
                 else:
-                    names = raw_names
+                    # 不清除换行会在PDF中显示为乱码，替换为空格
+                    names = [str(c).replace('\n', ' ').replace('\r', ' ').strip() for c in raw_names]
                     st.success(f"成功导入 {len(names)} 个姓名")
 
             except Exception as e:
