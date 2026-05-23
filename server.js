@@ -671,10 +671,10 @@ app.get('/api/search', (req, res) => {
   const config = readConfig();
   const results = data.attendees
     .filter(a => {
-      const n = (a.name || '').replace(/\s+/g, '');
-      const nEn = ((a.nameEn || '').replace(/\s+/g, '')).toLowerCase();
+      const n = (a.name || '').replace(/\s+/g, '').toLowerCase();
+      const nEn = (a.nameEn || '').replace(/\s+/g, '').toLowerCase();
       const q = rawName.toLowerCase();
-      return n === rawName || n.includes(rawName) || nEn === q || nEn.includes(q);
+      return n === q || n.includes(q) || nEn === q || nEn.includes(q);
     })
     .map(a => {
       const venue = data.venues.find(v => v.id === a.venueId);
