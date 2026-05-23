@@ -946,13 +946,13 @@ def to_pinyin(name):
 
 
 def get_sub_name(name, name_en):
-    """决定第二行显示什么：有nameEn用nameEn，纯中文自动拼音，纯英文返回空"""
+    """决定第二行显示什么：有nameEn直接显示，纯中文自动拼音，纯英文返回空"""
     if not name:
         return ''
-    has_cn = bool(re.search(r'[一-鿿]', name))
-    if has_cn and name_en and name_en.strip():
+    if name_en and name_en.strip():
         return name_en.strip().replace('-', '·')
-    if has_cn and not (name_en and name_en.strip()):
+    has_cn = bool(re.search(r'[一-鿿]', name))
+    if has_cn:
         return to_pinyin(name)
     return ''
 
@@ -1974,19 +1974,37 @@ def main():
                     df = pd.read_csv(uploaded_file)
                 else:
                     df = pd.read_excel(uploaded_file)
-                
+
                 # 自动检测姓名列
                 name_columns = [col for col in df.columns if any(keyword in col.lower() for keyword in ['name', '姓名', '名字'])]
-                
                 if name_columns:
                     name_column = st.selectbox("选择姓名列", name_columns)
-                    names = df[name_column].dropna().astype(str).tolist()
                 else:
                     name_column = st.selectbox("选择姓名列", df.columns)
-                    names = df[name_column].dropna().astype(str).tolist()
-                
-                st.success(f"成功导入 {len(names)} 个姓名")
-                
+
+                raw_names = df[name_column].dropna().astype(str).tolist()
+
+                # 单元格双语拆分选项
+                cell_bilingual = st.checkbox("单元格含中英文双语（按换行拆分，英文在上）",
+                    value=False, help="单元格内第一行英文、第二行中文时勾选，自动拆分显示")
+                if cell_bilingual:
+                    names = []
+                    name_position_list = []
+                    for cell in raw_names:
+                        lines = cell.strip().split('\n')
+                        if len(lines) >= 2:
+                            en_part = lines[0].strip()
+                            cn_part = lines[1].strip()
+                            names.append(en_part)
+                            name_position_list.append((en_part, '', cn_part))
+                        else:
+                            names.append(cell.strip())
+                            name_position_list.append((cell.strip(), '', ''))
+                    st.success(f"成功导入 {len(names)} 个姓名（双语拆分模式）")
+                else:
+                    names = raw_names
+                    st.success(f"成功导入 {len(names)} 个姓名")
+
             except Exception as e:
                 st.error(f"文件读取错误: {e}")
         
