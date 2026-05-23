@@ -930,12 +930,18 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const lines = name.split('\n');
         const en = lines[0].trim();
         const cn = (lines[1] || '').trim();
+        // 两个名字的总高度按 seatH 的 80% 分配，各占一半
+        const totalH = seatH * 0.8;
+        const eachH = totalH / 2;
+        // 英文名：按宽度适配
         const enLen = Math.max(en.length, 1);
-        const maxFit = Math.min(seatW * 0.85 / enLen, seatH * 0.45);
-        const enFs = Math.max(12, Math.min(36, maxFit));
-        const cnFs = Math.max(10, Math.round(enFs * 0.65));
-        const enY = y - cnFs * 0.5 - 2;
-        const cnY = y + cnFs * 0.8;
+        const enFs = Math.max(14, Math.min(Math.floor(seatW * 0.9 / enLen), Math.floor(eachH * 0.9), 32));
+        // 中文名：稍小
+        const cnLen = Math.max(cn.length, 1);
+        const cnFs = Math.max(12, Math.min(Math.floor(seatW * 0.9 / cnLen), Math.floor(eachH * 0.9), Math.round(enFs * 0.85)));
+        // 垂直定位：英文在上半，中文在下半
+        const enY = y - eachH * 0.3;
+        const cnY = y + eachH * 0.7;
         return `<text x="${x}" y="${enY}" class="seat-name" text-anchor="middle" font-size="${enFs}">${escXml(en)}</text>\n` +
                `  <text x="${x}" y="${cnY}" class="seat-name-en" text-anchor="middle" font-size="${cnFs}" fill="#64748b">${escXml(cn)}</text>`;
       }
@@ -1797,9 +1803,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                   svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                   if (seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
                   if (name) {
-                    const displayName = name.replace(/\n/g, ' ');
-                    const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
-                    svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
+                    svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
                   }
                   sx += seatWidth + seatGap;
                 });
@@ -1897,9 +1901,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                 if (rowLabel && seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
                 if (name) {
-                  const displayName = name.replace(/\n/g, ' ');
-                  const fontSize = displayName.length > 6 ? 28 : displayName.length > 4 ? 34 : 40;
-                  svgContent += `  <text x="${sx + seatWidth / 2}" y="${y + seatHeight / 2 + fontSize / 3}" class="seat-name" text-anchor="middle" font-size="${fontSize}">${escXml(displayName)}</text>\n`;
+                  svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
                 }
                 sx += seatWidth + seatGap;
               });
