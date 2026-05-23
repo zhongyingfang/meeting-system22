@@ -1161,8 +1161,7 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
         name_en = template_vars.get('_current_name_en', '')
         sub_name = get_sub_name(name, name_en)
         if sub_name:
-            sub_ratio = template_vars.get('sub_ratio', 55) / 100.0
-            sub_font_size = int(template_vars['font_size'] * sub_ratio)
+            sub_font_size = template_vars.get('sub_font_size', 30)
             sub_gap_mm = template_vars.get('sub_gap', 2)
             sub_color = template_vars.get('sub_color', '#555555')
             # 设置副名字体
@@ -1486,7 +1485,7 @@ def build_template_vars(page_size, card_type, background_color, card_width, card
                         stereo_color, text_offset_x, text_offset_y, char_spacing,
                         name_position_list, paste_area_color, paste_area_height,
                         show_seat_number, seat_number_font_size, seat_number_color,
-                        show_sub=False, sub_ratio=55, sub_gap=2, sub_color='#555555',
+                        show_sub=False, sub_font_size=55, sub_gap=2, sub_color='#555555',
                         sub_font='（跟随主字体）'):
     """构建模板变量字典"""
     return {
@@ -1524,7 +1523,7 @@ def build_template_vars(page_size, card_type, background_color, card_width, card
         'seat_number_font_size': seat_number_font_size,
         'seat_number_color': seat_number_color,
         'show_sub': show_sub,
-        'sub_ratio': sub_ratio,
+        'sub_font_size': sub_font_size,
         'sub_gap': sub_gap,
         'sub_color': sub_color,
         'sub_font': sub_font
@@ -1659,7 +1658,7 @@ def main():
     show_sub = st.sidebar.checkbox("中文名下方显示英文名/拼音", value=False,
         help="有英文名则显示英文名，无英文名则自动生成汉语拼音，纯英文名不处理")
     if show_sub:
-        sub_ratio = st.sidebar.slider("副名字号比例(%)", 30, 100, 55, 5)
+        sub_font_size = st.sidebar.number_input("副名字号(px)", min_value=8, max_value=80, value=30, step=1)
         sub_gap = st.sidebar.slider("副名间距(mm)", 0, 15, 2, 1)
         sub_color = st.sidebar.color_picker("副名颜色", "#555555")
         # 副名字体选择
@@ -1669,7 +1668,7 @@ def main():
         sub_font = st.sidebar.selectbox("副名字体", sub_font_options, index=0,
             help="选择副名（英文/拼音）使用的字体")
     else:
-        sub_ratio = 55
+        sub_font_size = 30
         sub_gap = 2
         sub_color = "#555555"
         sub_font = "（跟随主字体）"
@@ -2034,7 +2033,7 @@ def main():
                     stereo_color, text_offset_x, text_offset_y, char_spacing,
                     name_position_list, paste_area_color, paste_area_height,
                     show_seat_number, seat_number_font_size, seat_number_color,
-                    show_sub, sub_ratio, sub_gap, sub_color, sub_font
+                    show_sub, sub_font_size, sub_gap, sub_color, sub_font
                 )
 
                 # 为预览保存上传的文件为临时文件
@@ -2202,7 +2201,7 @@ def main():
                         stereo_color, text_offset_x, text_offset_y, char_spacing,
                         name_position_list, paste_area_color, paste_area_height,
                         show_seat_number, seat_number_font_size, seat_number_color,
-                        show_sub, sub_ratio, sub_gap, sub_color, sub_font
+                        show_sub, sub_font_size, sub_gap, sub_color, sub_font
                     )
 
                     # 在调用generate_pdf之前，先保存上传的文件为临时文件
