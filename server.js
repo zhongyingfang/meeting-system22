@@ -1353,7 +1353,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                   svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + 28}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
                 }
 
-                svgContent += `  <rect x="${sx + 3}" y="${sy}" width="${seatW - 6}" height="${seatH}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+                const fill1356 = name ? '#dbeafe' : '#ffffff';
+                svgContent += `  <rect x="${sx + 3}" y="${sy}" width="${seatW - 6}" height="${seatH}" fill="${fill1356}" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
                 if (rowLabel && sn) regionSeatPositions[rowLabel + '_' + sn] = { x: sx + 3, y: sy, w: seatW - 6, h: seatH };
 
                 if (name) {
@@ -1395,7 +1396,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                   svgContent += `  <text x="${nbx + numBoxW/2}" y="${nby + numBoxH/2 + 8}" class="seat-num" text-anchor="middle" font-size="${Math.min(28, numBoxH/1.6)}">${sn}</text>\n`;
                 }
 
-                svgContent += `  <rect x="${sx}" y="${sy + 3}" width="${seatW}" height="${seatH - 6}" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
+                const fill1399 = name ? '#dbeafe' : '#ffffff';
+                svgContent += `  <rect x="${sx}" y="${sy + 3}" width="${seatW}" height="${seatH - 6}" fill="${fill1399}" stroke="#cbd5e1" stroke-width="3" rx="6"/>\n`;
                 if (rowLabel && sn) regionSeatPositions[rowLabel + '_' + sn] = { x: sx, y: sy + 3, w: seatW, h: seatH - 6 };
 
                 if (name) {
@@ -1589,7 +1591,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                     svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
                     svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
                   }
-                  svgContent += `  <rect x="${tx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                  const fill1594 = name ? '#dbeafe' : '#ffffff';
+                  svgContent += `  <rect x="${tx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill1594}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                   if (topRow.label && sn) regionSeatPositions[topRow.label + '_' + sn] = { x: tx, y, w: seatWidth, h: seatHeight };
                   if (name) {
                     svgContent += `  ` + renderAttendeeName(name, tx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
@@ -1651,7 +1654,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               }
 
               // 姓名框
-              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
               if (col.label && sn) regionSeatPositions[col.label + '_' + sn] = { x: sx, y, w: seatWidth, h: seatHeight };
               if (name) {
                 svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
@@ -1676,7 +1679,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               }
 
               // 姓名框
-              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+              svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
               if (col.label && sn) regionSeatPositions[col.label + '_' + sn] = { x: sx, y, w: seatWidth, h: seatHeight };
               if (name) {
                 svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
@@ -1716,7 +1719,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                     svgContent += `  <rect x="${numBoxX}" y="${numBoxY}" width="${numBoxWidth}" height="${numBoxHeight}" fill="#1a56db" rx="6"/>\n`;
                     svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${sn}</text>\n`;
                   }
-                  svgContent += `  <rect x="${bx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                  svgContent += `  <rect x="${bx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                   if (botRow.label && sn) regionSeatPositions[botRow.label + '_' + sn] = { x: bx, y, w: seatWidth, h: seatHeight };
                   if (name) {
                     svgContent += `  ` + renderAttendeeName(name, bx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
@@ -1919,7 +1922,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                   svgContent += `  <text x="${numBoxX + numBoxWidth / 2}" y="${numBoxY + 24}" class="seat-num" text-anchor="middle">${seatNum}</text>\n`;
                 }
 
-                svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="#ffffff" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                 if (rowLabel && seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
                 if (name) {
                   svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
@@ -2232,7 +2235,52 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       // 使用分组数作为签名，确保相同过道数的排在同一组
       return `groups:${row.seatGroups.length}`;
     }
-    
+
+    // 参会者姓名渲染：含换行时上英下中双语显示，英文过长自动断行
+    function renderAttendeeName(name, x, y, seatW, seatH) {
+      if (!name) return '';
+      if (name.includes('\n')) {
+        const lines = name.split('\n');
+        const en = lines[0].trim();
+        const cn = (lines[1] || '').trim();
+        function wrapText(text, maxWidth, fontSz) {
+          const words = text.split(' ');
+          const wrapped = [];
+          let cur = '';
+          for (const w of words) {
+            const test = cur ? cur + ' ' + w : w;
+            if (test.length * fontSz * 0.6 <= maxWidth) {
+              cur = test;
+            } else {
+              if (cur) wrapped.push(cur);
+              cur = w;
+            }
+          }
+          if (cur) wrapped.push(cur);
+          return wrapped.length > 0 ? wrapped : [text];
+        }
+        const maxEnLen = Math.max(...en.split(' ').map(w => w.length), 1);
+        const maxCharsPerLine = Math.max(maxEnLen, cn.length);
+        const trialFs = Math.max(8, Math.min(Math.floor(seatW * 0.9 / (maxCharsPerLine * 0.6)), Math.floor(seatH / 4), 16));
+        const enLines = wrapText(en, seatW * 0.9, trialFs);
+        const totalLines = enLines.length + 1;
+        const lineH = seatH * 0.8 / totalLines;
+        const fs = Math.max(8, Math.min(trialFs, Math.floor(lineH * 0.85)));
+        let html = '';
+        const startY = y - (totalLines - 1) * lineH / 2;
+        for (let li = 0; li < enLines.length; li++) {
+          html += `<text x="${x}" y="${startY + li * lineH + fs * 0.35}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600">${escXml(enLines[li])}</text>`;
+        }
+        html += `<text x="${x}" y="${startY + enLines.length * lineH + fs * 0.35}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600" fill="#1e293b">${escXml(cn)}</text>`;
+        return html;
+      }
+      const dn = name.replace(/\n/g, ' ');
+      const nameLen = Math.max(dn.length, 1);
+      const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.4);
+      const fs = Math.max(8, Math.min(14, maxFit));
+      return `<text x="${x}" y="${y}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif">${escXml(dn)}</text>`;
+    }
+
     const previewVenues = [];
     
     data.venues.forEach(venue => {
