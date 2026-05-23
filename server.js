@@ -967,9 +967,42 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         return html;
       }
       const dn = name.replace(/\n/g, ' ');
+      const hasCJK = /[一-鿿㐀-䶿]/.test(dn);
+      // 纯英文名：长名按词自动折行以放大字体
+      if (!hasCJK && dn.includes(' ')) {
+        function wrapEnLines(text, maxWidth, fontSz) {
+          const words = text.split(' ');
+          const wrapped = [];
+          let cur = '';
+          for (const w of words) {
+            const test = cur ? cur + ' ' + w : w;
+            if (test.length * fontSz * 0.58 <= maxWidth) {
+              cur = test;
+            } else {
+              if (cur) wrapped.push(cur);
+              cur = w;
+            }
+          }
+          if (cur) wrapped.push(cur);
+          return wrapped.length > 0 ? wrapped : [text];
+        }
+        const wrapTn = Math.max(12, Math.min(36, Math.floor(seatW * 0.85 / (Math.max(...dn.split(' ').map(w => w.length)) * 0.58))));
+        const wLines = wrapEnLines(dn, seatW * 0.88, wrapTn);
+        const wTotal = wLines.length;
+        const wLineH = seatH * 0.85 / wTotal;
+        const wFs = Math.max(11, Math.min(wrapTn, Math.floor(wLineH * 0.85)));
+        let enHtml = '';
+        const wStartY = y - (wTotal - 1) * wLineH / 2;
+        for (let wi = 0; wi < wLines.length; wi++) {
+          enHtml += `<text x="${x}" y="${wStartY + wi * wLineH + wFs * 0.35}" class="seat-name" text-anchor="middle" font-size="${wFs}" font-weight="600">${escXml(wLines[wi])}</text>`;
+        }
+        return enHtml;
+      }
+      // 含中文单行名：拉丁字符宽度约中文字符一半
+      const charWidth = hasCJK ? 1.0 : 0.55;
       const nameLen = Math.max(dn.length, 1);
-      const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.5);
-      const fs = Math.max(12, Math.min(36, maxFit));
+      const maxFit = Math.min(seatW * 0.85 / (nameLen * charWidth), seatH * 0.7);
+      const fs = Math.max(12, Math.min(40, maxFit));
       return `<text x="${x}" y="${y}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>`;
     }
 
@@ -2275,9 +2308,41 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
         return html;
       }
       const dn = name.replace(/\n/g, ' ');
-      const nameLen = Math.max(dn.length, 1);
-      const maxFit = Math.min(seatW * 0.85 / nameLen, seatH * 0.4);
-      const fs = Math.max(8, Math.min(14, maxFit));
+      const hasCJK2 = /[一-鿿㐀-䶿]/.test(dn);
+      // 纯英文名：长名按词自动折行以放大字体
+      if (!hasCJK2 && dn.includes(' ')) {
+        function wrapEnLines2(text, maxWidth, fontSz) {
+          const words = text.split(' ');
+          const wrapped = [];
+          let cur = '';
+          for (const w of words) {
+            const test = cur ? cur + ' ' + w : w;
+            if (test.length * fontSz * 0.58 <= maxWidth) {
+              cur = test;
+            } else {
+              if (cur) wrapped.push(cur);
+              cur = w;
+            }
+          }
+          if (cur) wrapped.push(cur);
+          return wrapped.length > 0 ? wrapped : [text];
+        }
+        const wrapTn2 = Math.max(8, Math.min(16, Math.floor(seatW * 0.85 / (Math.max(...dn.split(' ').map(w => w.length)) * 0.58))));
+        const wLines2 = wrapEnLines2(dn, seatW * 0.88, wrapTn2);
+        const wTotal2 = wLines2.length;
+        const wLineH2 = seatH * 0.85 / wTotal2;
+        const wFs2 = Math.max(7, Math.min(wrapTn2, Math.floor(wLineH2 * 0.85)));
+        let enHtml2 = '';
+        const wStartY2 = y - (wTotal2 - 1) * wLineH2 / 2;
+        for (let wi = 0; wi < wLines2.length; wi++) {
+          enHtml2 += `<text x="${x}" y="${wStartY2 + wi * wLineH2 + wFs2 * 0.35}" text-anchor="middle" font-size="${wFs2}" font-family="Microsoft YaHei, sans-serif" font-weight="600">${escXml(wLines2[wi])}</text>`;
+        }
+        return enHtml2;
+      }
+      const nameLen2 = Math.max(dn.length, 1);
+      const charWidth2 = hasCJK2 ? 1.0 : 0.55;
+      const maxFit = Math.min(seatW * 0.85 / (nameLen2 * charWidth2), seatH * 0.7);
+      const fs = Math.max(8, Math.min(16, maxFit));
       return `<text x="${x}" y="${y}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif">${escXml(dn)}</text>`;
     }
 
