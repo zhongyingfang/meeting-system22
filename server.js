@@ -923,27 +923,48 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       return html;
     }
 
-    // 参会者姓名渲染：含换行时上英下中双语显示
+    // 参会者姓名渲染：含换行时上英下中双语显示，英文过长自动断行
     function renderAttendeeName(name, x, y, seatW, seatH) {
       if (!name) return '';
       if (name.includes('\n')) {
         const lines = name.split('\n');
         const en = lines[0].trim();
         const cn = (lines[1] || '').trim();
-        // 两个名字的总高度按 seatH 的 80% 分配，各占一半
-        const totalH = seatH * 0.8;
-        const eachH = totalH / 2;
-        // 英文名：按宽度适配
-        const enLen = Math.max(en.length, 1);
-        const enFs = Math.max(14, Math.min(Math.floor(seatW * 0.9 / enLen), Math.floor(eachH * 0.9), 32));
-        // 中文名：稍小
-        const cnLen = Math.max(cn.length, 1);
-        const cnFs = Math.max(12, Math.min(Math.floor(seatW * 0.9 / cnLen), Math.floor(eachH * 0.9), Math.round(enFs * 0.85)));
-        // 垂直定位：英文在上半，中文在下半
-        const enY = y - eachH * 0.3;
-        const cnY = y + eachH * 0.7;
-        return `<text x="${x}" y="${enY}" class="seat-name" text-anchor="middle" font-size="${enFs}">${escXml(en)}</text>\n` +
-               `  <text x="${x}" y="${cnY}" class="seat-name-en" text-anchor="middle" font-size="${cnFs}" fill="#64748b">${escXml(cn)}</text>`;
+        // 自动断行：英文词按宽度折行
+        function wrapText(text, maxWidth, fontSz) {
+          const words = text.split(' ');
+          const wrapped = [];
+          let cur = '';
+          for (const w of words) {
+            const test = cur ? cur + ' ' + w : w;
+            if (test.length * fontSz * 0.6 <= maxWidth) {
+              cur = test;
+            } else {
+              if (cur) wrapped.push(cur);
+              cur = w;
+            }
+          }
+          if (cur) wrapped.push(cur);
+          return wrapped.length > 0 ? wrapped : [text];
+        }
+        // 先估算字号：按最长行适配宽度，每行最多占 seatH 的 1/3
+        const maxEnLen = Math.max(...en.split(' ').map(w => w.length), 1);
+        const maxCharsPerLine = Math.max(maxEnLen, cn.length);
+        const trialFs = Math.max(10, Math.min(Math.floor(seatW * 0.9 / (maxCharsPerLine * 0.6)), Math.floor(seatH / 4), 28));
+        // 用试算字号断行
+        const enLines = wrapText(en, seatW * 0.9, trialFs);
+        const totalLines = enLines.length + 1; // 英文行数 + 中文1行
+        // 实际字号：不超过每行高度
+        const lineH = seatH * 0.8 / totalLines;
+        const fs = Math.max(10, Math.min(trialFs, Math.floor(lineH * 0.85)));
+        // 渲染所有行
+        let html = '';
+        const startY = y - (totalLines - 1) * lineH / 2;
+        for (let li = 0; li < enLines.length; li++) {
+          html += `<text x="${x}" y="${startY + li * lineH + fs * 0.35}" class="seat-name" text-anchor="middle" font-size="${fs}" font-weight="600">${escXml(enLines[li])}</text>\n`;
+        }
+        html += `  <text x="${x}" y="${startY + enLines.length * lineH + fs * 0.35}" class="seat-name-en" text-anchor="middle" font-size="${fs}" font-weight="600" fill="#1e293b">${escXml(cn)}</text>`;
+        return html;
       }
       const dn = name.replace(/\n/g, ' ');
       const nameLen = Math.max(dn.length, 1);
