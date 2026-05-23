@@ -22,6 +22,7 @@ from PIL import Image
 import sys
 import re
 import hmac
+from pypinyin import pinyin, Style
 import hashlib
 import time
 import json
@@ -937,6 +938,24 @@ def draw_string_with_spacing(c, x, y, text, char_spacing=0):
         if i < len(text) - 1:
             current_x += char_widths[i] + char_spacing
 
+def to_pinyin(name):
+    """中文名转拼音，张三 → Zhang San"""
+    py = pinyin(name, style=Style.NORMAL)
+    return ' '.join([p[0].capitalize() for p in py if p[0]])
+
+
+def get_sub_name(name, name_en):
+    """决定第二行显示什么：有nameEn用nameEn，纯中文自动拼音，纯英文返回空"""
+    if not name:
+        return ''
+    has_cn = bool(re.search(r'[一-鿿]', name))
+    if has_cn and name_en and name_en.strip():
+        return name_en.strip()
+    if has_cn and not (name_en and name_en.strip()):
+        return to_pinyin(name)
+    return ''
+
+
 def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, is_mirror, position=None):
     """绘制单个座位牌"""
     # 预处理特殊字符
@@ -1134,7 +1153,32 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
     
     # 绘制主文字
     draw_string_with_spacing(c, text_x, text_y, name, char_spacing)
-    
+
+    # 绘制副名（英文名或拼音）
+    show_sub = template_vars.get('show_sub', False)
+    if show_sub:
+        name_en = template_vars.get('_current_name_en', '')
+        sub_name = get_sub_name(name, name_en)
+        if sub_name:
+            sub_ratio = template_vars.get('sub_ratio', 55) / 100.0
+            sub_font_size = int(template_vars['font_size'] * sub_ratio)
+            sub_gap_mm = template_vars.get('sub_gap', 2)
+            sub_color = template_vars.get('sub_color', '#555555')
+            # 设置副名字体（与主文字同族，更小字号）
+            if custom_font_name:
+                try:
+                    c.setFont(custom_font_name, sub_font_size)
+                except:
+                    c.setFont(font_name, sub_font_size)
+            else:
+                c.setFont(font_name, sub_font_size)
+            try:
+                c.setFillColor(HexColor(sub_color))
+            except:
+                c.setFillColorRGB(0.33, 0.33, 0.33)
+            sub_y = text_y - template_vars['font_size'] * 0.5 - sub_gap_mm - sub_font_size * 0.3
+            draw_string_with_spacing(c, text_x, sub_y, sub_name, char_spacing)
+
     # 恢复文字效果状态
     c.restoreState()
     
@@ -1294,8 +1338,11 @@ def generate_pdf(names, template_vars, output_path):
         # 获取位置信息（通过索引查找，支持重名）
         if i < len(name_position_list):
             position = name_position_list[i][1]  # (name, position) 的第二个元素
+            name_en = name_position_list[i][2] if len(name_position_list[i]) > 2 else ''
         else:
             position = None
+            name_en = ''
+        template_vars['_current_name_en'] = name_en
         
         if card_type == '三角立式台卡':
             # 三角立式台卡：一个大卡片包含上下两部分
@@ -1413,7 +1460,8 @@ def build_template_vars(page_size, card_type, background_color, card_width, card
                         shadow_color, stroke_width, stroke_color, stereo_offset,
                         stereo_color, text_offset_x, text_offset_y, char_spacing,
                         name_position_list, paste_area_color, paste_area_height,
-                        show_seat_number, seat_number_font_size, seat_number_color):
+                        show_seat_number, seat_number_font_size, seat_number_color,
+                        show_sub=False, sub_ratio=55, sub_gap=2, sub_color='#555555'):
     """构建模板变量字典"""
     return {
         'page_size': page_size,
@@ -1448,7 +1496,11 @@ def build_template_vars(page_size, card_type, background_color, card_width, card
         'paste_area_height': paste_area_height,
         'show_seat_number': show_seat_number,
         'seat_number_font_size': seat_number_font_size,
-        'seat_number_color': seat_number_color
+        'seat_number_color': seat_number_color,
+        'show_sub': show_sub,
+        'sub_ratio': sub_ratio,
+        'sub_gap': sub_gap,
+        'sub_color': sub_color
     }
 
 def main():
@@ -1575,6 +1627,19 @@ def main():
         stereo_offset = 1.0
         stereo_color = "#666666"
     
+    # 副名设置（英文名/拼音）
+    st.sidebar.subheader("🔤 副名（英文/拼音）")
+    show_sub = st.sidebar.checkbox("中文名下方显示英文名/拼音", value=False,
+        help="有英文名则显示英文名，无英文名则自动生成汉语拼音，纯英文名不处理")
+    if show_sub:
+        sub_ratio = st.sidebar.slider("副名字号比例(%)", 30, 100, 55, 5)
+        sub_gap = st.sidebar.slider("副名间距(mm)", 0, 15, 2, 1)
+        sub_color = st.sidebar.color_picker("副名颜色", "#555555")
+    else:
+        sub_ratio = 55
+        sub_gap = 2
+        sub_color = "#555555"
+
     border_width = st.sidebar.slider("边框宽度", 0, 10, 0)
     border_style = st.sidebar.selectbox("边框样式", ["solid", "dashed", "dotted"])
     card_type = st.sidebar.selectbox(
@@ -1695,6 +1760,7 @@ def main():
                     all_attendee_list.append({
                         'index': attendee_index,
                         'name': a['name'],
+                        'nameEn': a.get('nameEn', ''),
                         'row': a['row'],
                         'seat': a['seat'],
                         'company': a.get('company', ''),
@@ -1749,7 +1815,7 @@ def main():
                 names = []
                 for item in selected_items:
                     position = f"{item['row']} {item['seat']}号"
-                    name_position_list.append((item['name'], position))
+                    name_position_list.append((item['name'], position, item.get('nameEn', '')))
                     names.append(item['name'])
                 
                 data_path_display = os.path.join('data', 'data.json')
@@ -1912,7 +1978,8 @@ def main():
                     shadow_color, stroke_width, stroke_color, stereo_offset,
                     stereo_color, text_offset_x, text_offset_y, char_spacing,
                     name_position_list, paste_area_color, paste_area_height,
-                    show_seat_number, seat_number_font_size, seat_number_color
+                    show_seat_number, seat_number_font_size, seat_number_color,
+                    show_sub, sub_ratio, sub_gap, sub_color
                 )
 
                 # 为预览保存上传的文件为临时文件
@@ -2079,7 +2146,8 @@ def main():
                         shadow_color, stroke_width, stroke_color, stereo_offset,
                         stereo_color, text_offset_x, text_offset_y, char_spacing,
                         name_position_list, paste_area_color, paste_area_height,
-                        show_seat_number, seat_number_font_size, seat_number_color
+                        show_seat_number, seat_number_font_size, seat_number_color,
+                        show_sub, sub_ratio, sub_gap, sub_color
                     )
 
                     # 在调用generate_pdf之前，先保存上传的文件为临时文件
