@@ -957,7 +957,7 @@ def get_sub_name(name, name_en):
     return ''
 
 
-def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, is_mirror, position=None, mirror_mode='rotate'):
+def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, is_mirror, position=None):
     """绘制单个座位牌"""
     # 预处理特殊字符
     name = preprocess_special_chars(name)
@@ -972,29 +972,13 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
     # 保存当前绘图状态
     c.saveState()
 
-    # 镜像变换辅助函数
-    def apply_bg_mirror():
-        """背景上下镜像（垂直翻转）"""
-        if is_mirror:
-            c.saveState()
-            c.translate(x, y)
-            c.scale(1, -1)
-            c.translate(-x, -y)
+    # 镜像面：整体180°旋转，折叠后两面均从左向右读
+    if is_mirror:
+        c.translate(x, y)
+        c.rotate(180)
+        c.translate(-x, -y)
 
-    def apply_text_mirror():
-        """文字左右镜像（水平翻转），读序保持左→右"""
-        if is_mirror:
-            c.saveState()
-            c.translate(x, 0)
-            c.scale(-1, 1)
-            c.translate(-x, 0)
-
-    def restore_mirror():
-        if is_mirror:
-            c.restoreState()
-
-    # 绘制卡片背景（上下镜像）
-    apply_bg_mirror()
+    # 绘制卡片背景
     try:
         bg_color = HexColor(template_vars['background_color'])
         c.setFillColor(bg_color)
@@ -1034,10 +1018,7 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
             c.setStrokeColorRGB(0.8, 0.8, 0.8)  # 默认灰色
         c.setLineWidth(template_vars['border_width'])
         c.rect(x - card_width/2, y - card_height/2, card_width, card_height, stroke=1)
-    restore_mirror()  # 背景绘制完成，结束上下镜像
 
-    # 文字部分：左右镜像
-    apply_text_mirror()
     # 设置字体和颜色 — 解析一次，复用
     font_color_str = template_vars['font_color']
     try:
@@ -1241,7 +1222,6 @@ def draw_namecard(c, x, y, card_width, card_height, name, template_vars, image_p
         position_x = x - card_width / 2 + 5  # 左边留5mm边距
         position_y = y - card_height / 2 + 5  # 底部留5mm边距
         c.drawString(position_x, position_y, position)
-    restore_mirror()  # 文字绘制完成，结束左右镜像
 
     # 恢复最外层状态
     c.restoreState()
@@ -1438,7 +1418,7 @@ def generate_pdf(names, template_vars, output_path):
             draw_namecard(c, x, top_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, False)
             
             # 绘制下半部分（镜像显示，折叠后从另一面看是正的）
-            draw_namecard(c, x, bottom_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position, 'flip')
+            draw_namecard(c, x, bottom_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position)
             
             # 绘制折叠线（虚线）- 在两部分的交界处
             c.setStrokeColorRGB(0.5, 0.5, 0.5)
@@ -1477,7 +1457,7 @@ def generate_pdf(names, template_vars, output_path):
             # 上半部分（正常显示）
             draw_namecard(c, x, slot_center_y + card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, False, position)
             # 下半部分（水平翻转，透明卡套背面从左向右读）
-            draw_namecard(c, x, slot_center_y - card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position, 'flip')
+            draw_namecard(c, x, slot_center_y - card_height/2, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position)
     
     # 清理临时文件
     if image_path:
