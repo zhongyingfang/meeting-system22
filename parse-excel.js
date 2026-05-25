@@ -1771,29 +1771,21 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
 
   // 辅助：在座位号行附近查找文本标签
   function findNearbyLabel(rowIdx, maxRow) {
-    // 先查下一行（包含标签行本身）
-    if (rowIdx + 1 <= maxRow) {
-      const nextRow = data[rowIdx + 1];
-      if (nextRow) {
-        for (let ci = 0; ci < nextRow.length; ci++) {
-          const c = nextRow[ci];
-          if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
-            const t = c.trim();
-            if (!/^第.+列$/.test(t)) return t;
-          }
-        }
-      }
-    }
-    // 再查上一行
-    if (rowIdx > 0) {
-      const prevRow = data[rowIdx - 1];
-      if (prevRow) {
-        for (let ci = 0; ci < prevRow.length; ci++) {
-          const c = prevRow[ci];
-          if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
-            const t = c.trim();
-            if (!/^第.+列$/.test(t)) return t;
-          }
+    const checkRows = [rowIdx, rowIdx + 1, rowIdx - 1];
+    for (let rri = 0; rri < checkRows.length; rri++) {
+      const r = checkRows[rri];
+      if (r < 0 || r > maxRow) continue;
+      const checkRow = data[r];
+      if (!checkRow) continue;
+      for (let ci = 0; ci < checkRow.length; ci++) {
+        const c = checkRow[ci];
+        if (typeof c === 'string' && c.trim()) {
+          const t = c.trim();
+          if (/^第.+列$/.test(t)) continue;
+          if (/^\d+$/.test(t)) continue;
+          if (/\n/.test(t)) continue;
+          if (/^[前后左右内]/.test(t) || /第.+排$/.test(t)) return t;
+          if (t.length <= 6 && !/[a-zA-Z]/.test(t) && !isLayoutKeyword(c)) return t;
         }
       }
     }
@@ -1817,10 +1809,12 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
     });
     if (numCols.length >= 2) {
       isHuiShape = true;
-      const sorted = numCols.map(n => n.num).sort((a, b) => a - b);
+      // 保持列顺序，不排序 — 严格按布局表格排列
+      const topSeats = numCols.map(n => n.num);
       topRowData.push({
         label: findNearbyLabel(i, firstLabelRow),
-        seatGroups: [fillMissingSeatNumbers(sorted)]
+        seatGroups: [topSeats],
+        rowIdx: i
       });
     }
   }
@@ -1911,7 +1905,7 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
     if (seatNums.length > 0) {
       result.rows.push({
         label: header.label,
-        seatGroups: [fillMissingSeatNumbers(seatNums)]
+        seatGroups: [seatNums]
       });
     }
   }
@@ -1961,22 +1955,42 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
       }
     });
     if (nums.length >= 2) {
-      const sorted = nums.sort((a, b) => a - b);
+      // 保持列顺序，不排序
       let label = '底部';
-      if (i + 1 < data.length) {
-        const nextRow = data[i + 1];
-        if (nextRow) {
-          for (let ci = 0; ci < nextRow.length; ci++) {
-            const c = nextRow[ci];
-            if (typeof c === 'string' && c.trim() && !isLayoutKeyword(c)) {
-              const t = c.trim();
-              if (!/^第.+列$/.test(t)) { label = t; break; }
-            }
+      // 查当前行、上一行、下一行找排号标签
+      const checkRows = [i, i - 1, i + 1];
+      for (let rri = 0; rri < checkRows.length && label === '底部'; rri++) {
+        const r = checkRows[rri];
+        if (r < 0 || r >= data.length) continue;
+        const checkRow = data[r];
+        if (!checkRow) continue;
+        for (let ci = 0; ci < checkRow.length; ci++) {
+          const c = checkRow[ci];
+          if (typeof c === 'string' && c.trim()) {
+            const t = c.trim();
+            // 排除列标签、纯数字、含换行的双语姓名
+            if (/^第.+列$/.test(t)) continue;
+            if (/^\d+$/.test(t)) continue;
+            if (/\n/.test(t)) continue;
+            // 只接受排号标签
+            if (/^[前后左右内]/.test(t) || /第.+排$/.test(t)) { label = t; break; }
+            // 兜底：不含英文的短中文标签（排除人名）
+            if (t.length <= 6 && !/[a-zA-Z]/.test(t) && !isLayoutKeyword(c)) { label = t; break; }
           }
         }
       }
-      allBottomRows.push({ nums: fillMissingSeatNumbers(sorted), rowIdx: i, label });
-      i++; // 跳过标签行
+      allBottomRows.push({ nums: nums, rowIdx: i, label });
+      // 如果下一行有排号标签文字（非数字行），跳过
+      if (i + 1 < data.length) {
+        const nr = data[i + 1];
+        if (nr) {
+          let hasNumsInRange = false;
+          for (let ci = outerLeftCol + 1; ci < outerRightCol; ci++) {
+            if (typeof nr[ci] === 'number') { hasNumsInRange = true; break; }
+          }
+          if (!hasNumsInRange) i++;
+        }
+      }
     }
   }
 
@@ -2045,6 +2059,45 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
             venueId: venueId,
             source: 'excel'
           });
+        }
+      });
+    }
+  });
+
+  // 顶部行参会者：严格按列位置匹配姓名
+  // 座位号行在 rowIdx，姓名在相邻行同一列位置
+  topRowData.forEach(tRow => {
+    const rowIdx = tRow.rowIdx;
+    const seatNums = tRow.seatGroups[0] || [];
+    const numRow = data[rowIdx];
+    // 建立列→座位号映射（和底部行相同的逻辑）
+    const tColMap = {};
+    for (let ci = outerLeftCol + 1; ci < outerRightCol; ci++) {
+      if (typeof numRow[ci] === 'number' && seatNums.includes(numRow[ci])) {
+        tColMap[ci] = numRow[ci];
+      }
+    }
+    // 扫描相邻行：上下各2行，找姓名文本
+    for (let ri = Math.max(0, rowIdx - 2); ri <= Math.min(data.length - 1, rowIdx + 2); ri++) {
+      if (ri === rowIdx) continue;
+      const nameRow = data[ri];
+      if (!nameRow) continue;
+      nameRow.forEach((cell, ci) => {
+        if (typeof cell === 'string' && cell.trim() && tColMap[ci] !== undefined) {
+          const t = cell.trim();
+          // 排除列标签、纯数字、含换行的标签文本
+          if (/^第.+列$/.test(t)) return;
+          if (/^\d+$/.test(t)) return;
+          if (!isLayoutKeyword(cell)) {
+            result.attendees.push({
+              name: cell.trim(),
+              row: tRow.label,
+              seat: tColMap[ci],
+              company: '', title: '',
+              venueId: venueId,
+              source: 'excel'
+            });
+          }
         }
       });
     }
