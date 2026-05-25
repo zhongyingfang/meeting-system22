@@ -1946,14 +1946,15 @@ function renderUShapeDragMap(venue) {
   topRows.forEach(function(r) { var t = (r.seatGroups[0] || []).length; if (t > maxSeatsTop) maxSeatsTop = t; });
   var hMaxSeats = Math.max(maxSeatsTop, maxSeatsBottom);
   
-  // 水平行座位宽度
-  var hSeatW = Math.min(80, Math.max(32, Math.floor(availW / Math.max(hMaxSeats, 1)) - 2, maxContentLen * 12));
-  
-  // 竖列：宽44px，高度按座位数+内容约束
-  var colSW = 44;
-  var colSH = Math.min(50, Math.max(36, maxContentLen * 12));
+  // 水平行座位宽度：按可用宽度均分，固定上限80px
+  var hSeatW = Math.min(80, Math.max(34, Math.floor(availW / Math.max(hMaxSeats, 1)) - 2));
 
-  // 全场统一字号
+  // 竖列：宽44px，高度按可用空间
+  var colSW = 44;
+  var availColH = Math.min(400, (container && container.clientHeight) ? container.clientHeight * 0.6 : 300);
+  var colSH = Math.min(50, Math.max(36, Math.floor(availColH / Math.max(maxSeatsInCol, 1)) - 2));
+
+  // 全场统一字号：基于座位尺寸计算，长名由 renderDragSeat 内部截断处理
   var colFontSize = Math.max(7, Math.floor(Math.min((colSW - 4) / Math.max(maxContentLen, 1), colSH * 0.7, 14)));
   var hFontSize = Math.max(7, Math.floor(Math.min((hSeatW - 4) / Math.max(maxContentLen, 1), 44 * 0.7, 14)));
   var ushapeFontSize = Math.min(colFontSize, hFontSize);
@@ -2226,10 +2227,21 @@ function renderCustomDragMap(venue) {
       var fontSize;
 
       if (name && contentLen > 0) {
-        // 有名字时统一竖排显示，每个字占一行
-        isVertical = true;
-        // 竖排：宽度只需容纳单个最宽字符，高度需容纳所有字符
-        fontSize = Math.max(MIN_FONT, Math.min(Math.floor(sw * 0.85), Math.floor((sh - 2) / contentLen), 16));
+        var hasAscii = /[a-zA-Z]/.test(contentStr);
+        if (!hasAscii) {
+          // 中文名：竖排显示，每个字占一行
+          isVertical = true;
+          fontSize = Math.max(MIN_FONT, Math.min(Math.floor(sw * 0.85), Math.floor((sh - 2) / contentLen), 16));
+        } else {
+          // 英文名：横排显示，字号随宽度适配，超出截断
+          isVertical = false;
+          fontSize = Math.max(MIN_FONT, Math.min(Math.floor(sw * 0.9 / (contentLen * 0.58)), Math.floor(sh * 0.7), 14));
+          // 截断至能显示的字符数
+          var maxChars = Math.floor(sw * 0.92 / (fontSize * 0.58));
+          if (contentLen > maxChars && maxChars >= 2) {
+            contentStr = contentStr.substring(0, maxChars - 1) + '…';
+          }
+        }
       } else {
         // 空座位只显示座位号，横排显示
         fontSize = Math.max(MIN_FONT, Math.min(Math.floor(sw * 0.6), Math.floor(sh * 0.4), 12));
@@ -3666,26 +3678,43 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
   var displayFontSize;
   var MIN_FONT = 7;
   
+  var hasAscii2 = name && /[a-zA-Z]/.test(contentStr);
   if (globalFontSize !== undefined && name && contentLen > 0) {
-    var horzNeed = Math.ceil((seatW - 4) / contentLen);
-    if (globalFontSize <= horzNeed) {
-      displayFontSize = globalFontSize;
-    } else {
-      isVertical = true;
-      var vertNeed = Math.ceil((seatH - 2) / contentLen);
-      if (globalFontSize <= vertNeed) {
+    if (!hasAscii2) {
+      // 中文名：尝试横排，放不下则竖排
+      var horzNeed = Math.ceil((seatW - 4) / contentLen);
+      if (globalFontSize <= horzNeed) {
         displayFontSize = globalFontSize;
       } else {
-        displayFontSize = Math.max(MIN_FONT, Math.floor(Math.min((seatH - 2) / contentLen, seatW * 0.8, 14)));
+        isVertical = true;
+        var vertNeed = Math.ceil((seatH - 2) / contentLen);
+        if (globalFontSize <= vertNeed) {
+          displayFontSize = globalFontSize;
+        } else {
+          displayFontSize = Math.max(MIN_FONT, Math.floor(Math.min((seatH - 2) / contentLen, seatW * 0.8, 14)));
+        }
       }
+    } else {
+      // 英文名：始终横排，截断超长部分
+      isVertical = false;
+      displayFontSize = Math.max(MIN_FONT, Math.min(globalFontSize, Math.floor(seatW * 0.9 / (contentLen * 0.58)), Math.floor(seatH * 0.7), 14));
+      var maxC = Math.floor(seatW * 0.92 / (displayFontSize * 0.58));
+      if (contentLen > maxC && maxC >= 2) { contentStr = contentStr.substring(0, maxC - 1) + '…'; }
     }
   } else if (name && contentLen > 0) {
-    var horzFS = Math.floor(Math.min((seatW - 4) / contentLen, seatH * 0.7, 14));
-    if (horzFS >= 9 || vertical) {
-      displayFontSize = Math.max(MIN_FONT, horzFS);
+    if (!hasAscii2) {
+      var horzFS = Math.floor(Math.min((seatW - 4) / contentLen, seatH * 0.7, 14));
+      if (horzFS >= 9 || vertical) {
+        displayFontSize = Math.max(MIN_FONT, horzFS);
+      } else {
+        isVertical = true;
+        displayFontSize = Math.max(MIN_FONT, Math.floor(Math.min((seatH - 2) / contentLen, seatW * 0.8, 14)));
+      }
     } else {
-      isVertical = true;
-      displayFontSize = Math.max(MIN_FONT, Math.floor(Math.min((seatH - 2) / contentLen, seatW * 0.8, 14)));
+      isVertical = false;
+      displayFontSize = Math.max(MIN_FONT, Math.min(Math.floor(seatW * 0.9 / (contentLen * 0.58)), Math.floor(seatH * 0.7), 14));
+      var maxC2 = Math.floor(seatW * 0.92 / (displayFontSize * 0.58));
+      if (contentLen > maxC2 && maxC2 >= 2) { contentStr = contentStr.substring(0, maxC2 - 1) + '…'; }
     }
   } else {
     displayFontSize = Math.max(MIN_FONT, Math.min(Math.floor(seatW * 0.6), Math.floor(seatH * 0.4), 12));

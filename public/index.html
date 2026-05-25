@@ -442,7 +442,7 @@ function renderSeatMap(venue, person, showEn) {
 
   // 根据窗口宽度确定自适应参数
   var containerWidth = Math.min(window.innerWidth - 40, 760);
-  var labelWidth = 48;
+  var labelWidth = showEn ? 62 : 48;
   var availWidth = containerWidth - labelWidth - 16;
   var gap = 2;
   var aisleWidth = 6;
@@ -482,21 +482,24 @@ function renderSeatMap(venue, person, showEn) {
     var labelStyle = 'width:' + labelWidth + 'px;font-size:' + Math.max(8, Math.min(10, seatSize - 2)) + 'px;';
     var rowMargin = Math.max(1, Math.min(3, Math.floor(seatSize / 6)));
 
+    var stageNameCn = venue.stageName || '舞台';
+    var stageNameHtml = showEn ? esc(stageNameCn) + '<br><span style="font-size:9px;opacity:0.8;letter-spacing:1px">' + esc(translateStage(stageNameCn)) + '</span>' : esc(stageNameCn);
     var html = '<div class="seat-map-wrap"><div class="seat-map-title">' +
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
       '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
       '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
       '座位分布图 - 全貌</div>' +
-      '<div class="stage">' + esc(venue.stageName || '舞台') + '</div><div class="seat-map">';
+      '<div class="stage" style="line-height:1.25">' + stageNameHtml + '</div><div class="seat-map">';
 
     rowGroups.forEach(function(group) {
       group.rows.forEach(function(row, ri) {
         var rowLabel = (row.label || '').replace(/\s+/g, '');
         var isFirstRowInGroup = ri === 0;
         var isTargetRow = (rowLabel === pRow);
+        var rowLblHtml = showEn ? esc(row.label) + '<br><span style="font-size:' + Math.max(7, Math.min(9, seatSize - 3)) + 'px;color:var(--text2);font-weight:400">' + esc(translateRow(row.label)) + '</span>' : esc(row.label);
 
         html += '<div class="seat-row" style="' + gapStyle + 'margin-bottom:' + rowMargin + 'px">' +
-          '<span class="row-label" style="' + labelStyle + '">' + esc(row.label) + '</span>';
+          '<span class="row-label" style="' + labelStyle + ';white-space:normal;line-height:1.1">' + rowLblHtml + '</span>';
 
         if (row.seatGroups) {
           row.seatGroups.forEach(function(group, gi) {
@@ -555,18 +558,21 @@ function renderSeatMap(venue, person, showEn) {
   var labelStyle = 'width:' + labelWidth + 'px;font-size:' + Math.max(8, Math.min(10, seatSize - 2)) + 'px;';
   var rowMargin = Math.max(1, Math.min(3, Math.floor(seatSize / 6)));
 
+  var stageNameCn2 = venue.stageName || '舞台';
+  var stageNameHtml2 = showEn ? esc(stageNameCn2) + '<br><span style="font-size:9px;opacity:0.8;letter-spacing:1px">' + esc(translateStage(stageNameCn2)) + '</span>' : esc(stageNameCn2);
   var html = '<div class="seat-map-wrap"><div class="seat-map-title">' +
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
     '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
     '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
     '座位分布图 - 全貌</div>' +
-    '<div class="stage">' + esc(venue.stageName || '舞台') + '</div><div class="seat-map">';
+    '<div class="stage" style="line-height:1.25">' + stageNameHtml2 + '</div><div class="seat-map">';
 
   venue.rows.forEach(function(row) {
     var rowLabel = (row.label || '').replace(/\s+/g, '');
     var isTargetRow = (rowLabel === pRow);
+    var rowLblHtml2 = showEn ? esc(row.label) + '<br><span style="font-size:' + Math.max(7, Math.min(9, seatSize - 3)) + 'px;color:var(--text2);font-weight:400">' + esc(translateRow(row.label)) + '</span>' : esc(row.label);
     html += '<div class="seat-row" style="' + gapStyle + 'margin-bottom:' + rowMargin + 'px">' +
-      '<span class="row-label" style="' + labelStyle + '">' + esc(row.label) + '</span>';
+      '<span class="row-label" style="' + labelStyle + ';white-space:normal;line-height:1.1">' + rowLblHtml2 + '</span>';
     row.seatGroups.forEach(function(group, gi) {
       if (gi > 0) html += '<div class="seat-aisle" style="' + aisleStyle + '"></div>';
       group.forEach(function(seatNum) {
@@ -623,7 +629,7 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
     '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
     '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
     '座位分布图 - 全貌</div>' +
-    '<div class="stage">' + esc(venue.stageName || '舞台') + '</div>' +
+    '<div class="stage" style="line-height:1.25">' + (showEn ? esc(venue.stageName || '舞台') + '<br><span style="font-size:9px;opacity:0.8;letter-spacing:1px">' + esc(translateStage(venue.stageName || '舞台')) + '</span>' : esc(venue.stageName || '舞台')) + '</div>' +
     '<div class="seat-map" style="padding:8px 0">';
 
   venue.rows.forEach(function(row) {
@@ -750,7 +756,7 @@ function renderUShapeSeatMap(venue, pRow, pSeat, showEn) {
     '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
     '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
     '座位分布图 - 全貌</div>' +
-    '<div class="stage" style="margin-bottom:6px;padding:4px 8px;font-size:10px;letter-spacing:2px;min-width:auto;">' + esc(venue.stageName || '投屏区') + '</div>' +
+    '<div class="stage" style="margin-bottom:6px;padding:4px 8px;font-size:10px;letter-spacing:2px;min-width:auto;line-height:1.25">' + (showEn ? esc(venue.stageName || '投屏区') + '<br><span style="font-size:8px;opacity:0.8;letter-spacing:1px">' + esc(translateStage(venue.stageName || '投屏区')) + '</span>' : esc(venue.stageName || '投屏区')) + '</div>' +
     '<div class="seat-map" style="text-align:center;">' +
     '<div style="display:inline-block;width:' + scaledW + 'px;overflow:hidden;vertical-align:top;">' +
     '<div style="transform:scale(' + scale + ');transform-origin:top left;width:' + totalW + 'px;">';
@@ -886,7 +892,9 @@ function renderCustomSeatMap(venue, pRow, pSeat, showEn) {
     var stW = Math.round((st.width || 100) * scale);
     var stH = Math.round((st.height || 80) * scale);
     var stFontSize = Math.max(9, Math.min(13, stH / 5));
-    html += '<div style="position:absolute;left:' + stX + 'px;top:' + stY + 'px;width:' + stW + 'px;height:' + stH + 'px;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + stFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15)">' + esc(st.label || '舞台') + '</div>';
+    var stLabelCn = st.label || '舞台';
+    var stLabelHtml = showEn ? esc(stLabelCn) + '<br><span style="font-size:' + Math.max(7, stFontSize - 2) + 'px;opacity:0.85;font-weight:500">' + esc(translateStage(stLabelCn)) + '</span>' : esc(stLabelCn);
+    html += '<div style="position:absolute;left:' + stX + 'px;top:' + stY + 'px;width:' + stW + 'px;height:' + stH + 'px;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:' + stFontSize + 'px;font-weight:700;z-index:1;box-shadow:0 2px 6px rgba(0,0,0,0.15);line-height:1.2">' + stLabelHtml + '</div>';
   }
 
   // 渲染大门
@@ -968,6 +976,12 @@ function parseCnNum(s) {
   return s;
 }
 
+function translateStage(stageName) {
+  if (!stageName) return '';
+  var s = stageName.trim();
+  var map = { '舞台区域':'Stage', '投屏区':'Screen', '舞台':'Stage', '主席台':'Rostrum', 'LED屏':'LED Screen' };
+  return map[s] || s;
+}
 function translateRow(rowLabel) {
   if (!rowLabel) return '';
   var s = rowLabel.trim().replace(/\s+/g, '');
