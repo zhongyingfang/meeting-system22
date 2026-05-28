@@ -880,30 +880,87 @@ function exportSeating() {
 }
 
 function exportSeatingSVG() {
-  showToast('正在生成 SVG 图片文件...');
-  // 使用 fetch 获取 SVG 内容，然后创建 Blob 下载
-  fetch('/api/export-seating-svg', {
-    headers: { 'X-Auth-Token': authToken }
-  })
-  .then(function(response) {
-    if (!response.ok) throw new Error('下载失败');
-    return response.blob();
-  })
-  .then(function(blob) {
-    var url = URL.createObjectURL(blob);
-    var link = document.createElement('a');
-    link.href = url;
-    link.download = '座位安排表.svg';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    showToast('SVG 图片下载完成');
-  })
-  .catch(function(err) {
-    console.error('SVG 导出失败:', err);
-    alert('导出失败：' + err.message);
+  showSvgExportDialog(function(params) {
+    var qs = '?fontSize=' + params.fontSize + '&seatW=' + params.seatW + '&seatH=' + params.seatH;
+    showToast('正在生成 SVG 图片文件...');
+    fetch('/api/export-seating-svg' + qs, {
+      headers: { 'X-Auth-Token': authToken }
+    })
+    .then(function(response) {
+      if (!response.ok) throw new Error('下载失败');
+      return response.blob();
+    })
+    .then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = '座位安排表.svg';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast('SVG 图片下载完成');
+    })
+    .catch(function(err) {
+      console.error('SVG 导出失败:', err);
+      alert('导出失败：' + err.message);
+    });
   });
+}
+
+function showSvgExportDialog(callback) {
+  var existing = document.querySelector('.custom-dialog-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.className = 'custom-dialog-overlay';
+  overlay.innerHTML =
+    '<div class="custom-dialog" style="max-width:420px">' +
+    '<h4>SVG 导出设置</h4>' +
+    '<div class="form-group"><label>字号预设</label><select id="svgFsPreset" onchange="onSvgFsPresetChange()">' +
+    '<option value="56">初号 (42pt)</option>' +
+    '<option value="35" selected>一号 (26pt)</option>' +
+    '<option value="29">二号 (22pt)</option>' +
+    '<option value="21">三号 (16pt)</option>' +
+    '<option value="18">四号 (14pt)</option>' +
+    '<option value="0">自定义</option>' +
+    '</select></div>' +
+    '<div class="form-group"><label>基准字号 (px)</label><input id="svgFontSize" type="number" value="35" min="12" max="80" onchange="onSvgFsCustom()"></div>' +
+    '<div class="form-group"><label>座位框宽度 (px)</label><input id="svgSeatW" type="number" value="180" min="60" max="500"></div>' +
+    '<div class="form-group"><label>座位框高度 (px)</label><input id="svgSeatH" type="number" value="105" min="30" max="300"></div>' +
+    '<div class="btn-group" style="justify-content:flex-end;margin-top:16px">' +
+    '<button class="btn btn-outline btn-sm" onclick="closeSvgDialog()">取消</button>' +
+    '<button class="btn btn-primary btn-sm" onclick="confirmSvgExport()">确认导出</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+  overlay._callback = callback;
+}
+
+function onSvgFsPresetChange() {
+  var v = parseInt(document.getElementById('svgFsPreset').value);
+  if (v > 0) {
+    document.getElementById('svgFontSize').value = v;
+    document.getElementById('svgSeatW').value = v * 4 + 40;
+    document.getElementById('svgSeatH').value = Math.round(v * 3.0);
+  }
+}
+
+function onSvgFsCustom() {
+  document.getElementById('svgFsPreset').value = '0';
+}
+
+function closeSvgDialog() {
+  var overlay = document.querySelector('.custom-dialog-overlay');
+  if (overlay) overlay.remove();
+}
+
+function confirmSvgExport() {
+  var fs = parseInt(document.getElementById('svgFontSize').value) || 35;
+  var sw = parseInt(document.getElementById('svgSeatW').value) || (fs * 4 + 40);
+  var sh = parseInt(document.getElementById('svgSeatH').value) || Math.round(fs * 3.0);
+  var overlay = document.querySelector('.custom-dialog-overlay');
+  var cb = overlay._callback;
+  overlay.remove();
+  cb({ fontSize: fs, seatW: sw, seatH: sh });
 }
 
 // 上传表格相关函数

@@ -911,6 +911,9 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     const config = readConfig();
     const siteTitle = config.siteTitle || '会议';
     const showEn = !!(config.siteTitleEn && config.siteTitleEn.trim());
+    const baseFontSize = parseInt(req.query.fontSize) || 35;
+    const seatWidth = parseInt(req.query.seatW) || (baseFontSize * 4 + 40);
+    const seatHeight = parseInt(req.query.seatH) || Math.round(baseFontSize * 3.0);
 
     // 双语标签辅助函数：中文 + 英文（等大字体，第二行）
     function bilingualLabel(cnText, x, y, anchor, fontSize, color) {
@@ -923,92 +926,64 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       return html;
     }
 
-    // 参会者姓名渲染：含换行时上英下中双语显示，英文过长自动断行
-    function renderAttendeeName(name, x, y, seatW, seatH) {
+    // 参会者姓名渲染：统一分级字号 + dominant-baseline居中 + 双语固定2行
+    function renderAttendeeName(name, x, y, seatW, seatH, baseFs) {
+      const fs0 = baseFs || baseFontSize;
+      const MIN_FS = Math.round(fs0 * 0.55);
+      // 统一字号分级：按CJK等效宽度
+      function tierFs(cjkLen) {
+        if (cjkLen <= 3) return fs0;
+        if (cjkLen <= 4) return Math.round(fs0 * 0.8);
+        return Math.max(MIN_FS, Math.round(fs0 * 0.65));
+      }
+      function calcCjkLen(text) {
+        let len = 0;
+        for (const ch of text) {
+          len += /[一-鿿㐀-䶿]/.test(ch) ? 1 : 0.55;
+        }
+        return len;
+      }
       if (!name) return '';
+      // === 中英文双语（含\n）：固定2行，英文不分行 ===
       if (name.includes('\n')) {
         const lines = name.split('\n');
         const en = lines[0].trim();
         const cn = (lines[1] || '').trim();
-        // 自动断行：英文词按宽度折行
-        function wrapText(text, maxWidth, fontSz) {
-          const words = text.split(' ');
-          const wrapped = [];
-          let cur = '';
-          for (const w of words) {
-            const test = cur ? cur + ' ' + w : w;
-            if (test.length * fontSz * 0.6 <= maxWidth) {
-              cur = test;
-            } else {
-              if (cur) wrapped.push(cur);
-              cur = w;
-            }
-          }
-          if (cur) wrapped.push(cur);
-          return wrapped.length > 0 ? wrapped : [text];
-        }
-        // 先估算字号：按最长行适配宽度，每行最多占 seatH 的 1/3
-        const maxEnLen = Math.max(...en.split(' ').map(w => w.length), 1);
-        const maxCharsPerLine = Math.max(maxEnLen, cn.length);
-        const trialFs = Math.max(10, Math.min(Math.floor(seatW * 0.9 / (maxCharsPerLine * 0.6)), Math.floor(seatH / 4), 28));
-        // 用试算字号断行
-        const enLines = wrapText(en, seatW * 0.9, trialFs);
-        const totalLines = enLines.length + 1; // 英文行数 + 中文1行
-        // 实际字号：不超过每行高度
-        const lineH = seatH * 0.8 / totalLines;
-        const fs = Math.max(10, Math.min(trialFs, Math.floor(lineH * 0.85)));
-        // 渲染所有行
-        let html = '';
-        const startY = y - (totalLines - 1) * lineH / 2;
-        for (let li = 0; li < enLines.length; li++) {
-          html += `<text x="${x}" y="${startY + li * lineH + fs * 0.35}" class="seat-name" text-anchor="middle" font-size="${fs}" font-weight="600">${escXml(enLines[li])}</text>\n`;
-        }
-        html += `  <text x="${x}" y="${startY + enLines.length * lineH + fs * 0.35}" class="seat-name-en" text-anchor="middle" font-size="${fs}" font-weight="600" fill="#1e293b">${escXml(cn)}</text>`;
-        return html;
+        const enLen = calcCjkLen(en);
+        const cnLen = calcCjkLen(cn);
+        const maxLen = Math.max(enLen, cnLen);
+        let fs = tierFs(Math.ceil(maxLen));
+        if (maxLen > 3.5) fs = Math.max(MIN_FS, Math.round(fs0 * 0.65));
+        const lineH = fs * 1.35;
+        const gap = fs * 0.15;
+        const totalH = lineH * 2 + gap;
+        const startY = y - totalH / 2;
+        return `<text x="${x}" y="${startY + lineH / 2}" class="seat-name" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="600">${escXml(en)}</text>\n`
+          + `  <text x="${x}" y="${startY + lineH + gap + lineH / 2}" class="seat-name-en" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="600" fill="#1e293b">${escXml(cn)}</text>`;
       }
       const dn = name.replace(/\n/g, ' ');
       const hasCJK = /[一-鿿㐀-䶿]/.test(dn);
-      // 纯英文名：长名按词自动折行以放大字体
+      // === 纯英文名：按名和姓拆两行 ===
       if (!hasCJK && dn.includes(' ')) {
-        function wrapEnLines(text, maxWidth, fontSz) {
-          const words = text.split(' ');
-          const wrapped = [];
-          let cur = '';
-          for (const w of words) {
-            const test = cur ? cur + ' ' + w : w;
-            if (test.length * fontSz * 0.58 <= maxWidth) {
-              cur = test;
-            } else {
-              if (cur) wrapped.push(cur);
-              cur = w;
-            }
-          }
-          if (cur) wrapped.push(cur);
-          return wrapped.length > 0 ? wrapped : [text];
-        }
-        const wrapTn = Math.max(12, Math.min(36, Math.floor(seatW * 0.85 / (Math.max(...dn.split(' ').map(w => w.length)) * 0.58))));
-        const wLines = wrapEnLines(dn, seatW * 0.88, wrapTn);
-        const wTotal = wLines.length;
-        const wLineH = seatH * 0.85 / wTotal;
-        const wFs = Math.max(11, Math.min(wrapTn, Math.floor(wLineH * 0.85)));
-        let enHtml = '';
-        const wStartY = y - (wTotal - 1) * wLineH / 2;
-        for (let wi = 0; wi < wLines.length; wi++) {
-          enHtml += `<text x="${x}" y="${wStartY + wi * wLineH + wFs * 0.35}" class="seat-name" text-anchor="middle" font-size="${wFs}" font-weight="600">${escXml(wLines[wi])}</text>`;
-        }
-        return enHtml;
+        const parts = dn.split(' ');
+        const firstName = parts[0];
+        const lastName = parts.slice(1).join(' ');
+        const maxLen = Math.max(calcCjkLen(firstName), calcCjkLen(lastName));
+        const fs = maxLen <= 4 ? fs0 : Math.max(MIN_FS, Math.round(fs0 * 0.8));
+        const lineH = fs * 1.3;
+        const gap = fs * 0.12;
+        const totalH = lineH * 2 + gap;
+        const startY = y - totalH / 2;
+        return `<text x="${x}" y="${startY + lineH / 2}" class="seat-name" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="600">${escXml(firstName)}</text>\n`
+          + `  <text x="${x}" y="${startY + lineH + gap + lineH / 2}" class="seat-name" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="600">${escXml(lastName)}</text>`;
       }
-      // 含中文单行名：拉丁字符宽度约中文字符一半
-      const charWidth = hasCJK ? 1.0 : 0.55;
-      const nameLen = Math.max(dn.length, 1);
-      const maxFit = Math.min(seatW * 0.85 / (nameLen * charWidth), seatH * 0.7);
-      const fs = Math.max(12, Math.min(40, maxFit));
-      return `<text x="${x}" y="${y}" class="seat-name" text-anchor="middle" font-size="${fs}">${escXml(dn)}</text>`;
+      // === 单行名：统一分级字号 + 居中 ===
+      const cjkLen = calcCjkLen(dn);
+      const fs = tierFs(Math.ceil(cjkLen));
+      return `<text x="${x}" y="${y}" class="seat-name" text-anchor="middle" dominant-baseline="central" font-size="${fs}">${escXml(dn)}</text>`;
     }
 
     // 座位参数
-    const seatWidth = 200;
-    const seatHeight = 80;
     const seatGap = 40;
     const groupGap = 120;
     const rowGap = 50;
@@ -1102,12 +1077,12 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const maxArmLen = Math.max(...uArmRows.map(r => r.seatGroups[0] ? r.seatGroups[0].length : 0), 0);
         // 顶部行高度
         if (uTopRows.length > 0) {
-          totalHeight += uTopRows.length * (seatHeight + 30) + 30;
+          totalHeight += uTopRows.length * (seatHeight + rowGap) + rowGap;
         }
         totalHeight += 50; // 列标签行
         totalHeight += maxArmLen * (seatHeight + rowGap); // 两臂座位
         if (uBottomRows.length > 0) {
-          totalHeight += 30 + uBottomRows.length * (seatHeight + 30); // 底部行
+          totalHeight += rowGap + uBottomRows.length * (seatHeight + rowGap); // 底部行
         }
         totalHeight += 60; // 底部间距
       } else if (venue.layout === 'banquet' && venue.rows && venue.rows.length > 0) {
@@ -1391,7 +1366,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 if (rowLabel && sn) regionSeatPositions[rowLabel + '_' + sn] = { x: sx + 3, y: sy, w: seatW - 6, h: seatH };
 
                 if (name) {
-                  svgContent += `  ` + renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH) + `\n`;
+                  svgContent += `  ` + renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH, baseFontSize) + `\n`;
                 }
                 cursorX += seatW;
               }
@@ -1434,7 +1409,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 if (rowLabel && sn) regionSeatPositions[rowLabel + '_' + sn] = { x: sx, y: sy + 3, w: seatW, h: seatH - 6 };
 
                 if (name) {
-                  svgContent += `  ` + renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH) + `\n`;
+                  svgContent += `  ` + renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH, baseFontSize) + `\n`;
                 }
                 cursorY += seatH;
               }
@@ -1505,7 +1480,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               svgContent += `  <rect x="${sx}" y="${topSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
               regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: topSeatY, w: tSeatW, h: tSeatH };
               if (name) {
-                svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, topSeatY + tSeatH / 2, tSeatW, tSeatH) + `\n`;
+                svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, topSeatY + tSeatH / 2, tSeatW, tSeatH, baseFontSize) + `\n`;
               }
             }
 
@@ -1526,7 +1501,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               svgContent += `  <rect x="${sx}" y="${bottomSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
               regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: bottomSeatY, w: tSeatW, h: tSeatH };
               if (name) {
-                svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, bottomSeatY + tSeatH / 2, tSeatW, tSeatH) + `\n`;
+                svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, bottomSeatY + tSeatH / 2, tSeatW, tSeatH, baseFontSize) + `\n`;
               }
             }
           });
@@ -1628,15 +1603,15 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                   svgContent += `  <rect x="${tx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill1594}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                   if (topRow.label && sn) regionSeatPositions[topRow.label + '_' + sn] = { x: tx, y, w: seatWidth, h: seatHeight };
                   if (name) {
-                    svgContent += `  ` + renderAttendeeName(name, tx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
+                    svgContent += `  ` + renderAttendeeName(name, tx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
                   }
                   tx += seatWidth + seatGap;
                 });
               }
-              y += seatHeight + 30;
+              y += seatHeight + rowGap;
             });
           });
-          y += 30;
+          y += rowGap;
         }
 
         // ---- 1. 列标签行 ----
@@ -1690,7 +1665,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
               if (col.label && sn) regionSeatPositions[col.label + '_' + sn] = { x: sx, y, w: seatWidth, h: seatHeight };
               if (name) {
-                svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
+                svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
               }
             }
           });
@@ -1715,7 +1690,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
               if (col.label && sn) regionSeatPositions[col.label + '_' + sn] = { x: sx, y, w: seatWidth, h: seatHeight };
               if (name) {
-                svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
+                svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
               }
             }
           });
@@ -1726,7 +1701,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         // ---- 3. 底部行（支持多行，水平排列于左右臂间）----
        // 按座位数分组——连续相同座位数的行为一组，只在每组首行显示座位号
         if (uBottomRows.length > 0) {
-          y += 30;
+          y += rowGap;
           const bottomRowGroups = [];
           uBottomRows.forEach((row) => {
             const sc = (row.seatGroups[0] || []).filter(x => x !== null && x !== undefined).length;
@@ -1755,12 +1730,12 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                   svgContent += `  <rect x="${bx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                   if (botRow.label && sn) regionSeatPositions[botRow.label + '_' + sn] = { x: bx, y, w: seatWidth, h: seatHeight };
                   if (name) {
-                    svgContent += `  ` + renderAttendeeName(name, bx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
+                    svgContent += `  ` + renderAttendeeName(name, bx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
                   }
                   bx += seatWidth + seatGap;
                 });
               }
-              y += seatHeight + 30;
+              y += seatHeight + rowGap;
             });
           });
         }
@@ -1860,7 +1835,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                   svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                   if (seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
                   if (name) {
-                    svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
+                    svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
                   }
                   sx += seatWidth + seatGap;
                 });
@@ -1958,7 +1933,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 svgContent += `  <rect x="${sx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${name ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
                 if (rowLabel && seatNum) regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y, w: seatWidth, h: seatHeight };
                 if (name) {
-                  svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight) + `\n`;
+                  svgContent += `  ` + renderAttendeeName(name, sx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
                 }
                 sx += seatWidth + seatGap;
               });
@@ -2241,11 +2216,12 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
 
     const data = readData();
     const config = readConfig();
+    const baseFontSize = parseInt(req.body.fontSize) || 35;
     const siteTitle = config.siteTitle || '会议';
-    
+
     // 座位参数
-    const seatWidth = 60;
-    const seatHeight = 30;
+    const seatWidth = parseInt(req.body.seatW) || 60;
+    const seatHeight = parseInt(req.body.seatH) || 30;
     const seatGap = 8;
     const groupGap = 30;
     const rowGap = 12;
@@ -2269,81 +2245,60 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       return `groups:${row.seatGroups.length}`;
     }
 
-    // 参会者姓名渲染：含换行时上英下中双语显示，英文过长自动断行
-    function renderAttendeeName(name, x, y, seatW, seatH) {
+    // 参会者姓名渲染：统一分级字号 + dominant-baseline居中 + 双语固定2行
+    function renderAttendeeName(name, x, y, seatW, seatH, baseFs) {
+      const fs0 = baseFs || baseFontSize;
+      const MIN_FS = Math.round(fs0 * 0.55);
+      function tierFs(cjkLen) {
+        if (cjkLen <= 3) return fs0;
+        if (cjkLen <= 4) return Math.round(fs0 * 0.8);
+        return Math.max(MIN_FS, Math.round(fs0 * 0.65));
+      }
+      function calcCjkLen(text) {
+        let len = 0;
+        for (const ch of text) {
+          len += /[一-鿿㐀-䶿]/.test(ch) ? 1 : 0.55;
+        }
+        return len;
+      }
       if (!name) return '';
+      // === 中英文双语（含\n）：固定2行 ===
       if (name.includes('\n')) {
         const lines = name.split('\n');
         const en = lines[0].trim();
         const cn = (lines[1] || '').trim();
-        function wrapText(text, maxWidth, fontSz) {
-          const words = text.split(' ');
-          const wrapped = [];
-          let cur = '';
-          for (const w of words) {
-            const test = cur ? cur + ' ' + w : w;
-            if (test.length * fontSz * 0.6 <= maxWidth) {
-              cur = test;
-            } else {
-              if (cur) wrapped.push(cur);
-              cur = w;
-            }
-          }
-          if (cur) wrapped.push(cur);
-          return wrapped.length > 0 ? wrapped : [text];
-        }
-        const maxEnLen = Math.max(...en.split(' ').map(w => w.length), 1);
-        const maxCharsPerLine = Math.max(maxEnLen, cn.length);
-        const trialFs = Math.max(8, Math.min(Math.floor(seatW * 0.9 / (maxCharsPerLine * 0.6)), Math.floor(seatH / 4), 16));
-        const enLines = wrapText(en, seatW * 0.9, trialFs);
-        const totalLines = enLines.length + 1;
-        const lineH = seatH * 0.8 / totalLines;
-        const fs = Math.max(8, Math.min(trialFs, Math.floor(lineH * 0.85)));
-        let html = '';
-        const startY = y - (totalLines - 1) * lineH / 2;
-        for (let li = 0; li < enLines.length; li++) {
-          html += `<text x="${x}" y="${startY + li * lineH + fs * 0.35}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600">${escXml(enLines[li])}</text>`;
-        }
-        html += `<text x="${x}" y="${startY + enLines.length * lineH + fs * 0.35}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600" fill="#1e293b">${escXml(cn)}</text>`;
-        return html;
+        const enLen = calcCjkLen(en);
+        const cnLen = calcCjkLen(cn);
+        const maxLen = Math.max(enLen, cnLen);
+        let fs = tierFs(Math.ceil(maxLen));
+        if (maxLen > 3.5) fs = Math.max(MIN_FS, Math.round(fs0 * 0.65));
+        const lineH = fs * 1.35;
+        const gap = fs * 0.15;
+        const totalH = lineH * 2 + gap;
+        const startY = y - totalH / 2;
+        return `<text x="${x}" y="${startY + lineH / 2}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600">${escXml(en)}</text>\n`
+          + `  <text x="${x}" y="${startY + lineH + gap + lineH / 2}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600" fill="#1e293b">${escXml(cn)}</text>`;
       }
       const dn = name.replace(/\n/g, ' ');
-      const hasCJK2 = /[一-鿿㐀-䶿]/.test(dn);
-      // 纯英文名：长名按词自动折行以放大字体
-      if (!hasCJK2 && dn.includes(' ')) {
-        function wrapEnLines2(text, maxWidth, fontSz) {
-          const words = text.split(' ');
-          const wrapped = [];
-          let cur = '';
-          for (const w of words) {
-            const test = cur ? cur + ' ' + w : w;
-            if (test.length * fontSz * 0.58 <= maxWidth) {
-              cur = test;
-            } else {
-              if (cur) wrapped.push(cur);
-              cur = w;
-            }
-          }
-          if (cur) wrapped.push(cur);
-          return wrapped.length > 0 ? wrapped : [text];
-        }
-        const wrapTn2 = Math.max(8, Math.min(16, Math.floor(seatW * 0.85 / (Math.max(...dn.split(' ').map(w => w.length)) * 0.58))));
-        const wLines2 = wrapEnLines2(dn, seatW * 0.88, wrapTn2);
-        const wTotal2 = wLines2.length;
-        const wLineH2 = seatH * 0.85 / wTotal2;
-        const wFs2 = Math.max(7, Math.min(wrapTn2, Math.floor(wLineH2 * 0.85)));
-        let enHtml2 = '';
-        const wStartY2 = y - (wTotal2 - 1) * wLineH2 / 2;
-        for (let wi = 0; wi < wLines2.length; wi++) {
-          enHtml2 += `<text x="${x}" y="${wStartY2 + wi * wLineH2 + wFs2 * 0.35}" text-anchor="middle" font-size="${wFs2}" font-family="Microsoft YaHei, sans-serif" font-weight="600">${escXml(wLines2[wi])}</text>`;
-        }
-        return enHtml2;
+      const hasCJK = /[一-鿿㐀-䶿]/.test(dn);
+      // === 纯英文名：名/姓拆两行 ===
+      if (!hasCJK && dn.includes(' ')) {
+        const parts = dn.split(' ');
+        const firstName = parts[0];
+        const lastName = parts.slice(1).join(' ');
+        const maxLen = Math.max(calcCjkLen(firstName), calcCjkLen(lastName));
+        const fs = maxLen <= 4 ? fs0 : Math.max(MIN_FS, Math.round(fs0 * 0.8));
+        const lineH = fs * 1.3;
+        const gap = fs * 0.12;
+        const totalH = lineH * 2 + gap;
+        const startY = y - totalH / 2;
+        return `<text x="${x}" y="${startY + lineH / 2}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600">${escXml(firstName)}</text>\n`
+          + `  <text x="${x}" y="${startY + lineH + gap + lineH / 2}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-family="Microsoft YaHei, sans-serif" font-weight="600">${escXml(lastName)}</text>`;
       }
-      const nameLen2 = Math.max(dn.length, 1);
-      const charWidth2 = hasCJK2 ? 1.0 : 0.55;
-      const maxFit = Math.min(seatW * 0.85 / (nameLen2 * charWidth2), seatH * 0.7);
-      const fs = Math.max(8, Math.min(16, maxFit));
-      return `<text x="${x}" y="${y}" text-anchor="middle" font-size="${fs}" font-family="Microsoft YaHei, sans-serif">${escXml(dn)}</text>`;
+      // === 单行名：统一分级字号 + 居中 ===
+      const cjkLen = calcCjkLen(dn);
+      const fs = tierFs(Math.ceil(cjkLen));
+      return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-family="Microsoft YaHei, sans-serif">${escXml(dn)}</text>`;
     }
 
     const previewVenues = [];
@@ -2512,7 +2467,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
 
                 sc += `<rect x="${sx + 2}" y="${sy}" width="${seatW - 4}" height="${seatH}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
                 if (name) {
-                  sc += renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH);
+                  sc += renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH, baseFontSize);
                 }
                 cursorX += seatW;
               }
@@ -2552,7 +2507,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
 
                 sc += `<rect x="${sx}" y="${sy + 2}" width="${seatW}" height="${seatH - 4}" fill="${name ? '#dbeafe' : '#fff'}" stroke="#cbd5e1" stroke-width="2" rx="6"/>`;
                 if (name) {
-                  sc += renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH);
+                  sc += renderAttendeeName(name, sx + seatW/2, sy + seatH/2, seatW, seatH, baseFontSize);
                 }
                 cursorY += seatH;
               }
