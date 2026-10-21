@@ -1417,7 +1417,8 @@ def generate_pdf(names, template_vars, output_path):
             draw_namecard(c, x, top_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, False)
             
             # 绘制下半部分（镜像显示，折叠后从另一面看是正的）
-            draw_namecard(c, x, bottom_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True, position)
+            # 三角立式台卡：座位号只印在上下折叠空白处，卡片本体不再重复印一遍
+            draw_namecard(c, x, bottom_center_y, card_width, card_height, name, template_vars, image_path, custom_font_name, chinese_font, True)
             
             # 绘制折叠线（虚线）- 在两部分的交界处
             c.setStrokeColorRGB(0.5, 0.5, 0.5)
