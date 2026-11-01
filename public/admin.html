@@ -190,9 +190,9 @@ async function generateSeatCardToken() {
 async function openSeatCard() {
   var token = await generateSeatCardToken();
   if (token) {
-    window.open("http://localhost:8505?token=" + token, "_blank");
+    window.open("https://seat-card.zyingfang.eu.cc?token=" + token, "_blank");
   } else {
-    window.open("http://localhost:8505", "_blank");
+    window.open("https://seat-card.zyingfang.eu.cc", "_blank");
   }
 }
 </script>
@@ -1963,7 +1963,7 @@ function renderUShapeDragMap(venue) {
   var firstArm = -1, lastArm = -1;
   (venue.rows || []).forEach(function(r, idx) {
     var l = (r.label || '').replace(/\s+/g, '');
-    if (/^第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
+    if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
   });
   var topRows = firstArm > 0 ? venue.rows.slice(0, firstArm) : [];
   var armRows = venue.rows.slice(Math.max(0, firstArm), lastArm + 1);

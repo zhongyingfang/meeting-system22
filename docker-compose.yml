@@ -1,17 +1,22 @@
+name: seat
+
 services:
-  meeting-system:
+  seat-finder:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: meeting-system
+    container_name: seat-finder
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-3000}:80"
-      - "${CARD_PORT:-8505}:8506"
+      # APP_PORT  = 座位查询前台（对公网）
+      # CARD_PORT = 后台 / 台卡生成器（不要对公网开放）
+      - "${APP_PORT:-18090}:80"
+      - "${CARD_PORT:-18091}:8506"
     volumes:
-      - meeting-data:/app/data
-      - meeting-output:/app/output
-      - ./fonts:/app/fonts
+      - ./data:/app/data        # data.json 名单 + config.json 配置
+      - ./output:/app/output    # 导出的座位图 / 台卡 PDF
+      - ./uploads:/app/uploads  # 上传的 Excel、自定义布局底图（重建容器不丢）
+      - ./fonts:/app/fonts      # 中文字体，生成 PDF 用，不能少
     environment:
       - TZ=Asia/Shanghai
       - NODE_ENV=production
@@ -19,15 +24,9 @@ services:
       resources:
         limits:
           cpus: '2'
-          memory: 4G
+          memory: 2G
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-
-volumes:
-  meeting-data:
-    driver: local
-  meeting-output:
-    driver: local

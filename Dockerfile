@@ -48,7 +48,11 @@ RUN if [ ! -f /app/data/data.json ]; then \
     echo '{"venues":[],"attendees":[]}' > /app/data/data.json; \
     fi && \
     if [ ! -f /app/data/config.json ]; then \
+    if [ -f /app/config.json ]; then \
     cp /app/config.json /app/data/config.json; \
+    else \
+    echo '{"siteTitle":"座位查询系统","adminPassword":"admin888","siteSubtitle":"扫码查座位"}' > /app/data/config.json; \
+    fi; \
     fi
 
 EXPOSE 80 8506

@@ -87,8 +87,8 @@ function normalizeSeatNumber(value) {
 
 // 匹配各种排标签格式
 const ROW_PATTERNS = [
-  /^第(.+)[排]$/,              // 第X排
-  /^第(.+)[列]$/,              // 第X列
+  /^(?:左|右|前|后|内|外)?第(.+)[排]$/,        // 第X排 / 前第一排 / 后第二排
+  /^(?:左|右|前|后|内|外)?第(.+)[列]$/,        // 第X列 / 左第一列 / 右第二列
   /^(?:Row|ROW|row)\s*(\d+)$/i, // Row 1, ROW 1
   /^R(\d+)$/i,                 // R1, R2
   /^(\d+)[排]$/,              // 1排
@@ -118,6 +118,17 @@ function parseRowLabel(text) {
   }
   
   return null;
+}
+
+// ============================================================
+// 列标签识别：第X列 / 左第一列 / 右第一列 / 前第一列 / 后第一列
+// （回字型、U型会场的左右臂列常带方位前缀）
+// ============================================================
+const COLUMN_LABEL_RE = /^(?:左|右|前|后|内|外)?第\s*(.+?)\s*列$/;
+
+function isColumnLabel(text) {
+  if (!text || typeof text !== 'string') return false;
+  return COLUMN_LABEL_RE.test(text.trim());
 }
 
 // 从组合格式标签中提取楼层信息（如"一楼第1排" -> "一楼"）
@@ -537,6 +548,23 @@ function detectLayoutType(data, venueId) {
  * @returns {string} 'u-shape' | 'theater' | 'standard'
  */
 function detectSheetMode(data) {
+  // ===== 先检测列标签（第X列 / 左第一列 / 右第一列）→ U型 / 回字型 =====
+  // 必须排在宴会桌检测之前：回字型表格的排标签（前第一排）同行带座位号，容易被误判成宴会桌
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (!row) continue;
+    const colLabels = row.filter(c => isColumnLabel(c));
+    if (colLabels.length >= 2) {
+      // 检查标题行上方任意行是否有连续数字 → 回字型（不仅限紧邻行）
+      for (let j = 0; j < i; j++) {
+        const prevRow = data[j] || [];
+        const numCount = prevRow.filter(c => typeof c === 'number').length;
+        if (numCount >= 3) return 'hui-shape';
+      }
+      return 'u-shape';
+    }
+  }
+
   // 宴会桌式检测：行中有"第X排"标签且同行有数字（桌子号码）
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
@@ -545,19 +573,6 @@ function detectSheetMode(data) {
     if (hasRowLabel) {
       const numCount = row.filter(c => typeof c === 'number').length;
       if (numCount >= 2) return 'banquet';
-    }
-  }
-
-  for (let i = 0; i < data.length; i++) {
-    const row = data[i];
-    const colLabels = row.filter(c => typeof c === 'string' && /^第.+列$/.test(c.trim()));
-    if (colLabels.length >= 2) {
-      // 检查标题行上方任意行是否有连续数字 → 回字型（不仅限紧邻行）
-      for (let j = 0; j < i; j++) {
-        const numCount = data[j].filter(c => typeof c === 'number').length;
-        if (numCount >= 3) return 'hui-shape';
-      }
-      return 'u-shape';
     }
   }
   for (let i = 0; i < data.length; i++) {
@@ -1213,7 +1228,7 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
         row.forEach((c, ci) => {
           if (typeof c === 'string') {
             const trimmed = c.trim();
-            if (/^第.+列$/.test(trimmed)) {
+            if (isColumnLabel(trimmed)) {
               colLabels.push({ col: ci, label: trimmed });
             }
             if (trimmed === '座位号') {
@@ -1735,7 +1750,7 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
     if (!row) continue;
     const colLabels = [];
     row.forEach((c, ci) => {
-      if (typeof c === 'string' && /^第.+列$/.test(c.trim())) {
+      if (isColumnLabel(c)) {
         colLabels.push({ col: ci, label: c.trim() });
       }
     });
@@ -1769,27 +1784,60 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
   const innerRightCol = rightHeaders[0].col;
   const labelColSet = new Set(allColumnHeaders.map(h => h.col));
 
-  // 辅助：在座位号行附近查找文本标签
-  function findNearbyLabel(rowIdx, maxRow) {
-    const checkRows = [rowIdx, rowIdx + 1, rowIdx - 1];
-    for (let rri = 0; rri < checkRows.length; rri++) {
-      const r = checkRows[rri];
-      if (r < 0 || r > maxRow) continue;
-      const checkRow = data[r];
-      if (!checkRow) continue;
-      for (let ci = 0; ci < checkRow.length; ci++) {
-        const c = checkRow[ci];
-        if (typeof c === 'string' && c.trim()) {
-          const t = c.trim();
-          if (/^第.+列$/.test(t)) continue;
-          if (/^\d+$/.test(t)) continue;
-          if (/\n/.test(t)) continue;
-          if (/^[前后左右内]/.test(t) || /第.+排$/.test(t)) return t;
-          if (t.length <= 6 && !/[a-zA-Z]/.test(t) && !isLayoutKeyword(c)) return t;
-        }
+  // 辅助：读取某一行里的排号标签（跳过列标签、纯数字、双语姓名）
+  function scanRankLabelRow(r) {
+    if (r < 0 || r >= data.length) return null;
+    const checkRow = data[r];
+    if (!checkRow) return null;
+    for (let ci = 0; ci < checkRow.length; ci++) {
+      const c = checkRow[ci];
+      if (typeof c === 'string' && c.trim()) {
+        const t = c.trim();
+        if (isColumnLabel(t)) continue;
+        if (/^\d+$/.test(t)) continue;
+        if (/\n/.test(t)) continue;
+        if (/^[前后左右内]/.test(t) || /第.+排$/.test(t)) return t;
+        if (t.length <= 6 && !/[a-zA-Z]/.test(t) && !isLayoutKeyword(c)) return t;
       }
     }
-    return '顶部';
+    return null;
+  }
+
+  // 严格排号标签：只认"第X排"这类，用于判断标签在座位号上方还是下方（避免拿人名当方向依据）
+  function scanStrictRankLabel(r) {
+    if (r < 0 || r >= data.length) return null;
+    const checkRow = data[r];
+    if (!checkRow) return null;
+    for (let ci = 0; ci < checkRow.length; ci++) {
+      const c = checkRow[ci];
+      if (typeof c !== 'string') continue;
+      const t = c.trim();
+      if (!t) continue;
+      if (isColumnLabel(t)) continue;
+      if (/^(?:左|右|前|后|内|外)?第.+[排]$/.test(t)) return t;
+    }
+    return null;
+  }
+
+  // 判定这一区块的标签写在哪一侧：有的模板写在座位号上方，有的写在下方。
+  // 必须整块统一判定——逐行"先看上一行再看下一行"会让后第二排被读成上一行的后第一排。
+  function detectLabelPrefersBelow(firstSeatRow) {
+    if (scanRankLabelRow(firstSeatRow)) return false;   // 标签与座位号同行，方向无所谓
+    const above = scanStrictRankLabel(firstSeatRow - 1);
+    const below = scanStrictRankLabel(firstSeatRow + 1);
+    return (!above && !!below);
+  }
+
+  function pickRankLabel(seatRow, prefersBelow, fallback) {
+    const self = scanRankLabelRow(seatRow);
+    if (self) return self;
+    const firstRow = prefersBelow ? seatRow + 1 : seatRow - 1;
+    const secondRow = prefersBelow ? seatRow - 1 : seatRow + 1;
+    const first = scanRankLabelRow(firstRow);
+    if (first) return first;
+    const second = scanRankLabelRow(secondRow);
+    if (second) return second;
+    return fallback;
   }
 
   // ===================================================================
@@ -1797,6 +1845,7 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
   // ===================================================================
   let isHuiShape = false;
   const topRowData = [];
+  const topCandidates = [];
 
   for (let i = 0; i < firstLabelRow; i++) {
     const row = data[i];
@@ -1810,14 +1859,19 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
     if (numCols.length >= 2) {
       isHuiShape = true;
       // 保持列顺序，不排序 — 严格按布局表格排列
-      const topSeats = numCols.map(n => n.num);
-      topRowData.push({
-        label: findNearbyLabel(i, firstLabelRow),
-        seatGroups: [topSeats],
-        rowIdx: i
-      });
+      topCandidates.push({ rowIdx: i, seatNums: numCols.map(n => n.num) });
     }
   }
+
+  // 顶部区块标签方向按第一行判定，整块沿用
+  const topPrefersBelow = topCandidates.length > 0 ? detectLabelPrefersBelow(topCandidates[0].rowIdx) : false;
+  topCandidates.forEach(tc => {
+    topRowData.push({
+      label: pickRankLabel(tc.rowIdx, topPrefersBelow, '顶部'),
+      seatGroups: [tc.seatNums],
+      rowIdx: tc.rowIdx
+    });
+  });
 
   // ===================================================================
   // Phase 3: 每列独立发现座位号列
@@ -1935,6 +1989,7 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
   const outerRightCol = allColumnHeaders[allColumnHeaders.length - 1].col;
 
   const allBottomRows = [];
+  let bottomPrefersBelow = null;   // 底部区块标签方向，按第一行判定后整块沿用
   for (let i = bottomScanStart; i < data.length; i++) {
     const row = data[i];
     if (!row) continue;
@@ -1956,29 +2011,8 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
     });
     if (nums.length >= 2) {
       // 保持列顺序，不排序
-      let label = '底部';
-      // 查当前行、上一行、下一行找排号标签
-      const checkRows = [i, i - 1, i + 1];
-      for (let rri = 0; rri < checkRows.length && label === '底部'; rri++) {
-        const r = checkRows[rri];
-        if (r < 0 || r >= data.length) continue;
-        const checkRow = data[r];
-        if (!checkRow) continue;
-        for (let ci = 0; ci < checkRow.length; ci++) {
-          const c = checkRow[ci];
-          if (typeof c === 'string' && c.trim()) {
-            const t = c.trim();
-            // 排除列标签、纯数字、含换行的双语姓名
-            if (/^第.+列$/.test(t)) continue;
-            if (/^\d+$/.test(t)) continue;
-            if (/\n/.test(t)) continue;
-            // 只接受排号标签
-            if (/^[前后左右内]/.test(t) || /第.+排$/.test(t)) { label = t; break; }
-            // 兜底：不含英文的短中文标签（排除人名）
-            if (t.length <= 6 && !/[a-zA-Z]/.test(t) && !isLayoutKeyword(c)) { label = t; break; }
-          }
-        }
-      }
+      if (bottomPrefersBelow === null) bottomPrefersBelow = detectLabelPrefersBelow(i);
+      const label = pickRankLabel(i, bottomPrefersBelow, '底部');
       allBottomRows.push({ nums: nums, rowIdx: i, label });
       // 如果下一行有排号标签文字（非数字行），跳过
       if (i + 1 < data.length) {
@@ -2086,7 +2120,7 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
         if (typeof cell === 'string' && cell.trim() && tColMap[ci] !== undefined) {
           const t = cell.trim();
           // 排除列标签、纯数字、含换行的标签文本
-          if (/^第.+列$/.test(t)) return;
+          if (isColumnLabel(t)) return;
           if (/^\d+$/.test(t)) return;
           if (!isLayoutKeyword(cell)) {
             result.attendees.push({

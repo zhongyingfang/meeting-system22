@@ -182,7 +182,7 @@ def isLayoutKeyword(s):
         return True
     if re.match(KEYWORDS, s):
         return True
-    if re.match(r'^第.+排$', s):
+    if re.match(r'^(?:左|右|前|后|内|外)?第.+[排列]$', s):
         return True
     if re.match(r'^沙发第.+排$', s):
         return True
@@ -192,7 +192,7 @@ def isLayoutKeyword(s):
 
 def parseRowLabel(text):
     """解析排标签"""
-    m = re.match(r'第(.+)排', text)
+    m = re.match(r'(?:左|右|前|后|内|外)?第(.+)排', text)
     if not m:
         return None
     return cnNums.get(m[1])
@@ -332,7 +332,7 @@ def parseExcelLayout(file_path):
                 # 检测沙发排
                 has_sofa = any(c == '沙发' for c in row if isinstance(c, str))
                 sofa_label_cells = [c for c in row if isinstance(c, str) and re.match(r'^沙发第.+排$', c.strip())]
-                row_label_cells = [c for c in row if isinstance(c, str) and re.match(r'^第.+排$', c.strip())]
+                row_label_cells = [c for c in row if isinstance(c, str) and re.match(r'^(?:左|右|前|后|内|外)?第.+排$', c.strip())]
                 row_label_cell = row_label_cells[0] if row_label_cells else None
                 
                 # 格式1: 同一行有"沙发" + "第X排" + 数字
@@ -511,7 +511,7 @@ def parseExcelLayout(file_path):
                     for ci, c in enumerate(row):
                         if isinstance(c, str):
                             trimmed = c.strip()
-                            if re.match(r'^第.+列$', trimmed):
+                            if re.match(r'^(?:左|右|前|后|内|外)?第.+列$', trimmed):
                                 col_labels.append({'col': ci, 'label': trimmed})
                             if trimmed == '座位号':
                                 seat_label_cols.append(ci)

@@ -1069,7 +1069,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         var firstArm = -1, lastArm = -1;
         venue.rows.forEach(function(r, idx) {
           var l = (r.label || '').replace(/\s+/g, '');
-          if (/^第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
+          if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
         });
         const uTopRows = firstArm > 0 ? venue.rows.slice(0, firstArm) : [];
         const uArmRows = venue.rows.slice(Math.max(0, firstArm), lastArm + 1);
@@ -1110,7 +1110,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
          var firstArmW = -1, lastArmW = -1;
          venue.rows.forEach(function(r, idx) {
            var l = (r.label || '').replace(/\s+/g, '');
-           if (/^第.+列$/.test(l)) { if (firstArmW < 0) firstArmW = idx; lastArmW = idx; }
+           if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArmW < 0) firstArmW = idx; lastArmW = idx; }
          });
          const uTopW = firstArmW > 0 ? venue.rows.slice(0, firstArmW) : [];
          const uArmW = venue.rows.slice(Math.max(0, firstArmW), lastArmW + 1);
@@ -1519,7 +1519,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         var firstArmSv = -1, lastArmSv = -1;
         venue.rows.forEach(function(r, idx) {
           var l = (r.label || '').replace(/\s+/g, '');
-          if (/^第.+列$/.test(l)) { if (firstArmSv < 0) firstArmSv = idx; lastArmSv = idx; }
+          if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArmSv < 0) firstArmSv = idx; lastArmSv = idx; }
         });
         const uTopRows = firstArmSv > 0 ? venue.rows.slice(0, firstArmSv) : [];
         const uArmRows = venue.rows.slice(Math.max(0, firstArmSv), lastArmSv + 1);
