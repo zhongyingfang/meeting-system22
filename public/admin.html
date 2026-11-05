@@ -457,9 +457,18 @@ async function openSeatCard() {
           <label>会场描述</label>
           <input type="text" id="editVenueDesc" placeholder="会场描述">
         </div>
+        <div class="form-group" style="flex:1;min-width:180px">
+          <label>地点 / 地址</label>
+          <input type="text" id="editVenueLocation" placeholder="如：大宴会厅（3F）" maxlength="60">
+        </div>
+        <div class="form-group" style="flex:1;min-width:180px">
+          <label>时间</label>
+          <input type="text" id="editVenueEventTime" placeholder="如：11月23日 上午9:00" maxlength="60">
+        </div>
         <button class="btn btn-primary" onclick="saveVenueName()">保存</button>
         <button class="btn btn-outline" onclick="cancelEditVenue()">取消</button>
       </div>
+      <div style="margin-top:8px;font-size:12px;color:#94a3b8">地点和时间会显示在参会者的查询结果页；留空则不显示。</div>
     </div>
   </div>
 
@@ -1229,11 +1238,14 @@ async function selectVenue(id) {
 
   var modeLabel = { 'theater': '剧院会场', 'standard': '普通会场', 'u-shape': 'U型会场', 'hui-shape': '回字型会场', 'banquet': '宴会桌式', 'custom': '自定义会场' };
   var currentMode = venue.layout || venue.mode || 'theater';
+  var venueMetaHtml = '';
+  if ((venue.location || '').trim()) venueMetaHtml += ' &nbsp;|&nbsp; 地点：<strong>' + esc(venue.location.trim()) + '</strong>';
+  if ((venue.eventTime || '').trim()) venueMetaHtml += ' &nbsp;|&nbsp; 时间：<strong>' + esc(venue.eventTime.trim()) + '</strong>';
   document.getElementById('venueInfo').innerHTML =
     '<strong>' + esc(venue.description) + '</strong> ' +
-    '<a href="javascript:void(0)" onclick="showEditVenue()" style="font-size:12px;color:var(--primary);margin-left:8px">修改名称</a><br>' +
+    '<a href="javascript:void(0)" onclick="showEditVenue()" style="font-size:12px;color:var(--primary);margin-left:8px">编辑会场信息</a><br>' +
     '共 ' + (venue.rows ? venue.rows.length : 0) + ' 排，' + venue.totalSeats + ' 个座位，已安排 ' + attendees.length + ' 人' +
-    ' &nbsp;|&nbsp; 模式：<span class="badge">' + (modeLabel[currentMode] || currentMode) + '</span>';
+    ' &nbsp;|&nbsp; 模式：<span class="badge">' + (modeLabel[currentMode] || currentMode) + '</span>' + venueMetaHtml;
   document.getElementById('venueEdit').style.display = 'none';
 
   var sel = document.getElementById('addRow');
@@ -1271,6 +1283,8 @@ function showEditVenue() {
   if (!venue) return;
   document.getElementById('editVenueName').value = venue.name;
   document.getElementById('editVenueDesc').value = venue.description;
+  document.getElementById('editVenueLocation').value = venue.location || '';
+  document.getElementById('editVenueEventTime').value = venue.eventTime || '';
   document.getElementById('venueEdit').style.display = '';
 }
 
@@ -1281,10 +1295,12 @@ function cancelEditVenue() {
 async function saveVenueName() {
   var name = document.getElementById('editVenueName').value.trim();
   var description = document.getElementById('editVenueDesc').value.trim();
+  var location = document.getElementById('editVenueLocation').value.trim();
+  var eventTime = document.getElementById('editVenueEventTime').value.trim();
   if (!name) return alert('会场名称不能为空');
   var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId), {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, description: description })
+    body: JSON.stringify({ name: name, description: description, location: location, eventTime: eventTime })
   });
   var data = await res.json();
   if (data.ok) { showToast('会场信息已更新'); refreshData(); }

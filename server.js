@@ -333,6 +333,39 @@ function writeData(data, skipBackup = false) {
   }
 }
 
+// ==================== 会场附加信息（地点 / 时间）====================
+
+// 会场"地点""时间"属于人工维护的展示信息，Excel 里没有。
+// 重新导入 Excel 时会场会被整体重建，这里按会场名把旧值搬回来，避免每次重传都要重新填。
+const VENUE_META_FIELDS = ['location', 'eventTime'];
+
+function carryVenueMeta(newVenues, oldVenues) {
+  if (!Array.isArray(newVenues) || !Array.isArray(oldVenues)) return newVenues;
+  const norm = (s) => (s || '').replace(/\s+/g, '').trim();
+  const oldMap = new Map();
+  oldVenues.forEach(v => {
+    if (!v) return;
+    const key = norm(v.name);
+    if (key) oldMap.set(key, v);
+  });
+  newVenues.forEach(v => {
+    if (!v || v.layout === 'custom') return;
+    const old = oldMap.get(norm(v.name));
+    if (!old) return;
+    VENUE_META_FIELDS.forEach(f => {
+      const val = (old[f] || '').trim();
+      if (val && !(v[f] || '').trim()) v[f] = val;
+    });
+  });
+  return newVenues;
+}
+
+// 清理并限长（地点 60 字、时间 60 字），去掉首尾空白与换行
+function cleanVenueMetaValue(val, maxLen) {
+  if (val === undefined || val === null) return undefined;
+  return String(val).replace(/[\r\n\t]+/g, ' ').trim().slice(0, maxLen || 60);
+}
+
 // ==================== 数据验证 ====================
 
 // 中文数字映射
@@ -613,7 +646,10 @@ app.get('/api/venues', (req, res) => {
     id: v.id, name: v.name, description: v.description,
     totalSeats: v.totalSeats, rowCount: v.rows.length,
     attendeeCount: data.attendees.filter(a => a.venueId === v.id).length,
-    layout: v.layout || v.mode || 'theater'
+    layout: v.layout || v.mode || 'theater',
+    // 地点/时间只有几十字节，带上可让后台编辑面板直接回填，不必再单独请求详情
+    location: v.location || '',
+    eventTime: v.eventTime || ''
   })));
 });
 
@@ -2088,6 +2124,9 @@ app.post('/api/analyze-layout', requireAdmin, (req, res) => {
     });
     // 合并：自定义会场 + 新解析的普通会场（过滤已删除）
     result.venues = [...customVenues, ...nonCustomNewVenues];
+
+    // 会场地点/时间由人工维护，Excel 里没有，重新解析时按会场名搬回旧值
+    carryVenueMeta(result.venues, existing.venues || []);
     
     // ===== 过滤掉孤儿参会者（所属会场已被删除或不存在的）=====
     const finalVenueIds = new Set(result.venues.map(v => v.id));
@@ -3000,10 +3039,22 @@ app.put('/api/venues/:id', requireAdmin, (req, res) => {
   const data = readData();
   const venue = data.venues.find(v => v.id === req.params.id);
   if (!venue) return res.status(404).json({ error: '场馆不存在' });
-  const { name, description } = req.body;
-  if (name !== undefined) venue.name = name.trim();
-  if (description !== undefined) venue.description = description.trim();
+  const { name, description, location, eventTime } = req.body;
+  if (name !== undefined) {
+    const trimmed = String(name).trim();
+    if (!trimmed) return res.status(400).json({ error: '会场名称不能为空' });
+    venue.name = trimmed;
+  }
+  if (description !== undefined) venue.description = String(description).trim();
+  // 会场地点 / 时间：查询页展示用，可选填，留空即不显示
+  const loc = cleanVenueMetaValue(location);
+  if (loc !== undefined) venue.location = loc;
+  const time = cleanVenueMetaValue(eventTime);
+  if (time !== undefined) venue.eventTime = time;
   writeData(data);
+  auditLog('UPDATE_VENUE', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
+    venueId: venue.id, venueName: venue.name, location: venue.location || '', eventTime: venue.eventTime || ''
+  });
   res.json({ ok: true, venue });
 });
 
@@ -3183,6 +3234,9 @@ app.post('/api/import-excel', requireAdmin, (req, res) => {
     // 新导入Excel：不继承旧删除记录，保留自定义会场
     const customVenues2 = (existing.venues || []).filter(v => v.layout === 'custom');
     result.venues = [...customVenues2, ...result.venues.filter(v => v.layout !== 'custom')];
+
+    // 会场地点/时间由人工维护，Excel 里没有，重导入时按会场名搬回旧值
+    carryVenueMeta(result.venues, existing.venues || []);
     
     // ===== 过滤掉孤儿参会者（所属会场已被删除或不存在的）=====
     const finalVenueIds2b = new Set(result.venues.map(v => v.id));
@@ -3275,6 +3329,9 @@ app.post('/api/upload-excel', requireAdmin, (req, res) => {
     // 新上传Excel：不继承旧删除记录，保留自定义会场
     const customVenues = (existing.venues || []).filter(v => v.layout === 'custom');
     result.venues = [...customVenues, ...result.venues.filter(v => v.layout !== 'custom')];
+
+    // 会场地点/时间由人工维护，Excel 里没有，重上传时按会场名搬回旧值
+    carryVenueMeta(result.venues, existing.venues || []);
     
     // ===== 过滤掉孤儿参会者（所属会场已被删除或不存在的）=====
     const finalVenueIds3 = new Set(result.venues.map(v => v.id));

@@ -81,6 +81,14 @@
     color: #fff; border-radius: 8px; padding: 8px 12px; margin-bottom: 16px;
     font-size: 13px; font-weight: 600; text-align: center;
   }
+  /* 会场地点 / 时间（后台留空则不显示） */
+  .venue-meta {
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+    gap: 6px 16px; margin: -6px 0 14px; font-size: 13px; color: var(--text2);
+  }
+  .venue-meta span { display: inline-flex; align-items: center; gap: 5px; }
+  .venue-meta svg { width: 14px; height: 14px; flex: 0 0 auto; color: var(--primary); }
+  .venue-meta .meta-label { color: #94a3b8; }
 
   /* 座位图 - 全貌自适应 */
   .seat-map-wrap { margin-top: 16px; }
@@ -310,6 +318,8 @@ function showMulti(results, isEnSearch) {
   }
   results.forEach(function(p, i) {
     var info = esc(p.venueName);
+    // 同名参会者较多时，地点能帮助快速区分（时间留给详情卡）
+    if (p.venue && (p.venue.location || '').trim()) info += ' · ' + esc(p.venue.location.trim());
     var nameHtml = '<div class="multi-name-cn">' + esc(p.name) + '</div>';
     if (p.nameEn) nameHtml += '<div class="multi-name-en">' + esc(p.nameEn) + '</div>';
 	    var isBq2 = p.venue && p.venue.layout === 'banquet';
@@ -332,6 +342,26 @@ function selectPerson(i) {
   var p = currentResults[i];
   document.querySelectorAll('.multi-item').forEach(function(el, j) { el.classList.toggle('active', j === i); });
   document.getElementById('selectedMap').innerHTML = renderPersonCard(p, false, lastSearchIsEn);
+}
+
+// 会场地点 / 时间：后台「编辑会场」里填，未填的项不显示
+function renderVenueMeta(venue) {
+  if (!venue) return '';
+  var loc = (venue.location || '').trim();
+  var time = (venue.eventTime || '').trim();
+  if (!loc && !time) return '';
+  var html = '<div class="venue-meta">';
+  if (loc) {
+    html += '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>' +
+      esc(loc) + '</span>';
+  }
+  if (time) {
+    html += '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg>' +
+      esc(time) + '</span>';
+  }
+  return html + '</div>';
 }
 
 function renderPersonCard(p, hasDup, isEnSearch) {
@@ -394,6 +424,7 @@ function renderPersonCard(p, hasDup, isEnSearch) {
     '<div class="result-header"><div class="result-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>' +
     '<div class="result-info"><h3>' + nameHtml + '</h3></div></div>' +
     '<div class="venue-badge">' + esc(p.venueName) + '</div>' +
+    renderVenueMeta(p.venue) +
     '<div class="seat-detail"' + detailGridStyle + '>' +
     seatDetailHtml + '</div>' +
     (p.venue ? renderSeatMap(p.venue, p, showEn) : '') + '</div>';
