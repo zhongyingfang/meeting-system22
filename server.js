@@ -426,6 +426,18 @@ function escXml(str) {
 
 app.use(express.json({ limit: '50mb' }));
 
+// 宴会桌每桌座位数（默认10，后台可改）
+function banquetSeatsPerTable() {
+  const n = parseInt(readConfig().banquetSeatsPerTable, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(30, n) : 10;
+}
+
+// 宴会桌渲染形状：round=圆形绕圈（默认），square=方形上下两排
+function banquetTableShape() {
+  const s = readConfig().banquetTableShape;
+  return s === 'square' ? 'square' : 'round';
+}
+
 // ==================== 系统配置 API ====================
 
 // 获取系统标题（公开）
@@ -435,20 +447,29 @@ app.get('/api/site-config', (req, res) => {
     siteTitle: config.siteTitle || '数据创新发展大会',
     siteSubtitle: config.siteSubtitle || '座位查询系统',
     siteTitleEn: config.siteTitleEn || '',
-    siteSubtitleEn: config.siteSubtitleEn || ''
+    siteSubtitleEn: config.siteSubtitleEn || '',
+    banquetSeatsPerTable: config.banquetSeatsPerTable || 10,
+    banquetTableShape: config.banquetTableShape || 'round'
   });
 });
 
 // 修改系统标题（需认证）
 app.put('/api/site-config', requireAdmin, (req, res) => {
   const config = readConfig();
-  const { siteTitle, siteSubtitle, siteTitleEn, siteSubtitleEn } = req.body;
+  const { siteTitle, siteSubtitle, siteTitleEn, siteSubtitleEn, banquetSeatsPerTable, banquetTableShape } = req.body;
   if (siteTitle !== undefined) config.siteTitle = siteTitle.trim();
   if (siteSubtitle !== undefined) config.siteSubtitle = siteSubtitle.trim();
   if (siteTitleEn !== undefined) config.siteTitleEn = siteTitleEn.trim();
   if (siteSubtitleEn !== undefined) config.siteSubtitleEn = siteSubtitleEn.trim();
+  if (banquetSeatsPerTable !== undefined) {
+    const n = parseInt(banquetSeatsPerTable, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 30) config.banquetSeatsPerTable = n;
+  }
+  if (banquetTableShape !== undefined) {
+    config.banquetTableShape = banquetTableShape === 'square' ? 'square' : 'round';
+  }
   writeConfig(config);
-  res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle, siteTitleEn: config.siteTitleEn, siteSubtitleEn: config.siteSubtitleEn });
+  res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle, siteTitleEn: config.siteTitleEn, siteSubtitleEn: config.siteSubtitleEn, banquetSeatsPerTable: config.banquetSeatsPerTable || 10, banquetTableShape: config.banquetTableShape || 'round' });
 });
 
 // 修改主办方密码（管理员专属）
@@ -1086,9 +1107,18 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         }
         totalHeight += 60; // 底部间距
       } else if (venue.layout === 'banquet' && venue.rows && venue.rows.length > 0) {
-        // 宴会桌高度：上座位 + 间距 + 桌子 + 间距 + 下座位 + 行间距
-        const bTableH = seatHeight + 12 + 40 + 12 + seatHeight + rowGap;
-        venue.rows.forEach(() => { totalHeight += bTableH; });
+        // 宴会桌高度：圆形为一圈座位，方形为上下两排
+        let bqMaxN = 1;
+        venue.rows.forEach(r2 => (r2.seatGroups || []).forEach(g => { bqMaxN = Math.max(bqMaxN, (g || []).length); }));
+        if (banquetTableShape() === 'round') {
+          const bqSeatW = Math.min(160, Math.max(110, Math.floor(900 / Math.max(bqMaxN, 3))));
+          const bqSeatH = Math.max(46, Math.round(bqSeatW * 0.52));
+          const bqRingR = bqMaxN >= 3 ? (bqSeatW + 24) / (2 * Math.sin(Math.PI / bqMaxN)) : bqSeatW;
+          totalHeight += venue.rows.length * (2 * bqRingR + bqSeatH + rowGap);
+        } else {
+          const bTableH = seatHeight + 12 + 40 + 12 + seatHeight + rowGap;
+          venue.rows.forEach(() => { totalHeight += bTableH; });
+        }
       } else if (venue.rows && venue.rows.length > 0) {
         // 普通渲染方式的高度计算：每行 = seatHeight + rowGap + 可能的过道
         venue.rows.forEach(row => {
@@ -1432,23 +1462,39 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         return;
       }
 
-      // 宴会桌式SVG渲染：每桌独立显示，上3下3座位，不显示座位号
+      // 宴会桌式SVG渲染：圆形（座位绕桌一圈，默认）或方形（上下两排）
       if (venue.layout === 'banquet') {
-        const tSeatW = seatWidth;       // 200
-        const tSeatH = seatHeight;      // 80
-        const tSeatGap = seatGap;       // 40
-        const tableBodyW = tSeatW * 3 + tSeatGap * 2;  // 680
+        const bqRound = banquetTableShape() === 'round';
+        const tSeatGap = seatGap;
         const tableBodyH = 40;
-        const tableGap = 100;           // 桌间水平间距
-        const seatTableGap = 12;        // 座位与桌子间距
-        const tableUnitH = tSeatH + seatTableGap + tableBodyH + seatTableGap + tSeatH;
+        const tableGap = 100;
+        const seatTableGap = 12;
+
+        let maxN = 1;
+        venue.rows.forEach(row => (row.seatGroups || []).forEach(g => { maxN = Math.max(maxN, (g || []).length); }));
+
+        let tSeatW, tSeatH, unitW, unitH, tableBodyW;
+        if (bqRound) {
+          tSeatW = Math.min(160, Math.max(110, Math.floor(900 / Math.max(maxN, 3))));
+          tSeatH = Math.max(46, Math.round(tSeatW * 0.52));
+          const ringR0 = maxN >= 3 ? (tSeatW + 24) / (2 * Math.sin(Math.PI / maxN)) : tSeatW;
+          unitW = 2 * ringR0 + tSeatW;
+          unitH = 2 * ringR0 + tSeatH;
+          tableBodyW = unitW;
+        } else {
+          tSeatW = seatWidth;
+          tSeatH = seatHeight;
+          const maxSide = Math.max(1, Math.ceil(maxN / 2));
+          tableBodyW = maxSide * tSeatW + (maxSide - 1) * tSeatGap;
+          unitW = tableBodyW;
+          unitH = tSeatH + seatTableGap + tableBodyH + seatTableGap + tSeatH;
+        }
 
         let maxRowWidth = 0;
         venue.rows.forEach(row => {
           const groups = row.seatGroups || [];
           if (groups.length === 0) return;
-          const rw = groups.length * tableBodyW + (groups.length - 1) * tableGap;
-          maxRowWidth = Math.max(maxRowWidth, rw);
+          maxRowWidth = Math.max(maxRowWidth, groups.length * unitW + (groups.length - 1) * tableGap);
         });
         svgWidth = Math.max(svgWidth, maxRowWidth + 500, 1300);
 
@@ -1456,57 +1502,90 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
           const groups = row.seatGroups || [];
           if (groups.length === 0) { y += 30; return; }
 
-          const tablesPerRow = groups.length;
-          const rowWidth = tablesPerRow * tableBodyW + (tablesPerRow - 1) * tableGap;
+          const rowWidth = groups.length * unitW + (groups.length - 1) * tableGap;
           const rowStartX = Math.max(200, (svgWidth - rowWidth) / 2);
           const rowLabel = row.label || '';
 
-          // 排标签（左右两侧）
-          const labelY = y + tableUnitH / 2 + 6;
+          const labelY = y + unitH / 2 + 6;
           svgContent += `  ` + bilingualLabel(rowLabel, rowStartX - 16, labelY, 'end', 36, '#ef4444') + `\n`;
           svgContent += `  ` + bilingualLabel(rowLabel, rowStartX + rowWidth + 16, labelY, 'start', 36, '#ef4444') + `\n`;
 
           groups.forEach((group, gi) => {
-            const tx = rowStartX + gi * (tableBodyW + tableGap);
-
-            // 上排3个座位（座位1,2,3），不显示座位号
-            for (let si = 0; si < 3 && si < group.length; si++) {
-              const seatNum = group[si];
-              const sx = tx + si * (tSeatW + tSeatGap);
-              const topSeatY = y;
-              const name = attendeeMap[rowLabel + '_' + seatNum];
-              const fill = name ? '#dbeafe' : '#ffffff';
-
-              svgContent += `  <rect x="${sx}" y="${topSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
-              regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: topSeatY, w: tSeatW, h: tSeatH };
-              if (name) {
-                svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, topSeatY + tSeatH / 2, tSeatW, tSeatH, baseFontSize) + `\n`;
-              }
-            }
-
-            // 桌子本体
-            const tby = y + tSeatH + seatTableGap;
-            svgContent += `  <rect x="${tx}" y="${tby}" width="${tableBodyW}" height="${tableBodyH}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3" rx="8"/>\n`;
+            const tx = rowStartX + gi * (unitW + tableGap);
             const tableNum = (row.tableNums || [])[gi] || 0;
-            svgContent += `  <text x="${tx + tableBodyW / 2}" y="${tby + tableBodyH / 2 + 8}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}` + (showEn ? '  Table ' + tableNum : '') + `</text>\n`;
+            const n = group.length;
 
-            // 下排3个座位（座位4,5,6），不显示座位号
-            const bottomSeatY = tby + tableBodyH + seatTableGap;
-            for (let si = 3; si < 6 && si < group.length; si++) {
-              const seatNum = group[si];
-              const sx = tx + (si - 3) * (tSeatW + tSeatGap);
-              const name = attendeeMap[rowLabel + '_' + seatNum];
-              const fill = name ? '#dbeafe' : '#ffffff';
+            if (bqRound) {
+              const cx = tx + unitW / 2;
+              const cy = y + unitH / 2;
+              const ringR = n >= 3 ? (tSeatW + 24) / (2 * Math.sin(Math.PI / n)) : tSeatW;
+              const circleR = Math.max(30, ringR - tSeatH / 2 - 15);
 
-              svgContent += `  <rect x="${sx}" y="${bottomSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
-              regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: bottomSeatY, w: tSeatW, h: tSeatH };
-              if (name) {
-                svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, bottomSeatY + tSeatH / 2, tSeatW, tSeatH, baseFontSize) + `\n`;
+              svgContent += `  <circle cx="${cx}" cy="${cy}" r="${circleR}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3"/>\n`;
+              svgContent += `  <text x="${cx}" y="${cy + 10}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}` + (showEn ? '  Table ' + tableNum : '') + `</text>\n`;
+
+              for (let si = 0; si < n; si++) {
+                const ang = -Math.PI / 2 + si * (2 * Math.PI / n);
+                const scx = cx + ringR * Math.cos(ang);
+                const scy = cy + ringR * Math.sin(ang);
+                const sx = scx - tSeatW / 2;
+                const sy = scy - tSeatH / 2;
+                const seatNum = group[si];
+                const name = attendeeMap[rowLabel + '_' + seatNum];
+                const fill = name ? '#dbeafe' : '#ffffff';
+
+                svgContent += `  <rect x="${sx}" y="${sy}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: sy, w: tSeatW, h: tSeatH };
+                svgContent += `  <text x="${sx + 6}" y="${sy + 24}" fill="#94a3b8" font-size="20" font-weight="bold">${si + 1}</text>\n`;
+                if (name) {
+                  svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, sy + tSeatH / 2, tSeatW, tSeatH, baseFontSize) + `\n`;
+                }
+              }
+            } else {
+              const topCount = Math.ceil(n / 2);
+              const bottomCount = n - topCount;
+
+              const topRowW = topCount * tSeatW + Math.max(0, topCount - 1) * tSeatGap;
+              const topOffset = (tableBodyW - topRowW) / 2;
+              for (let si = 0; si < topCount; si++) {
+                const seatNum = group[si];
+                const sx = tx + topOffset + si * (tSeatW + tSeatGap);
+                const topSeatY = y;
+                const name = attendeeMap[rowLabel + '_' + seatNum];
+                const fill = name ? '#dbeafe' : '#ffffff';
+
+                svgContent += `  <rect x="${sx}" y="${topSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: topSeatY, w: tSeatW, h: tSeatH };
+                svgContent += `  <text x="${sx + 6}" y="${topSeatY + 24}" fill="#94a3b8" font-size="20" font-weight="bold">${si + 1}</text>\n`;
+                if (name) {
+                  svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, topSeatY + tSeatH / 2, tSeatW, tSeatH, baseFontSize) + `\n`;
+                }
+              }
+
+              const tby = y + tSeatH + seatTableGap;
+              svgContent += `  <rect x="${tx}" y="${tby}" width="${tableBodyW}" height="${tableBodyH}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3" rx="8"/>\n`;
+              svgContent += `  <text x="${tx + tableBodyW / 2}" y="${tby + tableBodyH / 2 + 8}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}` + (showEn ? '  Table ' + tableNum : '') + `</text>\n`;
+
+              const bottomSeatY = tby + tableBodyH + seatTableGap;
+              const bottomRowW = bottomCount * tSeatW + Math.max(0, bottomCount - 1) * tSeatGap;
+              const bottomOffset = (tableBodyW - bottomRowW) / 2;
+              for (let si = 0; si < bottomCount; si++) {
+                const seatNum = group[topCount + si];
+                const sx = tx + bottomOffset + si * (tSeatW + tSeatGap);
+                const name = attendeeMap[rowLabel + '_' + seatNum];
+                const fill = name ? '#dbeafe' : '#ffffff';
+
+                svgContent += `  <rect x="${sx}" y="${bottomSeatY}" width="${tSeatW}" height="${tSeatH}" fill="${fill}" stroke="#cbd5e1" stroke-width="2" rx="6"/>\n`;
+                regionSeatPositions[rowLabel + '_' + seatNum] = { x: sx, y: bottomSeatY, w: tSeatW, h: tSeatH };
+                svgContent += `  <text x="${sx + 6}" y="${bottomSeatY + 24}" fill="#94a3b8" font-size="20" font-weight="bold">${topCount + si + 1}</text>\n`;
+                if (name) {
+                  svgContent += `  ` + renderAttendeeName(name, sx + tSeatW / 2, bottomSeatY + tSeatH / 2, tSeatW, tSeatH, baseFontSize) + `\n`;
+                }
               }
             }
           });
 
-          y += tableUnitH + rowGap;
+          y += unitH + rowGap;
         });
         svgWidth = Math.max(svgWidth, maxRowWidth + 500, 1300);
         svgContent += renderRegionOverlays(venue, regionSeatPositions);
@@ -1988,7 +2067,7 @@ app.post('/api/analyze-layout', requireAdmin, (req, res) => {
     const wb = XLSX.readFile(uploadedPath);
     const existing = readData();
     const manualAttendees = (existing.attendees || []).filter(a => a.source !== 'excel');
-    const result = parseWorkbook(wb, manualAttendees, mode, sheetModes);
+    const result = parseWorkbook(wb, manualAttendees, mode, sheetModes, { banquetSeatsPerTable: banquetSeatsPerTable() });
     
     // ===== 保护自定义会场：优先保留所有自定义布局 =====
     const customVenues = (existing.venues || []).filter(v => v.layout === 'custom');
@@ -3099,7 +3178,7 @@ app.post('/api/import-excel', requireAdmin, (req, res) => {
     const wb = XLSX.readFile(excelPath);
     const existing = readData();
     const manualAttendees = (existing.attendees || []).filter(a => a.source !== 'excel');
-    const result = parseWorkbook(wb, manualAttendees, mode, sheetModes);
+    const result = parseWorkbook(wb, manualAttendees, mode, sheetModes, { banquetSeatsPerTable: banquetSeatsPerTable() });
     
     // 新导入Excel：不继承旧删除记录，保留自定义会场
     const customVenues2 = (existing.venues || []).filter(v => v.layout === 'custom');
@@ -3191,7 +3270,7 @@ app.post('/api/upload-excel', requireAdmin, (req, res) => {
     const manualAttendees = keepManual
       ? (existing.attendees || []).filter(a => a.source !== 'excel')
       : [];
-    const result = parseWorkbook(wb, manualAttendees, parseMode, sheetModesMap);
+    const result = parseWorkbook(wb, manualAttendees, parseMode, sheetModesMap, { banquetSeatsPerTable: banquetSeatsPerTable() });
     
     // 新上传Excel：不继承旧删除记录，保留自定义会场
     const customVenues = (existing.venues || []).filter(v => v.layout === 'custom');
@@ -3373,7 +3452,7 @@ app.post('/api/compare-excel', requireAdmin, (req, res) => {
     const sheetModesMap = sheetModes || {};
     
     const wb = XLSX.read(buffer, { type: 'buffer' });
-    const newData = parseWorkbook(wb, [], parseMode, sheetModesMap);
+    const newData = parseWorkbook(wb, [], parseMode, sheetModesMap, { banquetSeatsPerTable: banquetSeatsPerTable() });
     const oldData = readData();
 
     const diffs = [];

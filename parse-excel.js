@@ -597,10 +597,12 @@ function detectSheetMode(data) {
  * @param {object} sheetModes - 每Sheet独立模式: { sheetName: 'theater'|'standard'|'u-shape' }
  * @returns {{ venues: Array, attendees: Array }}
  */
-function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
+function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
   manualAttendees = manualAttendees || [];
   mode = mode || 'theater';
   sheetModes = sheetModes || {};
+  options = options || {};
+  const banquetSeatsPerTable = Math.max(1, Math.min(30, parseInt(options.banquetSeatsPerTable, 10) || 10));
   const excelAttendees = [];
   const result = { venues: [], attendees: [] };
 
@@ -636,7 +638,7 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes) {
     // 宴会桌式模式：直接执行宴会桌检测，跳过所有其他逻辑
     // ================================================================
     if (sheetMode === 'banquet') {
-      const bResult = detectBanquetLayout(data, venueId, venue, excelAttendees);
+      const bResult = detectBanquetLayout(data, venueId, venue, excelAttendees, banquetSeatsPerTable);
       if (bResult && bResult.rows.length > 0) {
         venue.rows = bResult.rows;
         venue.layout = bResult.layout || sheetMode;
@@ -2145,9 +2147,10 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
 /**
  * 宴会桌式布局检测
  * 特征：行中有"第X排"标签（如第一排、第二排、第1排），同行数字为桌子号码。
- * 每张桌子自动生成6个座位（上3下3），座位号 = 桌子号 * 10 + 1~6。
+ * 每张桌子自动生成 N 个座位（N 可配置，默认10人一桌），座位号全局顺序编号。
  */
-function detectBanquetLayout(data, venueId, venue, excelAttendees) {
+function detectBanquetLayout(data, venueId, venue, excelAttendees, seatsPerTable) {
+  const perTable = Math.max(1, Math.min(30, parseInt(seatsPerTable, 10) || 10));
   const result = { rows: [], attendees: [], layout: 'banquet' };
 
   // 收集所有包含"第X排"标签的行
@@ -2183,7 +2186,7 @@ function detectBanquetLayout(data, venueId, venue, excelAttendees) {
     const groups = [];
     for (const tn of entry.tableNums) {
       const tableSeats = [];
-      for (let s = 0; s < 6; s++) {
+      for (let s = 0; s < perTable; s++) {
         tableSeats.push(seatCounter++);
       }
       groups.push(tableSeats);

@@ -404,6 +404,17 @@ async function openSeatCard() {
         <label>系统副标题英文（选填）</label>
         <input type="text" id="configSiteSubtitleEn" placeholder="如：Seat Lookup System">
       </div>
+      <div class="form-group" style="flex:0 0 160px;min-width:150px">
+        <label>宴会桌每桌人数</label>
+        <input type="number" id="configBanquetSeats" min="1" max="30" step="1" placeholder="10">
+      </div>
+      <div class="form-group" style="flex:0 0 170px;min-width:150px">
+        <label>宴会桌形状</label>
+        <select id="configBanquetShape">
+          <option value="round">圆形（座位绕一圈）</option>
+          <option value="square">方形（上下两排）</option>
+        </select>
+      </div>
       <button class="btn btn-primary" onclick="saveSiteConfig()" style="align-self:flex-end">保存设置</button>
     </div>
   </div>
@@ -793,6 +804,11 @@ async function loadSiteConfig() {
     document.getElementById('configSiteTitle').value = data.siteTitle || '';
     document.getElementById('configSiteSubtitle').value = data.siteSubtitle || '';
     document.getElementById('configSiteTitleEn').value = data.siteTitleEn || '';
+    var bs = document.getElementById('configBanquetSeats');
+    if (bs) bs.value = data.banquetSeatsPerTable || 10;
+    var bsh = document.getElementById('configBanquetShape');
+    if (bsh) bsh.value = data.banquetTableShape === 'square' ? 'square' : 'round';
+    window.BANQUET_SHAPE = data.banquetTableShape === 'square' ? 'square' : 'round';
     document.getElementById('configSiteSubtitleEn').value = data.siteSubtitleEn || '';
   } catch (err) {
     console.error('加载配置失败:', err);
@@ -805,16 +821,20 @@ async function saveSiteConfig() {
   var siteSubtitle = document.getElementById('configSiteSubtitle').value.trim();
   var siteTitleEn = document.getElementById('configSiteTitleEn').value.trim();
   var siteSubtitleEn = document.getElementById('configSiteSubtitleEn').value.trim();
+  var banquetSeats = parseInt(document.getElementById('configBanquetSeats').value, 10) || 10;
+  var banquetShapeEl = document.getElementById('configBanquetShape');
+  var banquetShape = banquetShapeEl ? banquetShapeEl.value : 'round';
   if (!siteTitle) return alert('系统标题不能为空');
 
   try {
     var res = await authFetch('/api/site-config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ siteTitle: siteTitle, siteSubtitle: siteSubtitle, siteTitleEn: siteTitleEn, siteSubtitleEn: siteSubtitleEn })
+      body: JSON.stringify({ siteTitle: siteTitle, siteSubtitle: siteSubtitle, siteTitleEn: siteTitleEn, siteSubtitleEn: siteSubtitleEn, banquetSeatsPerTable: banquetSeats, banquetTableShape: banquetShape })
     });
     var data = await res.json();
     if (data.ok) {
+      window.BANQUET_SHAPE = data.banquetTableShape === 'square' ? 'square' : 'round';
       showToast('设置已保存');
     } else {
       alert('保存失败: ' + (data.error || '未知错误'));
@@ -1880,14 +1900,22 @@ function renderBanquetDragMap(venue) {
     }
   });
 
+  // 每桌座位上下均分，取单侧最大座位数（每桌10人则为5）
+  var maxPerSide = 1;
+  venue.rows.forEach(function(row) {
+    (row.seatGroups || []).forEach(function(g) {
+      maxPerSide = Math.max(maxPerSide, Math.ceil((g || []).length / 2));
+    });
+  });
+
   // 预留左右标签宽度，计算座位尺寸使其完整显示
   var labelReserve = 120;
-  var maxSeatsAcross = maxTablesInRow * 3;
+  var maxSeatsAcross = maxTablesInRow * maxPerSide;
   var availForSeats = cardW - labelReserve - maxTablesInRow * 6;
   var idealSW = Math.min(50, Math.floor(availForSeats / maxSeatsAcross) - 2);
-  var seatW = Math.max(24, idealSW);
-  var seatH = Math.min(36, Math.max(22, seatW * 0.75));
-  var tableW = seatW * 3 + 8;
+  var seatW = Math.max(20, idealSW);
+  var seatH = Math.min(36, Math.max(20, seatW * 0.75));
+  var tableW = seatW * maxPerSide + 8;
   var tableH = 20;
   var tableGap = Math.max(6, Math.floor(seatW * 0.6));
   var fsize = Math.max(7, Math.floor(Math.min((seatW - 2) / 3, seatH * 0.55, 12)));
@@ -1921,28 +1949,55 @@ function renderBanquetDragMap(venue) {
       if (!group || group.length === 0) return;
       var tableNum = (row.tableNums || [])[gi] || 0;
 
-      html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
-      // 上排3座
-      html += '<div style="display:flex;gap:2px">';
-      for (var si = 0; si < 3 && si < group.length; si++) {
-        var seatNum = group[si];
-        var key = row.label + '_' + seatNum;
-        var att = currentDragSeating.seatOccupancy[key];
-        html += renderDragSeat(row.label, seatNum, att, false, { seatW: seatW, seatH: seatH, globalFontSize: fsize });
+      var seatN = group.length;
+      var seatDim = Math.max(seatW, seatH);
+
+      if (window.BANQUET_SHAPE === 'round' && seatN >= 3) {
+        // 圆桌：座位绕桌一圈，编号 1..N（座位框略扁）
+        var rSeatW = seatW;
+        var rSeatH = seatH;
+        var ringR = (rSeatW + 2) / (2 * Math.sin(Math.PI / seatN));
+        var unit = 2 * ringR + rSeatW;
+        var dia = Math.max(rSeatW * 1.5, 2 * (ringR - rSeatW / 2 - 2));
+        html += '<div style="position:relative;width:' + unit.toFixed(1) + 'px;height:' + unit.toFixed(1) + 'px;flex-shrink:0">';
+        html += '<div style="position:absolute;left:' + ((unit - dia) / 2).toFixed(1) + 'px;top:' + ((unit - dia) / 2).toFixed(1) + 'px;width:' + dia.toFixed(1) + 'px;height:' + dia.toFixed(1) + 'px;background:#fef3c7;border:2px solid #f59e0b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#92400e">' + tableNum + '</div>';
+        for (var si = 0; si < seatN; si++) {
+          var ang = -Math.PI / 2 + si * (2 * Math.PI / seatN);
+          var scx = unit / 2 + ringR * Math.cos(ang);
+          var scy = unit / 2 + ringR * Math.sin(ang);
+          var seatNum = group[si];
+          var key = row.label + '_' + seatNum;
+          var att = currentDragSeating.seatOccupancy[key];
+          html += '<div style="position:absolute;left:' + (scx - rSeatW / 2).toFixed(1) + 'px;top:' + (scy - rSeatH / 2).toFixed(1) + 'px">';
+          html += renderDragSeat(row.label, seatNum, att, false, { seatW: rSeatW, seatH: rSeatH, globalFontSize: fsize, seatLabel: si + 1 });
+          html += '</div>';
+        }
+        html += '</div>';
+      } else {
+        var topCount = Math.ceil(seatN / 2);
+        html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
+        // 上排座位（每桌均分上半）
+        html += '<div style="display:flex;gap:2px">';
+        for (var si = 0; si < topCount; si++) {
+          var seatNum = group[si];
+          var key = row.label + '_' + seatNum;
+          var att = currentDragSeating.seatOccupancy[key];
+          html += renderDragSeat(row.label, seatNum, att, false, { seatW: seatW, seatH: seatH, globalFontSize: fsize, seatLabel: si + 1 });
+        }
+        html += '</div>';
+        // 桌子本体
+        html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:2px solid #f59e0b;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#92400e;margin:5px 0">桌' + tableNum + '</div>';
+        // 下排座位（每桌均分下半）
+        html += '<div style="display:flex;gap:2px">';
+        for (var si = topCount; si < seatN; si++) {
+          var seatNum = group[si];
+          var key = row.label + '_' + seatNum;
+          var att = currentDragSeating.seatOccupancy[key];
+          html += renderDragSeat(row.label, seatNum, att, false, { seatW: seatW, seatH: seatH, globalFontSize: fsize, seatLabel: si + 1 });
+        }
+        html += '</div>';
+        html += '</div>';
       }
-      html += '</div>';
-      // 桌子本体
-      html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:2px solid #f59e0b;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#92400e;margin:5px 0">桌' + tableNum + '</div>';
-      // 下排3座
-      html += '<div style="display:flex;gap:2px">';
-      for (var si = 3; si < 6 && si < group.length; si++) {
-        var seatNum = group[si];
-        var key = row.label + '_' + seatNum;
-        var att = currentDragSeating.seatOccupancy[key];
-        html += renderDragSeat(row.label, seatNum, att, false, { seatW: seatW, seatH: seatH, globalFontSize: fsize });
-      }
-      html += '</div>';
-      html += '</div>';
     });
 
     html += '</div>';
@@ -3726,7 +3781,7 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
   var name = attendee ? attendee.name : '';
   var seatW = opts.seatW || (vertical ? 40 : 50);
   var seatH = opts.seatH || (vertical ? 50 : 40);
-  var content = attendee ? attendee.name : String(seatNum);
+  var content = attendee ? attendee.name : String(opts.seatLabel !== undefined ? opts.seatLabel : seatNum);
   var contentStr = String(content);
   var contentLen = contentStr.length;
   var globalFontSize = opts.globalFontSize;

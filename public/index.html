@@ -194,6 +194,9 @@
 <div class="footer">copyright@zhongyingfang</div>
 
 <script>
+// 宴会桌渲染形状（round=圆形绕圈，square=上下两排）
+var BANQUET_SHAPE = 'round';
+
 // 加载系统标题
 async function loadSiteConfig() {
   try {
@@ -202,6 +205,7 @@ async function loadSiteConfig() {
     document.getElementById('siteTitle').textContent = data.siteTitle;
     document.getElementById('siteSubtitle').textContent = data.siteSubtitle;
     document.title = data.siteTitle + ' - ' + data.siteSubtitle;
+    BANQUET_SHAPE = data.banquetTableShape === 'square' ? 'square' : 'round';
     if (data.siteTitleEn) {
       document.getElementById('siteTitleEn').textContent = data.siteTitleEn;
       document.getElementById('siteTitleEn').style.display = '';
@@ -615,10 +619,18 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
     }
   });
 
+  // 每桌座位上下均分，取单侧最大座位数（每桌10人则为5）
+  var maxPerSide = 1;
+  venue.rows.forEach(function(row) {
+    (row.seatGroups || []).forEach(function(g) {
+      maxPerSide = Math.max(maxPerSide, Math.ceil((g || []).length / 2));
+    });
+  });
+
   // 紧凑尺寸：每个座位小方块，桌子横条
-  var seatSz = Math.min(18, Math.floor((containerWidth - labelWidth - 20 - maxTablesInRow * 4) / (maxTablesInRow * 3)));
-  seatSz = Math.max(10, seatSz);
-  var tableW = seatSz * 3 + 6;
+  var seatSz = Math.min(18, Math.floor((containerWidth - labelWidth - 20 - maxTablesInRow * 4) / (maxTablesInRow * maxPerSide)));
+  seatSz = Math.max(9, seatSz);
+  var tableW = seatSz * maxPerSide + 6;
   var tableH = Math.max(8, Math.floor(seatSz * 0.5));
   var gap = Math.max(3, Math.floor(seatSz * 0.4));
   var fsize = Math.max(6, Math.min(9, seatSz - 2));
@@ -649,26 +661,47 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
       if (!group || group.length === 0) return;
       var tableNum = (row.tableNums || [])[gi] || 0;
 
-      html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
-      // 上排座位 (0,1,2)
-      html += '<div style="display:flex;gap:1px">';
-      for (var si = 0; si < 3 && si < group.length; si++) {
-        var seatNum = group[si];
-        var isHit = isTargetRow && seatNum === pSeat;
-        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="width:' + seatSz + 'px;height:' + seatSz + 'px;font-size:' + fsize + 'px" title="' + esc(rowLabel) + '桌' + tableNum + ' ' + (si + 1) + '号座">' + (isHit ? (si + 1) : '') + '</div>';
+      var seatN = group.length;
+
+      if (BANQUET_SHAPE === 'round' && seatN >= 3) {
+        // 圆桌：座位绕桌一圈均匀排开，编号 1..N
+        var ringR = (seatSz + 1) / (2 * Math.sin(Math.PI / seatN));
+        var unit = 2 * ringR + seatSz;
+        var dia = Math.max(seatSz * 1.5, 2 * (ringR - seatSz / 2 - 1));
+        html += '<div style="position:relative;width:' + unit.toFixed(1) + 'px;height:' + unit.toFixed(1) + 'px;flex-shrink:0">';
+        html += '<div style="position:absolute;left:' + ((unit - dia) / 2).toFixed(1) + 'px;top:' + ((unit - dia) / 2).toFixed(1) + 'px;width:' + dia.toFixed(1) + 'px;height:' + dia.toFixed(1) + 'px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, fsize - 1) + 'px;font-weight:700;color:#92400e">' + tableNum + '</div>';
+        for (var si = 0; si < seatN; si++) {
+          var ang = -Math.PI / 2 + si * (2 * Math.PI / seatN);
+          var scx = unit / 2 + ringR * Math.cos(ang);
+          var scy = unit / 2 + ringR * Math.sin(ang);
+          var seatNum = group[si];
+          var isHit = isTargetRow && seatNum === pSeat;
+          html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="position:absolute;left:' + (scx - seatSz / 2).toFixed(1) + 'px;top:' + (scy - seatSz / 2).toFixed(1) + 'px;width:' + seatSz + 'px;height:' + seatSz + 'px;font-size:' + fsize + 'px" title="' + esc(rowLabel) + '桌' + tableNum + ' ' + (si + 1) + '号座">' + (si + 1) + '</div>';
+        }
+        html += '</div>';
+      } else {
+        var topCount = Math.ceil(seatN / 2);
+        html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
+        // 上排座位（均分上半）
+        html += '<div style="display:flex;gap:1px">';
+        for (var si = 0; si < topCount; si++) {
+          var seatNum = group[si];
+          var isHit = isTargetRow && seatNum === pSeat;
+          html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="width:' + seatSz + 'px;height:' + seatSz + 'px;font-size:' + fsize + 'px" title="' + esc(rowLabel) + '桌' + tableNum + ' ' + (si + 1) + '号座">' + (si + 1) + '</div>';
+        }
+        html += '</div>';
+        // 桌子
+        html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, fsize - 1) + 'px;font-weight:700;color:#92400e;margin:' + Math.max(2, Math.floor(tableH * 0.3)) + 'px 0">桌' + tableNum + '</div>';
+        // 下排座位（均分下半）
+        html += '<div style="display:flex;gap:1px">';
+        for (var si = topCount; si < seatN; si++) {
+          var seatNum = group[si];
+          var isHit = isTargetRow && seatNum === pSeat;
+          html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="width:' + seatSz + 'px;height:' + seatSz + 'px;font-size:' + fsize + 'px" title="' + esc(rowLabel) + '桌' + tableNum + ' ' + (si + 1) + '号座">' + (si + 1) + '</div>';
+        }
+        html += '</div>';
+        html += '</div>';
       }
-      html += '</div>';
-      // 桌子
-      html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, fsize - 1) + 'px;font-weight:700;color:#92400e;margin:' + Math.max(2, Math.floor(tableH * 0.3)) + 'px 0">桌' + tableNum + '</div>';
-      // 下排座位 (3,4,5)
-      html += '<div style="display:flex;gap:1px">';
-      for (var si = 3; si < 6 && si < group.length; si++) {
-        var seatNum = group[si];
-        var isHit = isTargetRow && seatNum === pSeat;
-        html += '<div class="seat' + (isHit ? ' highlight' : '') + '" style="width:' + seatSz + 'px;height:' + seatSz + 'px;font-size:' + fsize + 'px" title="' + esc(rowLabel) + '桌' + tableNum + ' ' + (si + 1) + '号座">' + (isHit ? (si + 1) : '') + '</div>';
-      }
-      html += '</div>';
-      html += '</div>';
     });
 
     html += '</div>';
