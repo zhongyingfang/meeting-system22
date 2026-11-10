@@ -247,7 +247,7 @@ async function openSeatCard() {
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <button class="btn btn-primary btn-sm" onclick="loadStatistics()">刷新统计</button>
       <button class="btn btn-success btn-sm" onclick="exportSeating()">导出座位安排表 Excel</button>
-      <button class="btn btn-success btn-sm" onclick="exportSeatingSVG()">导出座位安排表图片 SVG</button>
+      <button class="btn btn-success btn-sm" onclick="exportSeatingSVG()">导出座位图（SVG / PDF / PNG）</button>
       <button class="btn btn-primary btn-sm" onclick="analyzeLayout()">自动分析布局</button>
       <button class="btn btn-success btn-sm" onclick="generatePreview()">生成预览图</button>
     </div>
@@ -467,6 +467,15 @@ async function openSeatCard() {
         </div>
         <button class="btn btn-primary" onclick="saveVenueName()">保存</button>
         <button class="btn btn-outline" onclick="cancelEditVenue()">取消</button>
+      </div>
+      <div id="venueTableSeatsRow" style="display:none;margin-top:12px">
+        <div class="form-group" style="max-width:100%">
+          <label>各桌人数（宴会桌式）</label>
+          <input type="text" id="editVenueTableSeats" placeholder="留空表示全部使用默认人数；示例：1:20 或 1:20,5-7:12">
+        </div>
+        <div style="margin-top:6px;font-size:12px;color:#b45309">
+          按桌号填写，未列出的桌沿用默认人数。修改后座位号会重新编排，已导入名单的座位自动跟随；若某桌人数调小导致原座号超出，该人会列为待安排。
+        </div>
       </div>
       <div style="margin-top:8px;font-size:12px;color:#94a3b8">地点和时间会显示在参会者的查询结果页；留空则不显示。</div>
     </div>
@@ -818,6 +827,7 @@ async function loadSiteConfig() {
     var bsh = document.getElementById('configBanquetShape');
     if (bsh) bsh.value = data.banquetTableShape === 'square' ? 'square' : 'round';
     window.BANQUET_SHAPE = data.banquetTableShape === 'square' ? 'square' : 'round';
+    window.BANQUET_DIR = data.banquetNumberDirection === 'cw' ? 'cw' : 'ccw';
     document.getElementById('configSiteSubtitleEn').value = data.siteSubtitleEn || '';
   } catch (err) {
     console.error('加载配置失败:', err);
@@ -844,6 +854,7 @@ async function saveSiteConfig() {
     var data = await res.json();
     if (data.ok) {
       window.BANQUET_SHAPE = data.banquetTableShape === 'square' ? 'square' : 'round';
+      window.BANQUET_DIR = data.banquetNumberDirection === 'cw' ? 'cw' : 'ccw';
       showToast('设置已保存');
     } else {
       alert('保存失败: ' + (data.error || '未知错误'));
@@ -910,28 +921,43 @@ function exportSeating() {
 
 function exportSeatingSVG() {
   showSvgExportDialog(function(params) {
-    var qs = '?fontSize=' + params.fontSize + '&seatW=' + params.seatW + '&seatH=' + params.seatH;
-    showToast('正在生成 SVG 图片文件...');
+    var ext = params.format || 'svg';
+    var qs = '?fontSize=' + params.fontSize + '&seatW=' + params.seatW + '&seatH=' + params.seatH +
+             '&format=' + ext;
+    if (params.venue && params.venue !== 'all') {
+      qs += '&venue=' + encodeURIComponent(params.venue);
+    }
+    if (params.outline) qs += '&outline=1';
+    if (ext === 'png') qs += '&scale=' + params.scale;
+
+    var label = ext.toUpperCase();
+    showToast('正在生成 ' + label + ' 文件，请稍候...');
     fetch('/api/export-seating-svg' + qs, {
       headers: { 'X-Auth-Token': authToken }
     })
     .then(function(response) {
-      if (!response.ok) throw new Error('下载失败');
+      if (!response.ok) {
+        return response.json().then(function(j) {
+          throw new Error(j.error || ('HTTP ' + response.status));
+        }).catch(function(e) {
+          throw (e && e.message) ? e : new Error('HTTP ' + response.status);
+        });
+      }
       return response.blob();
     })
     .then(function(blob) {
       var url = URL.createObjectURL(blob);
       var link = document.createElement('a');
       link.href = url;
-      link.download = '座位安排表.svg';
+      link.download = '座位安排表.' + ext;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      showToast('SVG 图片下载完成');
+      showToast(label + ' 文件下载完成');
     })
     .catch(function(err) {
-      console.error('SVG 导出失败:', err);
+      console.error('导出失败:', err);
       alert('导出失败：' + err.message);
     });
   });
@@ -942,9 +968,21 @@ function showSvgExportDialog(callback) {
   if (existing) existing.remove();
   var overlay = document.createElement('div');
   overlay.className = 'custom-dialog-overlay';
+  var venueOptions = '';
+  (allData && allData.venues ? allData.venues : []).forEach(function(v) {
+    venueOptions += '<option value="' + v.id + '">' + (v.name || v.id) + '</option>';
+  });
   overlay.innerHTML =
-    '<div class="custom-dialog" style="max-width:420px">' +
-    '<h4>SVG 导出设置</h4>' +
+    '<div class="custom-dialog" style="max-width:460px">' +
+    '<h4>导出座位图</h4>' +
+    '<div class="form-group"><label>导出格式</label><select id="svgFormat" onchange="onSvgFormatChange()">' +
+    '<option value="svg">SVG — 矢量图，可再用 Inkscape / Illustrator 编辑</option>' +
+    '<option value="pdf">PDF — 印刷用，文字自动转曲，任何电脑打开都不变形</option>' +
+    '<option value="png">PNG — 位图，发微信、贴 PPT 用</option>' +
+    '</select></div>' +
+    '<div class="form-group"><label>导出范围</label><select id="svgVenue">' +
+    '<option value="all">全部会场（一张长图）</option>' + venueOptions +
+    '</select><div style="font-size:12px;color:#94a3b8;margin-top:4px">选单个会场会按内容裁掉四周空白，文件更小、更好编辑</div></div>' +
     '<div class="form-group"><label>字号预设</label><select id="svgFsPreset" onchange="onSvgFsPresetChange()">' +
     '<option value="56">初号 (42pt)</option>' +
     '<option value="35" selected>一号 (26pt)</option>' +
@@ -956,12 +994,32 @@ function showSvgExportDialog(callback) {
     '<div class="form-group"><label>基准字号 (px)</label><input id="svgFontSize" type="number" value="35" min="12" max="80" onchange="onSvgFsCustom()"></div>' +
     '<div class="form-group"><label>座位框宽度 (px)</label><input id="svgSeatW" type="number" value="180" min="60" max="500"></div>' +
     '<div class="form-group"><label>座位框高度 (px)</label><input id="svgSeatH" type="number" value="105" min="30" max="300"></div>' +
+    '<div class="form-group" id="svgOutlineRow"><label style="display:flex;align-items:center;gap:6px;font-weight:400">' +
+    '<input type="checkbox" id="svgOutline" style="width:auto;margin:0"> 文字转曲（脱离字体，换电脑不变形）</label>' +
+    '<div id="svgOutlineHint" style="font-size:12px;color:#94a3b8;margin-top:4px">PDF 始终转曲；SVG 转曲后不能再改文字内容</div></div>' +
+    '<div class="form-group" id="svgScaleRow" style="display:none"><label>PNG 缩放</label><select id="svgScale">' +
+    '<option value="1">1x — 原始尺寸</option>' +
+    '<option value="2">2x — 高清，适合打印</option>' +
+    '<option value="0.5">0.5x — 省空间，适合聊天发送</option>' +
+    '</select><div style="font-size:12px;color:#94a3b8;margin-top:4px">尺寸过大时会提示改用单会场导出</div></div>' +
     '<div class="btn-group" style="justify-content:flex-end;margin-top:16px">' +
     '<button class="btn btn-outline btn-sm" onclick="closeSvgDialog()">取消</button>' +
     '<button class="btn btn-primary btn-sm" onclick="confirmSvgExport()">确认导出</button>' +
     '</div></div>';
   document.body.appendChild(overlay);
   overlay._callback = callback;
+}
+
+function onSvgFormatChange() {
+  var fmt = document.getElementById('svgFormat').value;
+  var outlineRow = document.getElementById('svgOutlineRow');
+  var scaleRow = document.getElementById('svgScaleRow');
+  scaleRow.style.display = fmt === 'png' ? '' : 'none';
+  // PDF 必然转曲，勾选框只对 SVG / PNG 有意义
+  outlineRow.style.display = fmt === 'pdf' ? 'none' : '';
+  if (fmt === 'pdf') {
+    document.getElementById('svgOutline').checked = true;
+  }
 }
 
 function onSvgFsPresetChange() {
@@ -986,10 +1044,14 @@ function confirmSvgExport() {
   var fs = parseInt(document.getElementById('svgFontSize').value) || 35;
   var sw = parseInt(document.getElementById('svgSeatW').value) || (fs * 4 + 40);
   var sh = parseInt(document.getElementById('svgSeatH').value) || Math.round(fs * 3.0);
+  var format = document.getElementById('svgFormat').value || 'svg';
+  var venue = document.getElementById('svgVenue').value || 'all';
+  var outline = document.getElementById('svgOutline').checked;
+  var scale = parseFloat(document.getElementById('svgScale').value) || 1;
   var overlay = document.querySelector('.custom-dialog-overlay');
   var cb = overlay._callback;
   overlay.remove();
-  cb({ fontSize: fs, seatW: sw, seatH: sh });
+  cb({ fontSize: fs, seatW: sw, seatH: sh, format: format, venue: venue, outline: outline, scale: scale });
 }
 
 // 上传表格相关函数
@@ -1285,7 +1347,41 @@ function showEditVenue() {
   document.getElementById('editVenueDesc').value = venue.description;
   document.getElementById('editVenueLocation').value = venue.location || '';
   document.getElementById('editVenueEventTime').value = venue.eventTime || '';
+
+  var isBq = venue.layout === 'banquet';
+  var tsRow = document.getElementById('venueTableSeatsRow');
+  if (tsRow) tsRow.style.display = isBq ? '' : 'none';
+  var tsInput = document.getElementById('editVenueTableSeats');
+  if (tsInput) tsInput.value = isBq ? formatTableSeats(venue.banquetTableSeats) : '';
+
   document.getElementById('venueEdit').style.display = '';
+}
+
+// { "1": 20 } -> "1:20,3:10"
+function formatTableSeats(map) {
+  if (!map || typeof map !== 'object') return '';
+  return Object.keys(map)
+    .map(function(k) { return Number(k); })
+    .filter(function(n) { return Number.isFinite(n); })
+    .sort(function(a, b) { return a - b; })
+    .map(function(n) { return n + ':' + map[n]; })
+    .join(',');
+}
+
+// "1:20,5-7:12" -> { "1":20, "5":12, "6":12, "7":12 }
+function parseTableSeatsInput(text) {
+  var out = {};
+  String(text || '').split(/[，,;；\s]+/).forEach(function(seg) {
+    if (!seg) return;
+    var m = seg.match(/^(\d+)(?:\s*-\s*(\d+))?\s*[:：=]\s*(\d+)$/);
+    if (!m) return;
+    var from = parseInt(m[1], 10);
+    var to = m[2] ? parseInt(m[2], 10) : from;
+    var n = Math.min(30, Math.max(1, parseInt(m[3], 10)));
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return;
+    for (var t = from; t <= to && t - from <= 200; t++) out[String(t)] = n;
+  });
+  return out;
 }
 
 function cancelEditVenue() {
@@ -1298,13 +1394,28 @@ async function saveVenueName() {
   var location = document.getElementById('editVenueLocation').value.trim();
   var eventTime = document.getElementById('editVenueEventTime').value.trim();
   if (!name) return alert('会场名称不能为空');
+
+  var venue = allData.venues.find(function(v) { return v.id === currentVenueId; });
+  var payload = { name: name, description: description, location: location, eventTime: eventTime };
+  if (venue && venue.layout === 'banquet') {
+    var tsInput = document.getElementById('editVenueTableSeats');
+    payload.banquetTableSeats = parseTableSeatsInput(tsInput ? tsInput.value : '');
+  }
+
   var res = await authFetch('/api/venues/' + encodeURIComponent(currentVenueId), {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, description: description, location: location, eventTime: eventTime })
+    body: JSON.stringify(payload)
   });
   var data = await res.json();
-  if (data.ok) { showToast('会场信息已更新'); refreshData(); }
-  else alert('保存失败: ' + (data.error || '未知错误'));
+  if (data.ok) {
+    var msg = '会场信息已更新';
+    if (data.relocated) msg += '，' + data.relocated + ' 人座位已重排';
+    if (data.displaced && data.displaced.length) {
+      msg += '；' + data.displaced.length + ' 人原座位已不存在（' + data.displaced.slice(0, 5).join('、') + (data.displaced.length > 5 ? ' 等' : '') + '），请重新安排';
+    }
+    showToast(msg);
+    refreshData();
+  } else alert('保存失败: ' + (data.error || '未知错误'));
 }
 
 async function deleteVenue(venueId, venueName) {
@@ -1908,32 +2019,29 @@ function renderBanquetDragMap(venue) {
   var cardW = (container && container.parentElement) ? container.parentElement.clientWidth - 40 : 700;
   cardW = Math.max(400, cardW);
 
-  // 找最大桌子数的一排
-  var maxTablesInRow = 1;
-  venue.rows.forEach(function(row) {
-    if (row.seatGroups && row.seatGroups.length > maxTablesInRow) {
-      maxTablesInRow = row.seatGroups.length;
-    }
-  });
+  // 每桌宽度系数（相对座位边长）：圆桌单桌宽 = 2*ringR + seatW，ringR=(seatW+2)/(2sin(π/n))
+  // 20 人桌约 7.4、10 人桌约 4.2，因此不能按"最大桌数×最大单侧数"统一压缩
+  function bqWidthCoef(n) { return n >= 3 ? 1 + 1 / Math.sin(Math.PI / n) : 3; }
 
-  // 每桌座位上下均分，取单侧最大座位数（每桌10人则为5）
-  var maxPerSide = 1;
-  venue.rows.forEach(function(row) {
-    (row.seatGroups || []).forEach(function(g) {
-      maxPerSide = Math.max(maxPerSide, Math.ceil((g || []).length / 2));
-    });
-  });
-
-  // 预留左右标签宽度，计算座位尺寸使其完整显示
+  // 预留左右标签宽度，反解座位边长使整排完整显示
   var labelReserve = 120;
-  var maxSeatsAcross = maxTablesInRow * maxPerSide;
-  var availForSeats = cardW - labelReserve - maxTablesInRow * 6;
-  var idealSW = Math.min(50, Math.floor(availForSeats / maxSeatsAcross) - 2);
-  var seatW = Math.max(20, idealSW);
+  var tableGap = 8;
+  var availForSeats = cardW - labelReserve - 20;
+
+  var seatW = 50;
+  venue.rows.forEach(function(row) {
+    var groups = row.seatGroups || [];
+    if (!groups.length) return;
+    var coefSum = 0;
+    groups.forEach(function(g) { coefSum += bqWidthCoef((g || []).length); });
+    var usable = availForSeats - groups.length - tableGap * Math.max(0, groups.length - 1);
+    var s = Math.floor(usable / Math.max(coefSum, 0.001));
+    if (s < seatW) seatW = s;
+  });
+  seatW = Math.max(20, Math.min(50, seatW));
+
   var seatH = Math.min(36, Math.max(20, seatW * 0.75));
-  var tableW = seatW * maxPerSide + 8;
   var tableH = 20;
-  var tableGap = Math.max(6, Math.floor(seatW * 0.6));
   var fsize = Math.max(7, Math.floor(Math.min((seatW - 2) / 3, seatH * 0.55, 12)));
 
   // 找最长名字，调整字号
@@ -1978,7 +2086,9 @@ function renderBanquetDragMap(venue) {
         html += '<div style="position:relative;width:' + unit.toFixed(1) + 'px;height:' + unit.toFixed(1) + 'px;flex-shrink:0">';
         html += '<div style="position:absolute;left:' + ((unit - dia) / 2).toFixed(1) + 'px;top:' + ((unit - dia) / 2).toFixed(1) + 'px;width:' + dia.toFixed(1) + 'px;height:' + dia.toFixed(1) + 'px;background:#fef3c7;border:2px solid #f59e0b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#92400e">' + tableNum + '</div>';
         for (var si = 0; si < seatN; si++) {
-          var ang = -Math.PI / 2 + si * (2 * Math.PI / seatN);
+          var bqStep = 2 * Math.PI / seatN;
+          // 1 号固定在正上方（中式主位）；ccw 时主位右手边为 2 号
+          var ang = window.BANQUET_DIR === 'cw' ? (-Math.PI / 2 + si * bqStep) : (-Math.PI / 2 - si * bqStep);
           var scx = unit / 2 + ringR * Math.cos(ang);
           var scy = unit / 2 + ringR * Math.sin(ang);
           var seatNum = group[si];
@@ -1991,6 +2101,7 @@ function renderBanquetDragMap(venue) {
         html += '</div>';
       } else {
         var topCount = Math.ceil(seatN / 2);
+        var myTableW = topCount * seatW + 8; // 每桌按自身人数定桌宽
         html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
         // 上排座位（每桌均分上半）
         html += '<div style="display:flex;gap:2px">';
@@ -2002,7 +2113,7 @@ function renderBanquetDragMap(venue) {
         }
         html += '</div>';
         // 桌子本体
-        html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:2px solid #f59e0b;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#92400e;margin:5px 0">桌' + tableNum + '</div>';
+        html += '<div style="width:' + myTableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:2px solid #f59e0b;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#92400e;margin:5px 0">桌' + tableNum + '</div>';
         // 下排座位（每桌均分下半）
         html += '<div style="display:flex;gap:2px">';
         for (var si = topCount; si < seatN; si++) {

@@ -204,6 +204,7 @@
 <script>
 // 宴会桌渲染形状（round=圆形绕圈，square=上下两排）
 var BANQUET_SHAPE = 'round';
+var BANQUET_DIR = 'ccw';
 
 // 加载系统标题
 async function loadSiteConfig() {
@@ -214,6 +215,7 @@ async function loadSiteConfig() {
     document.getElementById('siteSubtitle').textContent = data.siteSubtitle;
     document.title = data.siteTitle + ' - ' + data.siteSubtitle;
     BANQUET_SHAPE = data.banquetTableShape === 'square' ? 'square' : 'round';
+    BANQUET_DIR = data.banquetNumberDirection === 'cw' ? 'cw' : 'ccw';
     if (data.siteTitleEn) {
       document.getElementById('siteTitleEn').textContent = data.siteTitleEn;
       document.getElementById('siteTitleEn').style.display = '';
@@ -641,27 +643,28 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
 
   var containerWidth = Math.min(window.innerWidth - 40, 760);
   var labelWidth = 36;
+  var availW = containerWidth - labelWidth * 2 - 20;
 
-  // 找最大桌子数
-  var maxTablesInRow = 1;
+  // 每桌宽度系数（相对座位边长）：圆桌 ringR=(S+1)/(2sin(π/n))，单桌宽 = 2ringR+S
+  // 20 人桌系数约 7.4，10 人桌约 4.2，因此不能再按"最大桌数×最大单侧数"一刀切
+  function bqWidthCoef(n) {
+    return n >= 3 ? 1 + 1 / Math.sin(Math.PI / n) : 3;
+  }
+
+  // 反解座位边长：取所有排里最紧的一排，保证整排不溢出容器
+  var tableGapPx = 8;
+  var seatSz = 18;
   venue.rows.forEach(function(row) {
-    if (row.seatGroups && row.seatGroups.length > maxTablesInRow) {
-      maxTablesInRow = row.seatGroups.length;
-    }
+    var groups = row.seatGroups || [];
+    if (!groups.length) return;
+    var coefSum = 0;
+    groups.forEach(function(g) { coefSum += bqWidthCoef((g || []).length); });
+    var usable = availW - groups.length - tableGapPx * Math.max(0, groups.length - 1);
+    var s = Math.floor(usable / Math.max(coefSum, 0.001));
+    if (s < seatSz) seatSz = s;
   });
+  seatSz = Math.max(9, Math.min(18, seatSz));
 
-  // 每桌座位上下均分，取单侧最大座位数（每桌10人则为5）
-  var maxPerSide = 1;
-  venue.rows.forEach(function(row) {
-    (row.seatGroups || []).forEach(function(g) {
-      maxPerSide = Math.max(maxPerSide, Math.ceil((g || []).length / 2));
-    });
-  });
-
-  // 紧凑尺寸：每个座位小方块，桌子横条
-  var seatSz = Math.min(18, Math.floor((containerWidth - labelWidth - 20 - maxTablesInRow * 4) / (maxTablesInRow * maxPerSide)));
-  seatSz = Math.max(9, seatSz);
-  var tableW = seatSz * maxPerSide + 6;
   var tableH = Math.max(8, Math.floor(seatSz * 0.5));
   var gap = Math.max(3, Math.floor(seatSz * 0.4));
   var fsize = Math.max(6, Math.min(9, seatSz - 2));
@@ -702,7 +705,9 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
         html += '<div style="position:relative;width:' + unit.toFixed(1) + 'px;height:' + unit.toFixed(1) + 'px;flex-shrink:0">';
         html += '<div style="position:absolute;left:' + ((unit - dia) / 2).toFixed(1) + 'px;top:' + ((unit - dia) / 2).toFixed(1) + 'px;width:' + dia.toFixed(1) + 'px;height:' + dia.toFixed(1) + 'px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, fsize - 1) + 'px;font-weight:700;color:#92400e">' + tableNum + '</div>';
         for (var si = 0; si < seatN; si++) {
-          var ang = -Math.PI / 2 + si * (2 * Math.PI / seatN);
+          var step = 2 * Math.PI / seatN;
+          // 1 号固定在正上方（中式主位）；ccw 时主位右手边为 2 号
+          var ang = BANQUET_DIR === 'cw' ? (-Math.PI / 2 + si * step) : (-Math.PI / 2 - si * step);
           var scx = unit / 2 + ringR * Math.cos(ang);
           var scy = unit / 2 + ringR * Math.sin(ang);
           var seatNum = group[si];
@@ -712,6 +717,7 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
         html += '</div>';
       } else {
         var topCount = Math.ceil(seatN / 2);
+        var myTableW = Math.ceil(seatN / 2) * seatSz + 6; // 每桌按自身人数定桌宽
         html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
         // 上排座位（均分上半）
         html += '<div style="display:flex;gap:1px">';
@@ -722,7 +728,7 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
         }
         html += '</div>';
         // 桌子
-        html += '<div style="width:' + tableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, fsize - 1) + 'px;font-weight:700;color:#92400e;margin:' + Math.max(2, Math.floor(tableH * 0.3)) + 'px 0">桌' + tableNum + '</div>';
+        html += '<div style="width:' + myTableW + 'px;height:' + tableH + 'px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:' + Math.max(6, fsize - 1) + 'px;font-weight:700;color:#92400e;margin:' + Math.max(2, Math.floor(tableH * 0.3)) + 'px 0">桌' + tableNum + '</div>';
         // 下排座位（均分下半）
         html += '<div style="display:flex;gap:1px">';
         for (var si = topCount; si < seatN; si++) {

@@ -603,6 +603,10 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
   sheetModes = sheetModes || {};
   options = options || {};
   const banquetSeatsPerTable = Math.max(1, Math.min(30, parseInt(options.banquetSeatsPerTable, 10) || 10));
+  // 每桌人数覆盖：{"1":20} —— 仅宴会桌式使用，未列出的桌沿用 banquetSeatsPerTable
+  const banquetTableSeats = (options.banquetTableSeats && typeof options.banquetTableSeats === 'object' && !Array.isArray(options.banquetTableSeats))
+    ? options.banquetTableSeats
+    : {};
   const excelAttendees = [];
   const result = { venues: [], attendees: [] };
 
@@ -638,7 +642,7 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
     // 宴会桌式模式：直接执行宴会桌检测，跳过所有其他逻辑
     // ================================================================
     if (sheetMode === 'banquet') {
-      const bResult = detectBanquetLayout(data, venueId, venue, excelAttendees, banquetSeatsPerTable);
+      const bResult = detectBanquetLayout(data, venueId, venue, excelAttendees, banquetSeatsPerTable, banquetTableSeats);
       if (bResult && bResult.rows.length > 0) {
         venue.rows = bResult.rows;
         venue.layout = bResult.layout || sheetMode;
@@ -2149,8 +2153,19 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
  * 特征：行中有"第X排"标签（如第一排、第二排、第1排），同行数字为桌子号码。
  * 每张桌子自动生成 N 个座位（N 可配置，默认10人一桌），座位号全局顺序编号。
  */
-function detectBanquetLayout(data, venueId, venue, excelAttendees, seatsPerTable) {
+function detectBanquetLayout(data, venueId, venue, excelAttendees, seatsPerTable, tableSeatOverrides) {
   const perTable = Math.max(1, Math.min(30, parseInt(seatsPerTable, 10) || 10));
+  // 每桌人数覆盖表：{ 桌号: 人数 }，未列出的桌用 perTable
+  const overrides = {};
+  if (tableSeatOverrides && typeof tableSeatOverrides === 'object' && !Array.isArray(tableSeatOverrides)) {
+    Object.keys(tableSeatOverrides).forEach(k => {
+      const tn = parseInt(k, 10);
+      const n = parseInt(tableSeatOverrides[k], 10);
+      if (Number.isFinite(tn) && tn > 0 && Number.isFinite(n) && n >= 1) {
+        overrides[tn] = Math.min(30, n);
+      }
+    });
+  }
   const result = { rows: [], attendees: [], layout: 'banquet' };
 
   // 收集所有包含"第X排"标签的行
@@ -2180,21 +2195,25 @@ function detectBanquetLayout(data, venueId, venue, excelAttendees, seatsPerTable
     return aNum - bNum;
   });
 
-  // 每排每张桌子独立为一个seatGroup（6个座位：上3下3），座位号全局顺序编号
+  // 每排每张桌子独立为一个seatGroup，座位号全局顺序编号；每桌人数可取覆盖值
   let seatCounter = 1;
   for (const entry of rowEntries) {
     const groups = [];
+    const groupSizes = [];
     for (const tn of entry.tableNums) {
+      const n = overrides[tn] || perTable;
       const tableSeats = [];
-      for (let s = 0; s < perTable; s++) {
+      for (let s = 0; s < n; s++) {
         tableSeats.push(seatCounter++);
       }
       groups.push(tableSeats);
+      groupSizes.push(n);
     }
     result.rows.push({
       label: entry.label,
       seatGroups: groups,
-      tableNums: entry.tableNums
+      tableNums: entry.tableNums,
+      seatCounts: groupSizes
     });
   }
 

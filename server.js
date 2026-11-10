@@ -7,6 +7,7 @@ const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
 const helmet = require('helmet');
 const { parseWorkbook, detectSheetMode } = require('./parse-excel');
+const svgExport = require('./svg-export');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -471,6 +472,167 @@ function banquetTableShape() {
   return s === 'square' ? 'square' : 'round';
 }
 
+// 宴会桌编号方向：ccw=逆时针（1号在正上方主位，符合中式惯例，默认），cw=顺时针
+function banquetNumberDirection() {
+  const d = readConfig().banquetNumberDirection;
+  return d === 'cw' ? 'cw' : 'ccw';
+}
+
+// 会场级每桌人数覆盖 { 桌号: 人数 }，解析 Excel 时使用；未列出的桌走全局默认
+function resolveVenueTableSeats(venue) {
+  const raw = venue && venue.banquetTableSeats;
+  const out = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    Object.keys(raw).forEach(k => {
+      const tn = parseInt(k, 10);
+      const n = parseInt(raw[k], 10);
+      if (Number.isFinite(tn) && tn > 0 && Number.isFinite(n) && n >= 1) {
+        out[tn] = Math.min(30, n);
+      }
+    });
+  }
+  return out;
+}
+
+// 宴会桌常量
+const BANQUET_TABLE_BODY_H = 40;
+const BANQUET_SEAT_TABLE_GAP = 12;
+const BANQUET_TABLE_GAP = 100;
+
+/**
+ * 按"桌号 + 桌内座号"定位座位（宴会桌式专用）
+ * 名单里每桌座位号从 1 开始时，用它换算成场内的连续座位号
+ * @returns {{row:string, seat:number, tableNum:number, seatInTable:number}|null}
+ */
+function resolveBanquetSeat(venue, tableNum, seatInTable) {
+  if (!venue || venue.layout !== 'banquet') return null;
+  const tn = parseInt(tableNum, 10);
+  const sn = parseInt(seatInTable, 10);
+  if (!Number.isFinite(tn) || !Number.isFinite(sn) || sn < 1) return null;
+
+  const rows = venue.rows || [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const gi = (row.tableNums || []).indexOf(tn);
+    if (gi < 0) continue;
+    const g = (row.seatGroups || [])[gi] || [];
+    if (sn > g.length) return null; // 桌号存在但该桌没有这个座号
+    return { row: row.label, seat: g[sn - 1], tableNum: tn, seatInTable: sn };
+  }
+  return null;
+}
+
+/**
+ * 宴会桌单桌度量：按该桌实际人数计算占位宽高
+ * 圆桌保证相邻座位中心距 = seatW + 24，座位数越多环越大
+ * @param {number} n 该桌座位数
+ * @param {'round'|'square'} shape
+ * @param {{seatW?:number, seatH?:number, seatGap?:number}} base 方形桌沿用的全局座位尺寸
+ */
+function banquetTableMetrics(n, shape, base) {
+  const cnt = Math.max(1, Math.floor(Number(n) || 1));
+  const b = base || {};
+  const gap = Number.isFinite(b.seatGap) ? b.seatGap : 8;
+
+  if (shape === 'square') {
+    const sw = Number.isFinite(b.seatW) ? b.seatW : 60;
+    const sh = Number.isFinite(b.seatH) ? b.seatH : 30;
+    const side = Math.max(1, Math.ceil(cnt / 2));
+    const tableBodyW = side * sw + Math.max(0, side - 1) * gap;
+    return {
+      seatW: sw,
+      seatH: sh,
+      tableBodyW,
+      w: tableBodyW,
+      h: sh * 2 + BANQUET_TABLE_BODY_H + BANQUET_SEAT_TABLE_GAP * 2
+    };
+  }
+
+  const seatW = Math.min(160, Math.max(110, Math.floor(900 / Math.max(cnt, 3))));
+  const seatH = Math.max(46, Math.round(seatW * 0.52));
+  const ringR = cnt >= 3 ? (seatW + 24) / (2 * Math.sin(Math.PI / cnt)) : seatW;
+  return {
+    seatW,
+    seatH,
+    ringR,
+    w: 2 * ringR + seatW,
+    h: 2 * ringR + seatH
+  };
+}
+
+/**
+ * 宴会桌座位极角：1 号固定在正上方（中式主位，面向全场）
+ * ccw=逆时针（主位右手边为 2 号，符合中式礼仪），cw=顺时针
+ */
+function banquetSeatAngle(si, n, direction) {
+  const step = (2 * Math.PI) / Math.max(1, n);
+  return direction === 'cw'
+    ? -Math.PI / 2 + si * step
+    : -Math.PI / 2 - si * step;
+}
+
+/**
+ * 按"每桌人数"重建宴会会场的座位组，并把已有参会人的座位号迁移到新编号
+ * 座位号仍为全场连续编号（内部标识），桌内座号由数组下标推出
+ * @returns {{ relocated: number, displaced: string[] }} displaced 为原座位已不存在、需重新安排的人
+ */
+function rebuildBanquetSeats(data, venue, overrides, defaultSeats) {
+  const rows = venue.rows || [];
+  const fallback = Math.max(1, Math.min(30, parseInt(defaultSeats, 10) || 10));
+
+  // 1. 旧座位号 → 所属桌号 + 桌内序号
+  const oldPos = {};
+  rows.forEach(row => {
+    (row.seatGroups || []).forEach((g, gi) => {
+      const tn = (row.tableNums || [])[gi] || 0;
+      (g || []).forEach((sn, idx) => { oldPos[sn] = { table: tn, idx: idx + 1 }; });
+    });
+  });
+
+  // 2. 重建座位组（全场连续编号）
+  let counter = 1;
+  const newSeatOf = {};
+  rows.forEach(row => {
+    const groups = [];
+    const counts = [];
+    (row.tableNums || []).forEach(tn => {
+      const n = overrides[tn] || fallback;
+      const arr = [];
+      for (let s = 1; s <= n; s++) {
+        arr.push(counter);
+        newSeatOf[tn + '_' + s] = counter;
+        counter++;
+      }
+      groups.push(arr);
+      counts.push(n);
+    });
+    row.seatGroups = groups;
+    row.seatCounts = counts;
+  });
+  venue.totalSeats = counter - 1;
+
+  // 3. 迁移参会人：桌号 + 桌内序号不变，座位号跟随重排
+  let relocated = 0;
+  const displaced = [];
+  (data.attendees || []).forEach(a => {
+    if (a.venueId !== venue.id) return;
+    const info = oldPos[a.seat];
+    if (!info) return;
+    const ns = newSeatOf[info.table + '_' + info.idx];
+    if (ns === undefined) {
+      // 该桌人数被调小，原座号已不存在：清空座位，留在名单里等管理员重新安排
+      displaced.push(a.name);
+      a.seat = '';
+      a.row = '';
+    } else if (ns !== a.seat) {
+      a.seat = ns;
+      relocated++;
+    }
+  });
+
+  return { relocated, displaced };
+}
+
 // ==================== 系统配置 API ====================
 
 // 获取系统标题（公开）
@@ -482,14 +644,15 @@ app.get('/api/site-config', (req, res) => {
     siteTitleEn: config.siteTitleEn || '',
     siteSubtitleEn: config.siteSubtitleEn || '',
     banquetSeatsPerTable: config.banquetSeatsPerTable || 10,
-    banquetTableShape: config.banquetTableShape || 'round'
+    banquetTableShape: config.banquetTableShape || 'round',
+    banquetNumberDirection: config.banquetNumberDirection === 'cw' ? 'cw' : 'ccw'
   });
 });
 
 // 修改系统标题（需认证）
 app.put('/api/site-config', requireAdmin, (req, res) => {
   const config = readConfig();
-  const { siteTitle, siteSubtitle, siteTitleEn, siteSubtitleEn, banquetSeatsPerTable, banquetTableShape } = req.body;
+  const { siteTitle, siteSubtitle, siteTitleEn, siteSubtitleEn, banquetSeatsPerTable, banquetTableShape, banquetNumberDirection } = req.body;
   if (siteTitle !== undefined) config.siteTitle = siteTitle.trim();
   if (siteSubtitle !== undefined) config.siteSubtitle = siteSubtitle.trim();
   if (siteTitleEn !== undefined) config.siteTitleEn = siteTitleEn.trim();
@@ -501,8 +664,11 @@ app.put('/api/site-config', requireAdmin, (req, res) => {
   if (banquetTableShape !== undefined) {
     config.banquetTableShape = banquetTableShape === 'square' ? 'square' : 'round';
   }
+  if (banquetNumberDirection !== undefined) {
+    config.banquetNumberDirection = banquetNumberDirection === 'cw' ? 'cw' : 'ccw';
+  }
   writeConfig(config);
-  res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle, siteTitleEn: config.siteTitleEn, siteSubtitleEn: config.siteSubtitleEn, banquetSeatsPerTable: config.banquetSeatsPerTable || 10, banquetTableShape: config.banquetTableShape || 'round' });
+  res.json({ ok: true, siteTitle: config.siteTitle, siteSubtitle: config.siteSubtitle, siteTitleEn: config.siteTitleEn, siteSubtitleEn: config.siteSubtitleEn, banquetSeatsPerTable: config.banquetSeatsPerTable || 10, banquetTableShape: config.banquetTableShape || 'round', banquetNumberDirection: config.banquetNumberDirection === 'cw' ? 'cw' : 'ccw' });
 });
 
 // 修改主办方密码（管理员专属）
@@ -972,6 +1138,19 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     const seatWidth = parseInt(req.query.seatW) || (baseFontSize * 4 + 40);
     const seatHeight = parseInt(req.query.seatH) || Math.round(baseFontSize * 3.0);
 
+    // 导出参数：format=svg|pdf|png  venue=<会场id|all>  outline=1（文字转曲）  scale=<PNG缩放>
+    const format = String(req.query.format || 'svg').toLowerCase();
+    const outline = req.query.outline === '1' || req.query.outline === 'true';
+    const venueFilter = req.query.venue && req.query.venue !== 'all' ? String(req.query.venue) : '';
+    const pngScale = parseFloat(req.query.scale) || 1;
+
+    let exportVenues = data.venues;
+    if (venueFilter) {
+      const picked = data.venues.filter((v) => v.id === venueFilter || v.name === venueFilter);
+      if (!picked.length) return res.status(404).json({ error: '未找到会场: ' + venueFilter });
+      exportVenues = picked;
+    }
+
     // 双语标签辅助函数：中文 + 英文（等大字体，第二行）
     function bilingualLabel(cnText, x, y, anchor, fontSize, color) {
       let html = `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="${color || '#ef4444'}" font-size="${fontSize}" font-weight="bold">${escXml(cnText)}</text>`;
@@ -1118,7 +1297,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     const stageHeight = 80;
     const aisleHeight = 30;
     let totalHeight = margin; // 顶部边距
-    data.venues.forEach(venue => {
+    exportVenues.forEach(venue => {
       // 舞台 + 标题区域
       totalHeight += stageHeight + 30 + 120 + seatHeight + rowGap;
       if ((venue.layout === 'u-shape' || venue.layout === 'hui-shape') && venue.rows && venue.rows.length > 0) {
@@ -1143,18 +1322,18 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         }
         totalHeight += 60; // 底部间距
       } else if (venue.layout === 'banquet' && venue.rows && venue.rows.length > 0) {
-        // 宴会桌高度：圆形为一圈座位，方形为上下两排
-        let bqMaxN = 1;
-        venue.rows.forEach(r2 => (r2.seatGroups || []).forEach(g => { bqMaxN = Math.max(bqMaxN, (g || []).length); }));
-        if (banquetTableShape() === 'round') {
-          const bqSeatW = Math.min(160, Math.max(110, Math.floor(900 / Math.max(bqMaxN, 3))));
-          const bqSeatH = Math.max(46, Math.round(bqSeatW * 0.52));
-          const bqRingR = bqMaxN >= 3 ? (bqSeatW + 24) / (2 * Math.sin(Math.PI / bqMaxN)) : bqSeatW;
-          totalHeight += venue.rows.length * (2 * bqRingR + bqSeatH + rowGap);
-        } else {
-          const bTableH = seatHeight + 12 + 40 + 12 + seatHeight + rowGap;
-          venue.rows.forEach(() => { totalHeight += bTableH; });
-        }
+        // 宴会桌高度：每排取该排最高的桌（每桌人数可能不同）
+        const bqShapeH = banquetTableShape() === 'square' ? 'square' : 'round';
+        const bqBaseH = { seatW: seatWidth, seatH: seatHeight, seatGap };
+        venue.rows.forEach(r2 => {
+          const groups = r2.seatGroups || [];
+          if (groups.length === 0) { totalHeight += 30; return; }
+          let rowH = 0;
+          groups.forEach(g => {
+            rowH = Math.max(rowH, banquetTableMetrics((g || []).length, bqShapeH, bqBaseH).h);
+          });
+          totalHeight += rowH + rowGap;
+        });
       } else if (venue.rows && venue.rows.length > 0) {
         // 普通渲染方式的高度计算：每行 = seatHeight + rowGap + 可能的过道
         venue.rows.forEach(row => {
@@ -1170,7 +1349,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
     // 计算最大宽度
     let maxWidth = 0;
-    data.venues.forEach(venue => {
+    exportVenues.forEach(venue => {
       if ((venue.layout === 'u-shape' || venue.layout === 'hui-shape') && venue.rows) {
          // 位置结构法：以/第.+列/为锚点分拆
          var firstArmW = -1, lastArmW = -1;
@@ -1239,7 +1418,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
     let y = margin;
 
-    data.venues.forEach((venue) => {
+    exportVenues.forEach((venue) => {
       const venueAttendees = data.attendees.filter(a => a.venueId === venue.id);
       const attendeeMap = {};
       venueAttendees.forEach(a => {
@@ -1498,70 +1677,57 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         return;
       }
 
-      // 宴会桌式SVG渲染：圆形（座位绕桌一圈，默认）或方形（上下两排）
+      // 宴会桌式SVG渲染：每桌按自身人数计算尺寸，行内流式排布
+      // 1 号座位固定在正上方（中式主位），编号方向由 banquetNumberDirection() 决定
       if (venue.layout === 'banquet') {
-        const bqRound = banquetTableShape() === 'round';
-        const tSeatGap = seatGap;
-        const tableBodyH = 40;
-        const tableGap = 100;
-        const seatTableGap = 12;
+        const bqShape = banquetTableShape() === 'square' ? 'square' : 'round';
+        const bqRound = bqShape === 'round';
+        const bqDir = banquetNumberDirection();
+        const bqBase = { seatW: seatWidth, seatH: seatHeight, seatGap };
 
-        let maxN = 1;
-        venue.rows.forEach(row => (row.seatGroups || []).forEach(g => { maxN = Math.max(maxN, (g || []).length); }));
-
-        let tSeatW, tSeatH, unitW, unitH, tableBodyW;
-        if (bqRound) {
-          tSeatW = Math.min(160, Math.max(110, Math.floor(900 / Math.max(maxN, 3))));
-          tSeatH = Math.max(46, Math.round(tSeatW * 0.52));
-          const ringR0 = maxN >= 3 ? (tSeatW + 24) / (2 * Math.sin(Math.PI / maxN)) : tSeatW;
-          unitW = 2 * ringR0 + tSeatW;
-          unitH = 2 * ringR0 + tSeatH;
-          tableBodyW = unitW;
-        } else {
-          tSeatW = seatWidth;
-          tSeatH = seatHeight;
-          const maxSide = Math.max(1, Math.ceil(maxN / 2));
-          tableBodyW = maxSide * tSeatW + (maxSide - 1) * tSeatGap;
-          unitW = tableBodyW;
-          unitH = tSeatH + seatTableGap + tableBodyH + seatTableGap + tSeatH;
-        }
-
-        let maxRowWidth = 0;
-        venue.rows.forEach(row => {
+        // 预计算每排：各桌度量、行宽、行高（每桌用自己的尺寸，不再统一按最大桌）
+        const bqRows = venue.rows.map(row => {
           const groups = row.seatGroups || [];
-          if (groups.length === 0) return;
-          maxRowWidth = Math.max(maxRowWidth, groups.length * unitW + (groups.length - 1) * tableGap);
+          const metrics = groups.map(g => banquetTableMetrics((g || []).length, bqShape, bqBase));
+          const rowW = metrics.reduce((s, m) => s + m.w, 0) + Math.max(0, metrics.length - 1) * BANQUET_TABLE_GAP;
+          const rowH = metrics.reduce((s, m) => Math.max(s, m.h), 0);
+          return { row, groups, metrics, rowW, rowH };
         });
-        svgWidth = Math.max(svgWidth, maxRowWidth + 500, 1300);
+        const bqMaxW = bqRows.reduce((s, r) => Math.max(s, r.rowW), 0);
+        svgWidth = Math.max(svgWidth, bqMaxW + 500, 1300);
 
-        venue.rows.forEach(row => {
-          const groups = row.seatGroups || [];
+        bqRows.forEach(({ row, groups, metrics, rowW, rowH }) => {
           if (groups.length === 0) { y += 30; return; }
 
-          const rowWidth = groups.length * unitW + (groups.length - 1) * tableGap;
-          const rowStartX = Math.max(200, (svgWidth - rowWidth) / 2);
+          const rowStartX = Math.max(200, (svgWidth - rowW) / 2);
           const rowLabel = row.label || '';
 
-          const labelY = y + unitH / 2 + 6;
+          const labelY = y + rowH / 2 + 6;
           svgContent += `  ` + bilingualLabel(rowLabel, rowStartX - 16, labelY, 'end', 36, '#ef4444') + `\n`;
-          svgContent += `  ` + bilingualLabel(rowLabel, rowStartX + rowWidth + 16, labelY, 'start', 36, '#ef4444') + `\n`;
+          svgContent += `  ` + bilingualLabel(rowLabel, rowStartX + rowW + 16, labelY, 'start', 36, '#ef4444') + `\n`;
 
+          let cursorX = rowStartX;
           groups.forEach((group, gi) => {
-            const tx = rowStartX + gi * (unitW + tableGap);
+            const m = metrics[gi];
             const tableNum = (row.tableNums || [])[gi] || 0;
             const n = group.length;
+            const tx = cursorX;
+            const ty = y + (rowH - m.h) / 2; // 矮桌在本排内垂直居中
+            const tSeatW = m.seatW;
+            const tSeatH = m.seatH;
+            cursorX += m.w + BANQUET_TABLE_GAP;
 
             if (bqRound) {
-              const cx = tx + unitW / 2;
-              const cy = y + unitH / 2;
-              const ringR = n >= 3 ? (tSeatW + 24) / (2 * Math.sin(Math.PI / n)) : tSeatW;
+              const cx = tx + m.w / 2;
+              const cy = ty + m.h / 2;
+              const ringR = m.ringR;
               const circleR = Math.max(30, ringR - tSeatH / 2 - 15);
 
               svgContent += `  <circle cx="${cx}" cy="${cy}" r="${circleR}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3"/>\n`;
               svgContent += `  <text x="${cx}" y="${cy + 10}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}` + (showEn ? '  Table ' + tableNum : '') + `</text>\n`;
 
               for (let si = 0; si < n; si++) {
-                const ang = -Math.PI / 2 + si * (2 * Math.PI / n);
+                const ang = banquetSeatAngle(si, n, bqDir);
                 const scx = cx + ringR * Math.cos(ang);
                 const scy = cy + ringR * Math.sin(ang);
                 const sx = scx - tSeatW / 2;
@@ -1578,6 +1744,10 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 }
               }
             } else {
+              const tSeatGap = seatGap;
+              const tableBodyW = m.tableBodyW;
+              const tableBodyH = BANQUET_TABLE_BODY_H;
+              const seatTableGap = BANQUET_SEAT_TABLE_GAP;
               const topCount = Math.ceil(n / 2);
               const bottomCount = n - topCount;
 
@@ -1586,7 +1756,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
               for (let si = 0; si < topCount; si++) {
                 const seatNum = group[si];
                 const sx = tx + topOffset + si * (tSeatW + tSeatGap);
-                const topSeatY = y;
+                const topSeatY = ty;
                 const name = attendeeMap[rowLabel + '_' + seatNum];
                 const fill = name ? '#dbeafe' : '#ffffff';
 
@@ -1598,7 +1768,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
                 }
               }
 
-              const tby = y + tSeatH + seatTableGap;
+              const tby = ty + tSeatH + seatTableGap;
               svgContent += `  <rect x="${tx}" y="${tby}" width="${tableBodyW}" height="${tableBodyH}" fill="#fef3c7" stroke="#f59e0b" stroke-width="3" rx="8"/>\n`;
               svgContent += `  <text x="${tx + tableBodyW / 2}" y="${tby + tableBodyH / 2 + 8}" text-anchor="middle" fill="#92400e" font-size="28" font-weight="bold">桌${tableNum}` + (showEn ? '  Table ' + tableNum : '') + `</text>\n`;
 
@@ -1621,9 +1791,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
             }
           });
 
-          y += unitH + rowGap;
+          y += rowH + rowGap;
         });
-        svgWidth = Math.max(svgWidth, maxRowWidth + 500, 1300);
         svgContent += renderRegionOverlays(venue, regionSeatPositions);
         return;
       }
@@ -2078,12 +2247,66 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
 
     svgContent += '</svg>';
 
-    const filename = `${siteTitle}_座位布局图.svg`;
-    const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+    // 单会场导出：按实际内容裁掉四周空白（只改 viewBox，元素坐标不动）
+    // 需要字体参与文字包围盒计算，缺字体时保守跳过，避免裁掉左右两侧的排标签
+    if (venueFilter && svgExport.hasPdfSupport()) {
+      svgContent = svgExport.trimSvg(svgContent, 40);
+    }
+
+    // 文件名：单会场时带上会场名
+    const venueName = venueFilter ? (exportVenues[0].name || '会场') : '';
+    const baseName = (venueName ? `${siteTitle}_${venueName}` : siteTitle) + '_座位布局图';
+    const encodeName = (full) => encodeURIComponent(full).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+
+    if (format === 'pdf' || format === 'png') {
+      // 这两种格式不依赖打开端的字体，但需要服务器暴露中文字体信息
+      if (!svgExport.hasPdfSupport()) {
+        return res.status(501).json({
+          error: '服务器缺少 fontkit 或中文字体，无法导出 PDF/PNG。请安装 fontkit，或用环境变量 SEAT_OUTLINE_FONT 指定字体文件路径。'
+        });
+      }
+      if (format === 'png' && !svgExport.hasPngSupport()) {
+        return res.status(501).json({ error: '服务器未安装 sharp，无法导出 PNG。' });
+      }
+    }
+
+    if (format === 'pdf') {
+      const { pdf } = svgExport.svgToPdf(svgContent);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="seating-layout.pdf"; filename*=UTF-8''${encodeName(baseName + '.pdf')}`);
+      res.setHeader('Content-Length', pdf.length);
+      return res.send(pdf);
+    }
+
+    if (format === 'png') {
+      const result = outline ? svgExport.outlineSvgText(svgContent).svg : svgContent;
+      return svgExport.svgToPng(result, pngScale)
+        .then((png) => {
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('Content-Disposition', `attachment; filename="seating-layout.png"; filename*=UTF-8''${encodeName(baseName + '.png')}`);
+          res.setHeader('Content-Length', png.length);
+          res.send(png);
+        })
+        .catch((err) => {
+          res.status(500).json({ error: 'PNG 导出失败: ' + err.message });
+        });
+    }
+
+    // SVG（默认）：outline=1 时把文字转成轮廓
+    let svgOut = svgContent;
+    if (outline) {
+      if (!svgExport.hasPdfSupport()) {
+        return res.status(501).json({
+          error: '服务器缺少 fontkit 或中文字体，无法转曲。请安装 fontkit，或用环境变量 SEAT_OUTLINE_FONT 指定字体文件路径。'
+        });
+      }
+      svgOut = svgExport.outlineSvgText(svgContent).svg;
+    }
+
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="seating-layout.svg"; filename*=UTF-8''${encodedFilename}`);
-    res.setHeader('Content-Length', Buffer.byteLength(svgContent, 'utf8'));
-    res.send(svgContent);
+    res.setHeader('Content-Disposition', `attachment; filename="seating-layout.svg"; filename*=UTF-8''${encodeName(baseName + '.svg')}`);
+    res.setHeader('Content-Length', Buffer.byteLength(svgOut, 'utf8'));
+    res.send(svgOut);
   } catch (err) {
     structuredLog('error', { message: 'SVG 导出失败', error: err.message, stack: err.stack });
     res.status(500).json({ error: '导出失败: ' + err.message });
@@ -3039,7 +3262,7 @@ app.put('/api/venues/:id', requireAdmin, (req, res) => {
   const data = readData();
   const venue = data.venues.find(v => v.id === req.params.id);
   if (!venue) return res.status(404).json({ error: '场馆不存在' });
-  const { name, description, location, eventTime } = req.body;
+  const { name, description, location, eventTime, banquetTableSeats } = req.body;
   if (name !== undefined) {
     const trimmed = String(name).trim();
     if (!trimmed) return res.status(400).json({ error: '会场名称不能为空' });
@@ -3051,11 +3274,36 @@ app.put('/api/venues/:id', requireAdmin, (req, res) => {
   if (loc !== undefined) venue.location = loc;
   const time = cleanVenueMetaValue(eventTime);
   if (time !== undefined) venue.eventTime = time;
+
+  // 宴会桌每桌人数覆盖 { 桌号: 人数 }；显式传空对象即恢复为全部默认
+  let rebuildInfo = null;
+  if (banquetTableSeats !== undefined) {
+    if (venue.layout !== 'banquet') {
+      return res.status(400).json({ error: '仅宴会桌式会场支持按桌设置人数' });
+    }
+    const cleaned = {};
+    if (banquetTableSeats && typeof banquetTableSeats === 'object' && !Array.isArray(banquetTableSeats)) {
+      Object.keys(banquetTableSeats).forEach(k => {
+        const tn = parseInt(k, 10);
+        const n = parseInt(banquetTableSeats[k], 10);
+        if (Number.isFinite(tn) && tn > 0 && Number.isFinite(n) && n >= 1) {
+          cleaned[tn] = Math.min(30, n);
+        }
+      });
+    }
+    if (Object.keys(cleaned).length > 0) venue.banquetTableSeats = cleaned;
+    else delete venue.banquetTableSeats;
+
+    // 配置只是"意图"，必须重建座位组，图与查座才会跟着变
+    rebuildInfo = rebuildBanquetSeats(data, venue, cleaned, banquetSeatsPerTable());
+  }
+
   writeData(data);
   auditLog('UPDATE_VENUE', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
-    venueId: venue.id, venueName: venue.name, location: venue.location || '', eventTime: venue.eventTime || ''
+    venueId: venue.id, venueName: venue.name, location: venue.location || '', eventTime: venue.eventTime || '',
+    ...(rebuildInfo ? { banquetTableSeats: venue.banquetTableSeats || {}, relocated: rebuildInfo.relocated, displaced: rebuildInfo.displaced.length } : {})
   });
-  res.json({ ok: true, venue });
+  res.json({ ok: true, venue, ...(rebuildInfo || {}) });
 });
 
 // 应用增量变动
@@ -3880,35 +4128,54 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
       const sheetName = workbook.SheetNames[0];
       const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
 
+      // 识别表头列：优先按关键字定位（支持"桌号"列），识别不到则退回固定列序 姓名|单位|职务|排|座号
       let startRow = 0;
-      // 寻找数据起始行
-      for (let i = 0; i < sheetData.length; i++) {
+      let cols = { name: 0, company: 1, title: 2, row: 3, seat: 4, table: -1 };
+      for (let i = 0; i < Math.min(sheetData.length, 10); i++) {
         const row = sheetData[i];
-        if (row.length > 0 && row[0] && (typeof row[0] === 'string' && (row[0].includes('姓名') || row[0].includes('name')))) {
+        if (!Array.isArray(row) || row.length === 0) continue;
+        const idx = { name: -1, company: -1, title: -1, row: -1, seat: -1, table: -1 };
+        row.forEach((c, ci) => {
+          const s = String(c == null ? '' : c).trim();
+          if (!s || s.length > 12) return;
+          if (idx.name < 0 && /姓名|name/i.test(s)) idx.name = ci;
+          else if (idx.company < 0 && /单位|公司|company|organi/i.test(s)) idx.company = ci;
+          else if (idx.title < 0 && /职务|职位|title|position/i.test(s)) idx.title = ci;
+          else if (idx.table < 0 && /桌|table/i.test(s)) idx.table = ci;
+          else if (idx.seat < 0 && /座|席位|seat/i.test(s)) idx.seat = ci;
+          else if (idx.row < 0 && /排|区域|row/i.test(s)) idx.row = ci;
+        });
+        if (idx.name >= 0) {
+          cols = {
+            name: idx.name,
+            company: idx.company,
+            title: idx.title,
+            row: idx.row,
+            seat: idx.seat,
+            table: idx.table
+          };
           startRow = i + 1;
           break;
         }
       }
 
+      const pick = (row, ci) => (ci >= 0 && row[ci] != null) ? String(row[ci]).trim() : '';
+
       // 解析每行数据
       for (let i = startRow; i < sheetData.length; i++) {
         const row = sheetData[i];
         if (!row || row.length === 0) continue;
-        
-        const name = row[0] ? String(row[0]).trim() : '';
-        if (!name) continue;
 
-        const company = row[1] ? String(row[1]).trim() : '';
-        const title = row[2] ? String(row[2]).trim() : '';
-        const rowLabel = row[3] ? String(row[3]).trim() : '';
-        const seatNum = row[4] ? String(row[4]).trim() : '';
+        const name = pick(row, cols.name);
+        if (!name) continue;
 
         attendeesToImport.push({
           name,
-          company,
-          title,
-          row: rowLabel,
-          seat: seatNum
+          company: pick(row, cols.company),
+          title: pick(row, cols.title),
+          row: pick(row, cols.row),
+          seat: pick(row, cols.seat),
+          table: pick(row, cols.table)
         });
       }
     }
@@ -3923,7 +4190,8 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
           company: item.company || '',
           title: item.title || '',
           row: item.row || '',
-          seat: item.seat || ''
+          seat: item.seat || '',
+          table: (item.table !== undefined && item.table !== null) ? String(item.table) : ''
         };
       });
     }
@@ -3938,6 +4206,9 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
 
     const imported = [];
     const duplicates = [];
+    const unresolved = [];
+    const targetVenue = venueId ? data.venues.find(v => v.id === venueId) : null;
+    const isBanquetTarget = !!(targetVenue && targetVenue.layout === 'banquet');
 
     attendeesToImport.forEach(item => {
       const trimmedName = item.name.trim();
@@ -3949,14 +4220,32 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
         return;
       }
 
+      let seatRow = item.row || '';
+      let seatVal = item.seat || '';
+
+      // 宴会桌式：名单给的是"桌号 + 桌内座号（每桌从 1 开始）"，
+      // 换算成场内的连续座位号再存储，查座逻辑无需改动
+      if (isBanquetTarget && item.table !== undefined && String(item.table).trim() !== '') {
+        const hit = resolveBanquetSeat(targetVenue, item.table, item.seat);
+        if (hit) {
+          seatRow = hit.row;
+          seatVal = hit.seat;
+        } else {
+          unresolved.push(trimmedName + '（第 ' + String(item.table).trim() + ' 桌 ' + String(item.seat).trim() + ' 号）');
+          return;
+        }
+      }
+
+      const seatNumeric = parseInt(String(seatVal).replace(/[^\d]/g, ''), 10);
+
       const newAttendee = {
         id: 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
         name: trimmedName,
         company: item.company || '',
         title: item.title || '',
-        venueId: (item.row && item.seat) ? venueId || '' : '',
-        row: item.row || '',
-        seat: item.seat || '',
+        venueId: (seatRow && Number.isFinite(seatNumeric)) ? venueId || '' : '',
+        row: seatRow,
+        seat: Number.isFinite(seatNumeric) ? seatNumeric : '',
         source: 'manual'
       };
 
@@ -3967,10 +4256,11 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
     writeData(data);
     auditLog('IMPORT_NAMES', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
       importedCount: imported.length,
-      duplicateCount: duplicates.length
+      duplicateCount: duplicates.length,
+      unresolvedCount: unresolved.length
     });
 
-    res.json({ ok: true, importedCount: imported.length, duplicates, attendees: data.attendees });
+    res.json({ ok: true, importedCount: imported.length, duplicates, unresolved, attendees: data.attendees });
   } catch (err) {
     structuredLog('error', { message: '导入名单失败', error: err.message, stack: err.stack });
     res.status(500).json({ error: '导入失败: ' + err.message });
