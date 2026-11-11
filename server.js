@@ -6,7 +6,7 @@ const XLSX = require('xlsx');
 const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
 const helmet = require('helmet');
-const { parseWorkbook, detectSheetMode } = require('./parse-excel');
+const { parseWorkbook, detectSheetMode, PLACEHOLDER_SEAT_RE } = require('./parse-excel');
 const svgExport = require('./svg-export');
 
 const app = express();
@@ -373,6 +373,19 @@ function cleanVenueMetaValue(val, maxLen) {
 const numToCn = { 1:'一',2:'二',3:'三',4:'四',5:'五',6:'六',7:'七',8:'八',9:'九',10:'十',
   11:'十一',12:'十二',13:'十三',14:'十四',15:'十五',16:'十六',17:'十七',18:'十八',19:'十九',20:'二十',21:'二十一' };
 
+// 座位占位文字（工作席/工作人员/媒体记者…）：并入渲染用的姓名映射，只影响显示，不算人
+function mergeSeatLabels(attendeeMap, venue) {
+  if (!attendeeMap || !venue || !Array.isArray(venue.rows)) return attendeeMap;
+  venue.rows.forEach(row => {
+    if (!row || !row.seatLabels) return;
+    Object.keys(row.seatLabels).forEach(seatNum => {
+      const key = row.label + '_' + seatNum;
+      if (!attendeeMap[key]) attendeeMap[key] = row.seatLabels[seatNum];
+    });
+  });
+  return attendeeMap;
+}
+
 // 规范化排名
 function normalizeRowLabel(raw) {
   if (!raw) return raw;
@@ -384,6 +397,13 @@ function normalizeRowLabel(raw) {
     let num = dirMatch[2];
     if (/^\d+$/.test(num)) num = numToCn[parseInt(num)] || num;
     return dirMatch[1] + '第' + num + dirMatch[3];
+  }
+
+  const rostrumMatch = s.match(/^(主席台|主席团)[第]?(\d+|[一二三四五六七八九十]+)[排]$/);
+  if (rostrumMatch) {
+    let num = rostrumMatch[2];
+    if (/^\d+$/.test(num)) num = numToCn[parseInt(num)] || num;
+    return rostrumMatch[1] + '第' + num + '排';
   }
 
   const sofaMatch = s.match(/^沙发[第]?(\d+|[一二三四五六七八九十]+)排?$/);
@@ -1020,6 +1040,7 @@ app.get('/api/export-seating', requireAdmin, (req, res) => {
         const key = `${a.row}_${a.seat}`;
         attendeeMap[key] = a.name;
       });
+      mergeSeatLabels(attendeeMap, venue);
 
       const sheetData = [];
       
@@ -1101,6 +1122,12 @@ function translateRowLabelSVG(label) {
   if (m) return dirs[m[1]] + ' ' + (m[3] === '列' ? 'Col' : 'Row') + ' ' + parseCn(m[2]);
   m = s.match(/^(前|后|左|右|内前|内后)(\d+|[一二三四五六七八九十]+)([排列])$/);
   if (m) return dirs[m[1]] + ' ' + (m[3] === '列' ? 'Col' : 'Row') + ' ' + parseCn(m[2]);
+  // 单独主席台/主席团（不带排号）
+  m = s.match(/^(主席台|主席团)区?$/);
+  if (m) return 'Rostrum';
+  // 主席台/主席团第X排
+  m = s.match(/^(主席台|主席团)[第]?([一二三四五六七八九十]+|\d+)[排]$/);
+  if (m) return 'Rostrum Row ' + parseCn(m[2]);
   // 楼层+沙发+第X排
   m = s.match(/^(一楼|二楼|三楼|四楼|五楼|六楼|七楼|八楼|九楼|十楼)沙发[第]?([一二三四五六七八九十]+|\d+)[排]$/);
   if (m) return floors[m[1]] + ' Row ' + parseCn(m[2]) + ' (Sofa)';
@@ -1424,6 +1451,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       venueAttendees.forEach(a => {
         attendeeMap[a.row + '_' + a.seat] = a.name;
       });
+      mergeSeatLabels(attendeeMap, venue);
       const regionSeatPositions = {}; // 记录座位坐标用于区域标注
 
       // 标题（会场名称在最上方）
@@ -2650,6 +2678,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       venueAttendees.forEach(a => {
         attendeeMap[a.row + '_' + a.seat] = a.name;
       });
+      mergeSeatLabels(attendeeMap, venue);
       
       // 自定义布局：根据 customRows 渲染干净矢量预览（使用实际位置）
       if (venue.layout === 'custom' && venue.customRows && venue.customRows.length > 0) {
@@ -4207,12 +4236,19 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
     const imported = [];
     const duplicates = [];
     const unresolved = [];
+    const skippedPlaceholders = [];
     const targetVenue = venueId ? data.venues.find(v => v.id === venueId) : null;
     const isBanquetTarget = !!(targetVenue && targetVenue.layout === 'banquet');
 
     attendeesToImport.forEach(item => {
       const trimmedName = item.name.trim();
       if (!trimmedName) return;
+
+      // 席位标签（工作席/工作人员/媒体记者…）不是人，跳过不导入
+      if (PLACEHOLDER_SEAT_RE.test(trimmedName)) {
+        skippedPlaceholders.push(trimmedName);
+        return;
+      }
 
       // 检查重复
       if (data.attendees.some(a => a.name === trimmedName)) {
@@ -4260,7 +4296,7 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
       unresolvedCount: unresolved.length
     });
 
-    res.json({ ok: true, importedCount: imported.length, duplicates, unresolved, attendees: data.attendees });
+    res.json({ ok: true, importedCount: imported.length, duplicates, unresolved, skippedPlaceholders, attendees: data.attendees });
   } catch (err) {
     structuredLog('error', { message: '导入名单失败', error: err.message, stack: err.stack });
     res.status(500).json({ error: '导入失败: ' + err.message });

@@ -87,6 +87,7 @@ function normalizeSeatNumber(value) {
 
 // 匹配各种排标签格式
 const ROW_PATTERNS = [
+  /^(主席台|主席团)\s*第?\s*(.+?)\s*[排]$/,    // 主席台第一排 / 主席团第2排 / 主席台1排
   /^(?:左|右|前|后|内|外)?第(.+)[排]$/,        // 第X排 / 前第一排 / 后第二排
   /^(?:左|右|前|后|内|外)?第(.+)[列]$/,        // 第X列 / 左第一列 / 右第二列
   /^(?:Row|ROW|row)\s*(\d+)$/i, // Row 1, ROW 1
@@ -98,13 +99,23 @@ const ROW_PATTERNS = [
   /^(.+)[楼](\d+)[排]$/,      // 一楼1排、二楼2排
 ];
 
+// 单独的主席台/主席团（不带排号），如「主席台」「主席团」「主席台区」
+const BARE_ROSTRUM_RE = /^(主席台|主席团)区?$/;
+
 function parseRowLabel(text) {
   if (!text || typeof text !== 'string') return null;
   const trimmed = text.trim();
-  
+
+  // 单独「主席台」视为主席台第一排（排号 0，排序时排在主席台区最前）
+  if (BARE_ROSTRUM_RE.test(trimmed)) return 0;
+
   for (const pattern of ROW_PATTERNS) {
     const match = trimmed.match(pattern);
     if (match) {
+      // 主席台/主席团第X排：排号在第 2 组
+      if (pattern.source.includes('主席台')) {
+        return parseChineseNumber(match[2]);
+      }
       // 组合格式：一楼第X排
       if (pattern.source.includes('[楼]第')) {
         return parseChineseNumber(match[2]);
@@ -208,8 +219,55 @@ function parseFloorLabel(text) {
 }
 
 // 判断是否为布局关键字（不是人名或座位号）
-const KEYWORDS = /^(舞台|舞台区域|投影仪|演讲台|中心线|沙发|过道|横向过道|纵向过道)$/;
+const KEYWORDS = /^(舞台|舞台区域|主席台|主席团|投影仪|演讲台|中心线|沙发|过道|横向过道|纵向过道)$/;
 const LAYOUT_PHRASES = /^(课桌式|宴会厅|共计|现报名|需要增加|一排.+人|共.+排)$/;
+
+// ============================================================
+// 席位占位文字：格子里写的不是某个人，而是这个座位的用途。
+// 这类格子会在座位图上显示文字，但不作为人员导入（查询、名单、统计里都没有）。
+// 需要支持新叫法时，往这个列表里加词即可。
+// ============================================================
+const PLACEHOLDER_SEAT_WORDS = [
+  '工作席', '工作席坐席', '工作位', '工作席位',
+  '工作人员', '工作人员席', '工作组',
+  '媒体记者', '媒体席', '媒体区', '记者席', '记者',
+  '摄像', '摄像席', '摄影', '摄影席',
+  '设备席', '设备位', '预留', '预留席', '预留位',
+  '机动', '机动席', '空位', '空座'
+];
+const PLACEHOLDER_SEAT_RE = new RegExp(
+  '^(?:' + PLACEHOLDER_SEAT_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')$'
+);
+
+/**
+ * 把占位文字从人员列表里摘出来，记到对应座位的 seatLabels 上。
+ * 只处理 Excel 导入的人，手动添加的人不动。
+ * 返回被转换的条数（便于日志）。
+ */
+function extractPlaceholderSeats(venues, attendees) {
+  if (!Array.isArray(venues) || !Array.isArray(attendees) || attendees.length === 0) return 0;
+  let converted = 0;
+  const remaining = [];
+  for (const a of attendees) {
+    const name = a && typeof a.name === 'string' ? a.name.trim() : '';
+    if (a && a.source === 'excel' && name && PLACEHOLDER_SEAT_RE.test(name)) {
+      const venue = venues.find(v => v.id === a.venueId);
+      const row = venue && (venue.rows || []).find(r => r.label === a.row);
+      if (row && a.seat !== undefined && a.seat !== null) {
+        row.seatLabels = row.seatLabels || {};
+        row.seatLabels[a.seat] = name;
+        converted++;
+        continue;
+      }
+    }
+    remaining.push(a);
+  }
+  if (converted > 0) {
+    attendees.length = 0;
+    for (const a of remaining) attendees.push(a);
+  }
+  return converted;
+}
 
 function isLayoutKeyword(s) {
   if (s === undefined || s === null) return true;
@@ -822,6 +880,13 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
       if (rowLabelCell) {
         const rn = parseRowLabel(rowLabelCell);
         if (rn !== null) {
+          // 单独「主席台」：只有本行还带人名时才当排标签，
+          // 否则它只是标注主席台位置的独立格子（如顶部大标题），不应生成空排
+          if (BARE_ROSTRUM_RE.test(rowLabelCell.trim())) {
+            const hasPerson = row.some(c => typeof c === 'string' && c.trim() &&
+              c !== rowLabelCell && !isLayoutKeyword(c));
+            if (!hasPerson) continue;
+          }
           const uniqueLabels = [...new Set(rowLabelCells.map(c => c.trim()))];
           if (uniqueLabels.length > 1) {
             // 多标签行，忽略
@@ -1623,11 +1688,17 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
     }
 
     // 按排号排序（考虑楼层）
+    // 分区优先级：主席台(0) → 沙发(1) → 普通排(2)，同区内再按楼层、排号
     venue.rows.sort((a, b) => {
-      const aIsSofa = a.label.includes('沙发');
-      const bIsSofa = b.label.includes('沙发');
-      if (aIsSofa && !bIsSofa) return -1;
-      if (!aIsSofa && bIsSofa) return 1;
+      const rowZone = (r) => {
+        const label = r.label || '';
+        if (label.includes('主席台') || label.includes('主席团')) return 0;
+        if (label.includes('沙发')) return 1;
+        return 2;
+      };
+      const zoneA = rowZone(a);
+      const zoneB = rowZone(b);
+      if (zoneA !== zoneB) return zoneA - zoneB;
       
       // 解析楼层号
       const aFloorNum = a.floor ? (parseFloorLabel(a.floor)?.floorNum || 0) : 0;
@@ -1672,6 +1743,8 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
       // 如果存在最常见的分组数（且超过30%的排使用它），统一所有排使用该分组数
       if (commonGroupCount > 0 && maxCount > venue.rows.length * 0.3) {
         venue.rows.forEach(r => {
+          // 主席台/主席团是独立的长条桌，不参与普通排的过道对齐
+          if (r.label && (r.label.includes('主席台') || r.label.includes('主席团'))) return;
           if (r.seatGroups && r.seatGroups.length !== commonGroupCount) {
             // 将该排的所有座位号按标准分组数重新分配
             const allSeats = r.seatGroups.flat();
@@ -1735,6 +1808,9 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
 
   // 合并：Excel提取的 + 手动添加的
   result.attendees = excelAttendees.concat(manualAttendees);
+
+  // 席位占位文字（工作席/工作人员/媒体记者…）：不存为人，记到座位标签上
+  extractPlaceholderSeats(result.venues, result.attendees);
 
   return result;
 }
@@ -2368,7 +2444,7 @@ function detectStandardLayout(data, venueId) {
 }
 
 // 导出模块
-module.exports = { parseWorkbook, detectSheetMode };
+module.exports = { parseWorkbook, detectSheetMode, extractPlaceholderSeats, PLACEHOLDER_SEAT_RE, PLACEHOLDER_SEAT_WORDS };
 
 // 如果直接运行（node parse-excel.js），执行原有的CLI逻辑
 if (require.main === module) {

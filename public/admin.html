@@ -3555,6 +3555,9 @@ async function importNames() {
       if (data.duplicates && data.duplicates.length > 0) {
         msg += '，' + data.duplicates.length + ' 人重复（已跳过）';
       }
+      if (data.skippedPlaceholders && data.skippedPlaceholders.length > 0) {
+        msg += '，' + data.skippedPlaceholders.length + ' 条席位标签（工作席等，未计入人员）';
+      }
       showToast(msg);
       closeImportNamesModal();
       selectedNamesExcel = null;
@@ -3900,10 +3903,28 @@ function highlightRegionsOnSeatMap() {
 }
 
 // 修改 renderDragSeat，增加点击选择、区域颜色支持和座位拖拽
+// 按排标签取当前会场的排（用于座位占位文字：工作席/工作人员/媒体记者…）
+function findDragRowLabel(label) {
+  var v = currentDragSeating && currentDragSeating.venue;
+  if (!v || !Array.isArray(v.rows)) return null;
+  for (var i = 0; i < v.rows.length; i++) {
+    if (v.rows[i] && v.rows[i].label === label) return v.rows[i];
+  }
+  return null;
+}
+
 function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
   var key = rowLabel + '_' + seatNum;
-  var bgColor = attendee ? '#dbeafe' : '#e0e7ff';
-  var textColor = attendee ? '#1e40af' : '#64748b';
+  // 座位占位文字（工作席/工作人员/媒体记者…）：只是席位标签，不是人
+  if (!attendee) {
+    var prow = findDragRowLabel(rowLabel);
+    if (prow && prow.seatLabels && prow.seatLabels[seatNum]) {
+      attendee = { name: prow.seatLabels[seatNum], placeholder: true };
+    }
+  }
+  var isPlaceholder = !!(attendee && attendee.placeholder);
+  var bgColor = isPlaceholder ? '#f1f5f9' : (attendee ? '#dbeafe' : '#e0e7ff');
+  var textColor = isPlaceholder ? '#64748b' : (attendee ? '#1e40af' : '#64748b');
   opts = opts || {};
   var name = attendee ? attendee.name : '';
   var seatW = opts.seatW || (vertical ? 40 : 50);
@@ -3959,7 +3980,8 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
     displayFontSize = Math.max(MIN_FONT, Math.min(Math.floor(seatW * 0.6), Math.floor(seatH * 0.4), 12));
   }
   
-  var tooltip = attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（可拖拽换座）' : esc(rowLabel) + seatNum + '号 - 空座位';
+  var tooltip = isPlaceholder ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（席位标签，不占人员）'
+    : (attendee ? esc(rowLabel) + seatNum + '号 - ' + esc(attendee.name) + '（可拖拽换座）' : esc(rowLabel) + seatNum + '号 - 空座位');
   
   // 检查座位是否属于已分配单位的区域（锁定）
   var lockRegion = getSeatLockRegion(key);
@@ -3979,7 +4001,7 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
   }
   
   var selectedClass = selectedSeats.indexOf(key) > -1 ? ' selected' : '';
-  var cursorStyle = attendee ? 'cursor:grab;' : (isLocked ? '' : 'cursor:pointer;');
+  var cursorStyle = (attendee && !isPlaceholder) ? 'cursor:grab;' : (isLocked ? '' : 'cursor:pointer;');
   var style = 'width:' + seatW + 'px;height:' + seatH + 'px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:600;border:1px solid #cbd5e1;transition:all 0.2s;background:' + bgColor + ';color:' + textColor + ';position:relative;' + cursorStyle;
   
   var html = '<div class="drag-seat' + selectedClass + lockedClass + '" style="' + style + '" data-row="' + esc(rowLabel) + '" data-seat="' + seatNum + '" data-key="' + key + '" title="' + tooltip + '"';
@@ -3988,7 +4010,7 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
   if (!(isLocked && !attendee)) {
     html += ' ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)"';
   }
-  if (attendee) {
+  if (attendee && !isPlaceholder) {
     html += ' draggable="true"';
     html += ' ondragstart="handleSeatDragStart(event)" ondragend="handleSeatDragEnd(event)"';
   }
@@ -4002,7 +4024,7 @@ function renderDragSeat(rowLabel, seatNum, attendee, vertical, opts) {
     html += '<span style="max-width:100%;overflow:hidden;white-space:nowrap">' + esc(contentStr) + '</span>';
   }
   html += '</div>';
-  if (attendee) {
+  if (attendee && !isPlaceholder) {
     html += '<div class="clear-seat" style="position:absolute;bottom:1px;cursor:pointer;display:none;font-size:7px;color:#ef4444" onclick="event.stopPropagation();clearAttendeeSeat(\'' + attendee.id + '\')">清除</div>';
   }
   html += '</div>';

@@ -35,8 +35,12 @@ FILES=(
   server.js
   svg-export.js
   supervisord.conf
-  更新说明-20261110.md
 )
+
+# 更新说明：全部带上（每次版本都会新增一份，不必改脚本）
+for f in 更新说明-*.md; do
+  [ -e "$f" ] && FILES+=("$f")
+done
 
 # 空目录（用 .gitkeep 占位，首次启动会自动生成内容）
 EMPTY_DIRS=(

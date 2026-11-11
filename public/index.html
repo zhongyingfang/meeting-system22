@@ -1090,6 +1090,16 @@ function translateRow(rowLabel) {
     var num2 = parseCnNum(n2);
     return floorMap2[floorMatch[1]] + ' Row ' + num2;
   }
+  // 单独「主席台」「主席团」→ Rostrum
+  var bareRostrum = s.match(/^(主席台|主席团)区?$/);
+  if (bareRostrum) return 'Rostrum';
+  // 主席台第一排、主席团第二排 → Rostrum Row 1
+  var rostrumMatch = s.match(/^(主席台|主席团)[第]?([一二三四五六七八九十]+|\d+)[排]$/);
+  if (rostrumMatch) {
+    var nR = rostrumMatch[2];
+    var numR = parseCnNum(nR);
+    return 'Rostrum Row ' + numR;
+  }
   // 沙发第一排、沙发第二排 → Row 1 (Sofa)
   var sofaMatch = s.match(/^沙发[第]?([一二三四五六七八九十]+|\d+)[排]$/);
   if (sofaMatch) {
