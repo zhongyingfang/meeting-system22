@@ -6,6 +6,7 @@ output/
 # 构建产物
 *.zip
 *.tar.gz
+*.sha256
 
 # 日志文件
 *.log
