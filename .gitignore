@@ -19,6 +19,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# WorkBuddy 项目数据（记忆、备份、截图等）
+.workbuddy/
+
 # 备份文件
 *.backup
 

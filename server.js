@@ -1320,6 +1320,19 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       return row.seatGroups.map(g => g.length).join(',');
     }
 
+    // 辅助函数：U型/回字型中间空区宽度
+    // 依据 Excel 的实际空列数（middleGapCols）等比换算，保证"中间没放桌子"在图上可见；
+    // 有顶部/底部横排时，还要容得下横排座位的宽度。
+    function uShapeMidWidth(venue, hWidth, colGap) {
+      const gapCols = typeof venue.middleGapCols === 'number' ? venue.middleGapCols : 2;
+      const armColGap = Math.max(30, colGap || 30);        // 与臂列间距同量级
+      // 每个空列的视觉宽度取座位宽 + 0.7 倍列间距：既保留"空出 6 列"的比例感，又不至于过度拉伸
+      const fromCols = gapCols * (seatWidth + Math.round(armColGap * 0.7));
+      const minGap = Math.round(seatWidth * 1.6);
+      const forHoriz = hWidth > 0 ? hWidth + Math.max(60, armColGap) * 2 : 0;
+      return Math.round(Math.max(minGap, fromCols, forHoriz));
+    }
+
     // 计算总高度（模拟渲染流程精确计算）
     const stageHeight = 80;
     const aisleHeight = 30;
@@ -1387,7 +1400,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
          const uTopW = firstArmW > 0 ? venue.rows.slice(0, firstArmW) : [];
          const uArmW = venue.rows.slice(Math.max(0, firstArmW), lastArmW + 1);
          const uBottomW = lastArmW >= 0 && lastArmW < venue.rows.length - 1 ? venue.rows.slice(lastArmW + 1) : [];
-         const colGap = 30;
+         const colGap = Math.max(30, numBoxWidth + 16 + 24);  // 与绘制时一致，容纳座位号牌
          const armBottomGap = 60;
          const _midIdx = Math.floor(uArmW.length / 2);
          const leftColCount = _midIdx;
@@ -1399,7 +1412,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
          const bSeatsW = uBottomW.length > 0 ? Math.max(...uBottomW.map(r => (r.seatGroups[0] || []).length)) : 0;
          const bWidth = bSeatsW * (seatWidth + seatGap) - (bSeatsW > 0 ? seatGap : 0);
          const hWidth = Math.max(tWidth, bWidth);
-         const uTotal = lWidth + (hWidth > 0 ? armBottomGap + hWidth + armBottomGap : 0) + rWidth;
+         const uTotal = lWidth + uShapeMidWidth(venue, hWidth, colGap) + rWidth;
          maxWidth = Math.max(maxWidth, uTotal);
       } else if (venue.rows) {
         // 新方式：计算所有排的最大组数和每组最大座位数
@@ -1857,16 +1870,19 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const hWidth = hSeatCount > 0 ? hSeatCount * (seatWidth + seatGap) - seatGap : 0;
         // 水平行和臂之间的间距（需容纳右臂内侧座位号牌）
         const armBottomGap = Math.max(60, numBoxWidth + 16 + 24);  // 100
+        // 中间空区宽度：按 Excel 实际空列数换算（无顶部/底部横排时也要保留）
+        const midWidth = uShapeMidWidth(venue, hWidth, colGap);
         // 总宽度
-        const totalWidth = leftArmWidth + (hWidth > 0 ? armBottomGap + hWidth + armBottomGap : 0) + rightArmWidth;
+        const totalWidth = leftArmWidth + midWidth + rightArmWidth;
         
         // 整体居中偏移
         const baseX = Math.max(0, (svgWidth - totalWidth) / 2);
         
         // 各区域起始X位置
         const leftStartX = baseX;
-        const bottomStartX = leftStartX + leftArmWidth + (leftArmWidth > 0 && hWidth > 0 ? armBottomGap : 0);
-        const rightStartX = (hWidth > 0 ? bottomStartX + hWidth + armBottomGap : leftStartX + leftArmWidth + armBottomGap);
+        // 顶部/底部横排居中放在中间空区内
+        const bottomStartX = leftStartX + leftArmWidth + (hWidth > 0 ? (midWidth - hWidth) / 2 : 0);
+        const rightStartX = leftStartX + leftArmWidth + midWidth;
 
         // 计算各列在每个垂直位置的X坐标
         const leftColXs = [];
@@ -2925,6 +2941,141 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       // 生成SVG内容
       let svgContent = `<rect width="100%" height="100%" fill="#f8fafc"/>`;
       let y = margin;
+
+      // ===== U型 / 回字型：两臂竖排 + 中间保留空桌区 =====
+      if (venue.layout === 'u-shape' || venue.layout === 'hui-shape') {
+        const isColLabel = (v) => /^(?:左|右|前|后|内|外)?第.+列$/.test(String(v || '').replace(/\s+/g, ''));
+        let uFirst = -1, uLast = -1;
+        venue.rows.forEach((r, idx) => {
+          if (isColLabel(r.label)) { if (uFirst < 0) uFirst = idx; uLast = idx; }
+        });
+        const uTopRows = uFirst > 0 ? venue.rows.slice(0, uFirst) : [];
+        const uArmRows = uFirst >= 0 ? venue.rows.slice(uFirst, uLast + 1) : venue.rows.slice();
+        const uBottomRows = uLast >= 0 && uLast < venue.rows.length - 1 ? venue.rows.slice(uLast + 1) : [];
+        const uMidIdx = Math.floor(uArmRows.length / 2);
+        const uLeftCols = uArmRows.slice(0, uMidIdx);
+        const uRightCols = uArmRows.slice(uMidIdx);
+        const uMaxArmLen = uArmRows.reduce((m, r) => Math.max(m, (r.seatGroups && r.seatGroups[0] ? r.seatGroups[0].length : 0)), 0);
+
+        if (uMaxArmLen > 0) {
+          // 列标签字号/列距：保证"右第三列"这类 4 字标签不互相压住
+          const uLabelFs = Math.max(11, Math.min(18, Math.round(seatWidth * 0.3)));
+          const uMaxLabelChars = uArmRows.reduce((m, r) => Math.max(m, String(r.label || '').replace(/\s+/g, '').length), 2);
+          const uColPitch = Math.max(seatWidth + seatGap * 2, Math.ceil(uLabelFs * uMaxLabelChars) + 12);
+          const uArmW = (cols) => cols.length > 0 ? cols.length * uColPitch - (uColPitch - seatWidth) : 0;
+          const uLeftW = uArmW(uLeftCols);
+          const uRightW = uArmW(uRightCols);
+
+          // 中间空区宽度：按 Excel 实际空列数换算，至少 1.5 个座位宽
+          const uGapCols = typeof venue.middleGapCols === 'number' ? venue.middleGapCols : 2;
+          const hSeatsOf = (rows) => rows.reduce((m, r) => Math.max(m, (r.seatGroups && r.seatGroups[0] ? r.seatGroups[0].length : 0)), 0);
+          const uHSeats = Math.max(hSeatsOf(uTopRows), hSeatsOf(uBottomRows));
+          const uHRowW = uHSeats > 0 ? uHSeats * (seatWidth + seatGap) - seatGap : 0;
+          const uMidW = Math.round(Math.max(
+            seatWidth * 1.5,
+            Math.min(uGapCols * uColPitch, 900),
+            uHRowW > 0 ? uHRowW + seatGap * 6 : 0
+          ));
+
+          const uArmsH = uMaxArmLen * (seatHeight + rowGap) - rowGap;
+          const uTopH = uTopRows.length * (seatHeight + rowGap);
+          const uBotH = uBottomRows.length * (seatHeight + rowGap);
+          const uLabelH = uLabelFs + 18;
+          const uSvgW = Math.round(margin * 2 + uLeftW + uMidW + uRightW + 40);
+          const uSvgH = Math.round(margin * 2 + 44 + 46 + uTopH + uLabelH + uArmsH + uBotH + 28);
+
+          const uLeftX0 = margin + 20;
+          const uMidX0 = uLeftX0 + uLeftW;
+          const uRightX0 = uMidX0 + uMidW;
+          const uBodyW = uLeftW + uMidW + uRightW;
+
+          svgContent = `<rect width="100%" height="100%" fill="#f8fafc"/>`;
+          y = margin;
+
+          // 会场标题
+          svgContent += `<text x="${uSvgW / 2}" y="${y + 28}" font-family="Microsoft YaHei, sans-serif" font-size="16" font-weight="bold" fill="#1e293b" text-anchor="middle">${escXml(venue.name)}</text>`;
+          y += 44;
+
+          // 舞台条
+          svgContent += `<rect x="${uLeftX0}" y="${y}" width="${uBodyW}" height="34" fill="#e2e8f0" rx="6"/>`;
+          svgContent += `<text x="${uLeftX0 + uBodyW / 2}" y="${y + 22}" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#64748b" text-anchor="middle" letter-spacing="4">${escXml(venue.stageName || '舞台')}</text>`;
+          y += 46;
+
+          // 顶部横排（回字型封闭段），居中放在中间空区上方
+          const renderHorizRow = (row, rowY, isFirstInGroup) => {
+            const seats = (row.seatGroups && row.seatGroups[0]) || [];
+            if (seats.length === 0) return;
+            const rowW = seats.length * (seatWidth + seatGap) - seatGap;
+            let hx = uMidX0 + (uMidW - rowW) / 2;
+            seats.forEach((sn) => {
+              const nm = attendeeMap[row.label + '_' + sn];
+              svgContent += `<rect x="${hx}" y="${rowY}" width="${seatWidth}" height="${seatHeight}" fill="${nm ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
+              if (nm) {
+                svgContent += `  ` + renderAttendeeName(nm, hx + seatWidth / 2, rowY + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
+              } else if (isFirstInGroup) {
+                svgContent += `<text x="${hx + seatWidth / 2}" y="${rowY + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#94a3b8" text-anchor="middle">${sn}</text>`;
+              }
+              hx += seatWidth + seatGap;
+            });
+          };
+
+          uTopRows.forEach((row, ri) => {
+            const prev = uTopRows[ri - 1];
+            const sameAsPrev = prev && (prev.seatGroups[0] || []).length === (row.seatGroups[0] || []).length;
+            renderHorizRow(row, y, !sameAsPrev);
+            y += seatHeight + rowGap;
+          });
+
+          // 两臂列标签
+          const labelY = y + uLabelFs;
+          const drawColLabel = (col, x0, idx) => {
+            const cx = x0 + idx * uColPitch + seatWidth / 2;
+            svgContent += `<text x="${cx}" y="${labelY}" font-family="Microsoft YaHei, sans-serif" font-size="${uLabelFs}" fill="#ef4444" font-weight="600" text-anchor="middle">${escXml(col.label)}</text>`;
+          };
+          uLeftCols.forEach((col, idx) => drawColLabel(col, uLeftX0, idx));
+          uRightCols.forEach((col, idx) => drawColLabel(col, uRightX0, idx));
+          y += uLabelH;
+
+          // 中间空区（虚线标示"这里没有放桌子"）
+          const midTop = y - 4;
+          const midH = uArmsH + 8;
+          svgContent += `<rect x="${uMidX0 + 4}" y="${midTop}" width="${uMidW - 8}" height="${midH}" fill="none" stroke="#e2e8f0" stroke-width="1.5" stroke-dasharray="6 6" rx="8"/>`;
+          if (uMidW >= 90) {
+            svgContent += `<text x="${uMidX0 + uMidW / 2}" y="${midTop + midH / 2}" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#cbd5e1" text-anchor="middle" letter-spacing="2">空 区</text>`;
+          }
+
+          // 两臂座位（竖向排列）
+          for (let si = 0; si < uMaxArmLen; si++) {
+            const drawArmSeat = (col, cx) => {
+              const seats = (col.seatGroups && col.seatGroups[0]) || [];
+              if (si >= seats.length) return;
+              const sn = seats[si];
+              const nm = attendeeMap[col.label + '_' + sn];
+              svgContent += `<rect x="${cx}" y="${y}" width="${seatWidth}" height="${seatHeight}" fill="${nm ? '#dbeafe' : '#ffffff'}" stroke="#cbd5e1" stroke-width="1" rx="3"/>`;
+              if (nm) {
+                svgContent += `  ` + renderAttendeeName(nm, cx + seatWidth / 2, y + seatHeight / 2, seatWidth, seatHeight, baseFontSize) + `\n`;
+              } else {
+                svgContent += `<text x="${cx + seatWidth / 2}" y="${y + seatHeight / 2 + 4}" font-family="Microsoft YaHei, sans-serif" font-size="9" fill="#94a3b8" text-anchor="middle">${sn}</text>`;
+              }
+            };
+            uLeftCols.forEach((col, idx) => drawArmSeat(col, uLeftX0 + idx * uColPitch));
+            uRightCols.forEach((col, idx) => drawArmSeat(col, uRightX0 + idx * uColPitch));
+            y += seatHeight + rowGap;
+          }
+
+          // 底部横排（回字型封闭段）
+          y += rowGap;
+          uBottomRows.forEach((row, ri) => {
+            const prev = uBottomRows[ri - 1];
+            const sameAsPrev = prev && (prev.seatGroups[0] || []).length === (row.seatGroups[0] || []).length;
+            renderHorizRow(row, y, !sameAsPrev);
+            y += seatHeight + rowGap;
+          });
+
+          previewVenues.push({ name: venue.name, width: uSvgW, height: uSvgH, svgContent });
+          return;
+        }
+      }
 
       const isTheaterMode = venue.layout === 'theater' || venue.mode === 'theater';
       const isStandardMode = !isTheaterMode && (venue.layout === 'standard' || venue.mode === 'standard');

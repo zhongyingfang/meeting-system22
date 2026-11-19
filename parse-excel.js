@@ -729,6 +729,9 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
       if (uResult && uResult.rows.length > 0) {
         venue.rows = uResult.rows;
         venue.layout = uResult.layout || sheetMode;  // 优先用检测结果
+        if (typeof uResult.middleGapCols === 'number') {
+          venue.middleGapCols = uResult.middleGapCols;
+        }
         if (uResult.attendees) {
           uResult.attendees.forEach(a => {
             if (!excelAttendees.find(e => e.name === a.name && e.row === a.row && e.seat === a.seat)) {
@@ -1527,6 +1530,12 @@ function parseWorkbook(wb, manualAttendees, mode, sheetModes, options) {
         }
 
         venue.layout = 'u-shape';
+        // 中间空列数：内左列与内右列之间的空列，渲染时保留为"无桌空区"
+        const innerLeftIdx = innerLeftCol && typeof innerLeftCol.col === 'number' ? innerLeftCol.col : innerLeftCol;
+        const innerRightIdx = innerRightCol && typeof innerRightCol.col === 'number' ? innerRightCol.col : innerRightCol;
+        if (typeof innerLeftIdx === 'number' && typeof innerRightIdx === 'number') {
+          venue.middleGapCols = Math.max(0, innerRightIdx - innerLeftIdx - 1);
+        }
 
         // 提取人名 - 左侧所有列
         leftCols.forEach(leftCol => {
@@ -2218,6 +2227,10 @@ function detectUShapeLayout(data, venueId, venue, excelAttendees) {
       });
     }
   });
+
+  // 中间空列数：内左列与内右列之间的空列，用于渲染时还原"中间没有桌子"的空区
+  // 例：右第三列~右第一列在 D~F、左第一列~左第三列在 M~O，中间 G~L 共 6 列为空
+  result.middleGapCols = Math.max(0, innerRightCol - innerLeftCol - 1);
 
   // 回传布局类型
   result.layout = isHuiShape ? 'hui-shape' : 'u-shape';

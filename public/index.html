@@ -783,37 +783,41 @@ function renderUShapeSeatMap(venue, pRow, pSeat, showEn) {
 
   // 移动端优先：卡片可用宽度约 280-335px（屏幕375-40外边距-40卡片padding）
   var cardMaxW = Math.min(window.innerWidth - 80, 680);
-  // 列标签宽度（紧凑但可读）
-  var lblW = 20;
   // 臂列之间的间距
   var colGap = 1;
-  // 左右臂之间的最小间距
-  var midGap = 8;
   // 座位间隙
   var sGap = 1;
-  // 座位尺寸：优先保证竖直方向不超出可视范围
+  var totalArmCols = leftRows.length + rightRows.length;
+  // 中间空区：按"空列数 /（臂列数+空列数）"的比例留白，上限卡片宽度的 32%
+  // 目的：还原"中间没有放桌子"的空场，而不是把两臂挤成实心一片
+  var gapCols = (typeof venue.middleGapCols === 'number') ? venue.middleGapCols : 2;
+  var gapShare = gapCols / Math.max(totalArmCols + gapCols, 1);
+  var midGap = totalArmCols > 0 ? Math.max(10, Math.round(cardMaxW * Math.min(0.32, gapShare * 0.8))) : 0;
+  // 列宽：由列标签字数决定，保证"右第三列"这类 4 字标签不互相压住
+  var maxLabelChars = 2;
+  armRows.forEach(function(r) {
+    var len = String(r.label || '').replace(/\s+/g, '').length;
+    if (len > maxLabelChars) maxLabelChars = len;
+  });
+  var colW = totalArmCols > 0 ? Math.floor((cardMaxW - midGap) / totalArmCols) - colGap : 40;
+  colW = Math.max(18, Math.min(64, colW));
+  // 座位尺寸：竖直方向不超出可视范围，水平方向不超过列宽
   var maxVertH = Math.min(500, window.innerHeight * 0.7);
   var seatFromVert = Math.floor((maxVertH - (maxArmSeats - 1) * sGap) / Math.max(maxArmSeats, 1));
-  var seatMaxH = Math.min(28, Math.max(9, seatFromVert));
-  // 水平方向也做约束
-  var totalArmCols = leftRows.length + rightRows.length;
-  var hArmSpace = cardMaxW - midGap - totalArmCols * lblW - (totalArmCols - 1) * colGap;
-  var seatFromHoriz = totalArmCols > 0 ? Math.floor(hArmSpace / totalArmCols) : 30;
-  var seatMaxW = Math.min(30, Math.max(9, seatFromHoriz));
-  // 取较小的保证正方形
-  var seatSize = Math.max(8, Math.min(seatMaxH, seatMaxW));
+  var seatSize = Math.max(8, Math.min(28, seatFromVert, colW - 4));
+  var lblW = colW;
   var fontSize = Math.max(5, Math.min(8, seatSize - 2));
   var sStyle = 'width:' + seatSize + 'px;height:' + seatSize + 'px;font-size:' + fontSize + 'px;';
-  // 行标签字号
-  var lblFont = Math.max(7, Math.min(11, seatSize));
+  // 行标签字号：按列宽和标签字数收敛，避免互相压住
+  var lblFont = Math.max(6, Math.min(11, Math.floor((colW - 4) / Math.max(maxLabelChars, 1))));
 
   // 水平行标签预留宽度（左侧排号，按最长标签估算）
   var hLabelExtra = Math.max(48, Math.ceil(lblFont * 5.5));
   // 水平行（顶部/底部）需要的总宽度（含标签）
   var hRowWidth = hMaxSeats > 0 ? hMaxSeats * (seatSize + sGap) - sGap + hLabelExtra : 0;
-  // 左右臂实际宽度
-  var leftW = leftRows.length > 0 ? leftRows.length * lblW + (leftRows.length - 1) * colGap + seatSize : 0;
-  var rightW = rightRows.length > 0 ? rightRows.length * lblW + (rightRows.length - 1) * colGap + seatSize : 0;
+  // 左右臂实际宽度（列宽已含座位）
+  var leftW = leftRows.length > 0 ? leftRows.length * lblW + (leftRows.length - 1) * colGap : 0;
+  var rightW = rightRows.length > 0 ? rightRows.length * lblW + (rightRows.length - 1) * colGap : 0;
   // 总宽度（取水平行和臂列中较宽者）
   var totalW = Math.max(hRowWidth, leftW + midGap + rightW);
 
@@ -868,8 +872,12 @@ function renderUShapeSeatMap(venue, pRow, pSeat, showEn) {
     html += '</div>';
   }
 
-  // 中间空白
-  html += '<div style="width:' + midGap + 'px;flex-shrink:0;"></div>';
+  // 中间空白（保留"中间没有放桌子"的空场，用虚线框示意）
+  if (midGap > 0) {
+    html += '<div style="width:' + midGap + 'px;flex-shrink:0;box-sizing:border-box;align-self:stretch;min-height:' + Math.max(20, maxArmSeats * (seatSize + sGap)) + 'px;border:1px dashed #e2e8f0;border-radius:6px;"></div>';
+  } else {
+    html += '<div style="width:' + midGap + 'px;flex-shrink:0;"></div>';
+  }
 
   // 右臂
   if (rightRows.length > 0) {
