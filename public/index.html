@@ -757,11 +757,11 @@ function renderBanquetSeatMap(venue, pRow, pSeat, showEn) {
 }
 
 function renderUShapeSeatMap(venue, pRow, pSeat, showEn) {
-  // 位置结构法：以/^第.+列$/为锚点分拆行（顶部 | 臂列 | 底部）
+  // 位置结构法：以「列」结尾为锚点分拆行（顶部 | 臂列 | 底部，兼容 第1列 / 左第一列 / 左1列）
   var firstArm = -1, lastArm = -1;
   venue.rows.forEach(function(r, idx) {
     var l = (r.label || '').replace(/\s+/g, '');
-    if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
+    if (/列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
   });
   var topRows = firstArm > 0 ? venue.rows.slice(0, firstArm) : [];
   var armRows = venue.rows.slice(Math.max(0, firstArm), lastArm + 1);

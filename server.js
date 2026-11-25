@@ -234,6 +234,22 @@ function loadDataFromFile() {
           needsCleanup = true;
         }
       }
+
+      // 1.3 排标签和会场里的写法不一致的，按会场写法纠正
+      //     历史问题：手工添加时会走 normalizeRowLabel，把「第1排」改成「第一排」，
+      //     而会场排标签仍是「第1排」，导致座位图 key 匹配不上、人在图上看不见。
+      //     只在 rowKey 相同（同一排、只是数字写法不同）时纠正，不会改错排。
+      if (a.venueId && a.row) {
+        const venue4row = (dataCache.venues || []).find(v => v.id === a.venueId);
+        if (venue4row) {
+          const fixedRow = resolveVenueRowLabel(venue4row, a.row);
+          if (fixedRow && fixedRow !== a.row && rowKey(fixedRow) === rowKey(a.row)) {
+            console.log(`[数据清理] 参会者 ${a.name || a.id} 的排标签「${a.row}」→「${fixedRow}」（对齐会场）`);
+            a.row = fixedRow;
+            needsCleanup = true;
+          }
+        }
+      }
       
       return keep;
     });
@@ -430,12 +446,51 @@ function normalizeRowLabel(raw) {
   return s;
 }
 
+// 是否「臂列」标签（U型/回字型的左右竖排）：
+// 第1列 / 左第一列 / 左1列 / 1列 都算。只要以「列」结尾就当臂列，
+// 原来写成 /^(?:左|右|...)?第.+列$/，遇到「左1列」这种没写「第」的标签就漏判，
+// 整块臂列被当成顶部横排、一个座位都画不出来。
+function isArmColumnLabel(label) {
+  return /列$/.test(String(label || '').replace(/\s+/g, ''));
+}
+
+// 排标签比较键：只用于「比对」，绝不用于「存储」
+// 座位图的 key 是 `${row.label}_${seat}`，要求参会者的 row 与会场排标签逐字相同，
+// 所以存储时必须保留会场里的原始写法（第1排 / 第一排 不能混）
+function rowKey(raw) {
+  if (raw === undefined || raw === null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+  return normalizeRowLabel(s);
+}
+
+// 姓名比较键：去掉所有空白并忽略大小写，避免「马 强 / 马强」被当成两个人
+function nameKey(raw) {
+  return String(raw || '').replace(/\s+/g, '').toLowerCase();
+}
+
+// 把外部传入的排标签对齐到会场里真实存在的那一个
+// 优先精确匹配；退一步按 rowKey 匹配（第1排 ↔ 第一排）；都对不上就原样返回
+function resolveVenueRowLabel(venue, rawRow) {
+  const raw = (rawRow === undefined || rawRow === null) ? '' : String(rawRow).trim();
+  if (!venue || !Array.isArray(venue.rows) || venue.rows.length === 0) return raw;
+
+  const exact = venue.rows.find(r => r && String(r.label).trim() === raw);
+  if (exact) return String(exact.label).trim();
+
+  const k = rowKey(raw);
+  if (!k) return raw;
+  const same = venue.rows.find(r => r && rowKey(r.label) === k);
+  return same ? String(same.label).trim() : raw;
+}
+
 // 清理参会者数据
-function cleanAttendee(a) {
+// venue 传入时，row 会对齐到该会场真实存在的排标签，避免存进一个渲染时匹配不上的写法
+function cleanAttendee(a, venue) {
   return {
     ...a,
     name: (a.name || '').trim(),
-    row: normalizeRowLabel(a.row),
+    row: resolveVenueRowLabel(venue, a.row),
     seat: typeof a.seat === 'string' ? parseInt(a.seat) : a.seat,
     company: (a.company || '').trim(),
     title: (a.title || '').trim()
@@ -444,18 +499,25 @@ function cleanAttendee(a) {
 
 // 检查参会者是否已存在（同会场同姓名）
 function findDuplicateAttendee(data, attendee) {
+  const nk = nameKey(attendee.name);
   return data.attendees.find(a =>
     a.venueId === attendee.venueId &&
-    a.name === attendee.name
+    nameKey(a.name) === nk
   );
 }
 
 // 检查座位冲突（同会场同排同座位号）
+// 排标签按 rowKey 比较，兼容历史数据里 第1排 / 第一排 混存的情况
 function findSeatConflict(data, attendee) {
+  if (!attendee.row || attendee.seat === '' || attendee.seat === null || attendee.seat === undefined) {
+    return undefined; // 未坐座的人不参与冲突判断
+  }
+  const rk = rowKey(attendee.row);
+  const sk = String(attendee.seat);
   return data.attendees.find(a =>
     a.venueId === attendee.venueId &&
-    a.row === attendee.row &&
-    a.seat === attendee.seat
+    rowKey(a.row) === rk &&
+    String(a.seat) === sk
   );
 }
 
@@ -1192,12 +1254,20 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
     // 参会者姓名渲染：统一分级字号 + dominant-baseline居中 + 双语固定2行
     function renderAttendeeName(name, x, y, seatW, seatH, baseFs) {
       const fs0 = baseFs || baseFontSize;
-      const MIN_FS = Math.round(fs0 * 0.55);
+      // 按座位框实际大小收敛字号（只缩不放）：
+      // 预览图默认框 60x30、基准字号 35，三字姓名会画成 105px 宽，直接压到相邻列上。
+      // lineBox 与下面 lineH(fs*1.35) + gap(fs*0.15) 的比例保持一致，避免多行时超出框高。
+      const fitFs = (cjkLen, lines) => {
+        const L = Math.max(lines || 1, 1);
+        const lineBox = 1.35 * L + 0.15 * (L - 1);
+        return Math.floor(Math.min((seatW * 0.92) / Math.max(cjkLen, 1), (seatH * 0.92) / lineBox));
+      };
       // 统一字号分级：按CJK等效宽度
-      function tierFs(cjkLen) {
-        if (cjkLen <= 3) return fs0;
-        if (cjkLen <= 4) return Math.round(fs0 * 0.8);
-        return Math.max(MIN_FS, Math.round(fs0 * 0.65));
+      function tierFs(cjkLen, lines) {
+        let want = fs0;
+        if (cjkLen > 4) want = Math.round(fs0 * 0.65);
+        else if (cjkLen > 3) want = Math.round(fs0 * 0.8);
+        return Math.max(6, Math.min(want, fitFs(cjkLen, lines)));
       }
       function calcCjkLen(text) {
         let len = 0;
@@ -1215,8 +1285,8 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const enLen = calcCjkLen(en);
         const cnLen = calcCjkLen(cn);
         const maxLen = Math.max(enLen, cnLen);
-        let fs = tierFs(Math.ceil(maxLen));
-        if (maxLen > 3.5) fs = Math.max(MIN_FS, Math.round(fs0 * 0.65));
+        let fs = tierFs(Math.ceil(maxLen), 2);
+        if (maxLen > 3.5) fs = Math.max(6, Math.min(Math.round(fs0 * 0.65), fitFs(Math.ceil(maxLen), 2)));
         const lineH = fs * 1.35;
         const gap = fs * 0.15;
         const totalH = lineH * 2 + gap;
@@ -1232,7 +1302,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         const firstName = parts[0];
         const lastName = parts.slice(1).join(' ');
         const maxLen = Math.max(calcCjkLen(firstName), calcCjkLen(lastName));
-        const fs = maxLen <= 4 ? fs0 : Math.max(MIN_FS, Math.round(fs0 * 0.8));
+        const fs = Math.max(6, Math.min(maxLen <= 4 ? fs0 : Math.round(fs0 * 0.8), fitFs(Math.ceil(maxLen), 2)));
         const lineH = fs * 1.3;
         const gap = fs * 0.12;
         const totalH = lineH * 2 + gap;
@@ -1242,7 +1312,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
       }
       // === 单行名：统一分级字号 + 居中 ===
       const cjkLen = calcCjkLen(dn);
-      const fs = tierFs(Math.ceil(cjkLen));
+      const fs = tierFs(Math.ceil(cjkLen), 1);
       return `<text x="${x}" y="${y}" class="seat-name" text-anchor="middle" dominant-baseline="central" font-size="${fs}">${escXml(dn)}</text>`;
     }
 
@@ -1345,7 +1415,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         var firstArm = -1, lastArm = -1;
         venue.rows.forEach(function(r, idx) {
           var l = (r.label || '').replace(/\s+/g, '');
-          if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
+          if (isArmColumnLabel(l)) { if (firstArm < 0) firstArm = idx; lastArm = idx; }
         });
         const uTopRows = firstArm > 0 ? venue.rows.slice(0, firstArm) : [];
         const uArmRows = venue.rows.slice(Math.max(0, firstArm), lastArm + 1);
@@ -1395,7 +1465,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
          var firstArmW = -1, lastArmW = -1;
          venue.rows.forEach(function(r, idx) {
            var l = (r.label || '').replace(/\s+/g, '');
-           if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArmW < 0) firstArmW = idx; lastArmW = idx; }
+           if (isArmColumnLabel(l)) { if (firstArmW < 0) firstArmW = idx; lastArmW = idx; }
          });
          const uTopW = firstArmW > 0 ? venue.rows.slice(0, firstArmW) : [];
          const uArmW = venue.rows.slice(Math.max(0, firstArmW), lastArmW + 1);
@@ -1844,7 +1914,7 @@ app.get('/api/export-seating-svg', requireAdmin, (req, res) => {
         var firstArmSv = -1, lastArmSv = -1;
         venue.rows.forEach(function(r, idx) {
           var l = (r.label || '').replace(/\s+/g, '');
-          if (/^(?:左|右|前|后|内|外)?第.+列$/.test(l)) { if (firstArmSv < 0) firstArmSv = idx; lastArmSv = idx; }
+          if (isArmColumnLabel(l)) { if (firstArmSv < 0) firstArmSv = idx; lastArmSv = idx; }
         });
         const uTopRows = firstArmSv > 0 ? venue.rows.slice(0, firstArmSv) : [];
         const uArmRows = venue.rows.slice(Math.max(0, firstArmSv), lastArmSv + 1);
@@ -2633,11 +2703,19 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
     // 参会者姓名渲染：统一分级字号 + dominant-baseline居中 + 双语固定2行
     function renderAttendeeName(name, x, y, seatW, seatH, baseFs) {
       const fs0 = baseFs || baseFontSize;
-      const MIN_FS = Math.round(fs0 * 0.55);
-      function tierFs(cjkLen) {
-        if (cjkLen <= 3) return fs0;
-        if (cjkLen <= 4) return Math.round(fs0 * 0.8);
-        return Math.max(MIN_FS, Math.round(fs0 * 0.65));
+      // 按座位框实际大小收敛字号（只缩不放）：
+      // 预览图默认框 60x30、基准字号 35，三字姓名会画成 105px 宽，直接压到相邻列上。
+      // lineBox 与下面 lineH(fs*1.35) + gap(fs*0.15) 的比例保持一致，避免多行时超出框高。
+      const fitFs = (cjkLen, lines) => {
+        const L = Math.max(lines || 1, 1);
+        const lineBox = 1.35 * L + 0.15 * (L - 1);
+        return Math.floor(Math.min((seatW * 0.92) / Math.max(cjkLen, 1), (seatH * 0.92) / lineBox));
+      };
+      function tierFs(cjkLen, lines) {
+        let want = fs0;
+        if (cjkLen > 4) want = Math.round(fs0 * 0.65);
+        else if (cjkLen > 3) want = Math.round(fs0 * 0.8);
+        return Math.max(6, Math.min(want, fitFs(cjkLen, lines)));
       }
       function calcCjkLen(text) {
         let len = 0;
@@ -2655,8 +2733,8 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
         const enLen = calcCjkLen(en);
         const cnLen = calcCjkLen(cn);
         const maxLen = Math.max(enLen, cnLen);
-        let fs = tierFs(Math.ceil(maxLen));
-        if (maxLen > 3.5) fs = Math.max(MIN_FS, Math.round(fs0 * 0.65));
+        let fs = tierFs(Math.ceil(maxLen), 2);
+        if (maxLen > 3.5) fs = Math.max(6, Math.min(Math.round(fs0 * 0.65), fitFs(Math.ceil(maxLen), 2)));
         const lineH = fs * 1.35;
         const gap = fs * 0.15;
         const totalH = lineH * 2 + gap;
@@ -2672,7 +2750,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
         const firstName = parts[0];
         const lastName = parts.slice(1).join(' ');
         const maxLen = Math.max(calcCjkLen(firstName), calcCjkLen(lastName));
-        const fs = maxLen <= 4 ? fs0 : Math.max(MIN_FS, Math.round(fs0 * 0.8));
+        const fs = Math.max(6, Math.min(maxLen <= 4 ? fs0 : Math.round(fs0 * 0.8), fitFs(Math.ceil(maxLen), 2)));
         const lineH = fs * 1.3;
         const gap = fs * 0.12;
         const totalH = lineH * 2 + gap;
@@ -2682,7 +2760,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
       }
       // === 单行名：统一分级字号 + 居中 ===
       const cjkLen = calcCjkLen(dn);
-      const fs = tierFs(Math.ceil(cjkLen));
+      const fs = tierFs(Math.ceil(cjkLen), 1);
       return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-family="Microsoft YaHei, sans-serif">${escXml(dn)}</text>`;
     }
 
@@ -2944,7 +3022,7 @@ app.post('/api/generate-preview', requireAdmin, (req, res) => {
 
       // ===== U型 / 回字型：两臂竖排 + 中间保留空桌区 =====
       if (venue.layout === 'u-shape' || venue.layout === 'hui-shape') {
-        const isColLabel = (v) => /^(?:左|右|前|后|内|外)?第.+列$/.test(String(v || '').replace(/\s+/g, ''));
+        const isColLabel = isArmColumnLabel;
         let uFirst = -1, uLast = -1;
         venue.rows.forEach((r, idx) => {
           if (isColLabel(r.label)) { if (uFirst < 0) uFirst = idx; uLast = idx; }
@@ -3305,8 +3383,9 @@ app.post('/api/attendees/import', requireAuth, (req, res) => {
     });
   }
 
+  const importVenue = data.venues.find(v => v.id === venueId);
   const cleaned = attendees.map(a => {
-    const attendee = cleanAttendee({ ...a, venueId });
+    const attendee = cleanAttendee({ ...a, venueId }, importVenue);
     // 生成ID
     if (!attendee.id) {
       attendee.id = 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
@@ -3362,7 +3441,9 @@ app.post('/api/attendees/import', requireAuth, (req, res) => {
 // 添加单个参会者（带重复和冲突检测）
 app.post('/api/attendees', requireAuth, (req, res) => {
   const data = readData();
-  const attendee = cleanAttendee(req.body);
+  const body = req.body || {};
+  const venue = body.venueId ? data.venues.find(v => v.id === body.venueId) : null;
+  const attendee = cleanAttendee(body, venue);
 
   // 生成ID
   if (!attendee.id) {
@@ -4076,11 +4157,14 @@ app.put('/api/attendees/:id/seat', requireAuth, (req, res) => {
     const venue = data.venues.find(v => v.id === venueId);
     if (!venue) return res.status(404).json({ error: '会场不存在' });
 
-    // 检查目标座位是否已被占用
+    // 排标签对齐到会场真实写法，否则存进去的 row 和座位图 key 对不上
+    const targetRow = resolveVenueRowLabel(venue, row);
+
+    // 检查目标座位是否已被占用（排标签按 rowKey 比较，兼容历史混存）
     const existing = data.attendees.find(
       a => a.venueId === venueId &&
-           a.row === row &&
-           a.seat === seat &&
+           rowKey(a.row) === rowKey(targetRow) &&
+           String(a.seat) === String(seat) &&
            a.id !== attendee.id
     );
 
@@ -4093,7 +4177,7 @@ app.put('/api/attendees/:id/seat', requireAuth, (req, res) => {
 
     // 更新座位
     attendee.venueId = venueId;
-    attendee.row = row;
+    attendee.row = targetRow;
     attendee.seat = seat;
 
     writeData(data);
@@ -4123,11 +4207,15 @@ app.post('/api/venues/:id/assign-seat', requireAuth, (req, res) => {
     const attendee = data.attendees.find(a => a.id === attendeeId);
     if (!attendee) return res.status(404).json({ error: '参会者不存在' });
 
-    // 检查目标座位是否被占用（统一转为字符串比较，避免数字/字符串类型不匹配）
+    // 排标签对齐到会场真实写法
+    const targetRow = resolveVenueRowLabel(venue, row);
+
+    // 检查目标座位是否被占用（排标签按 rowKey 比较，兼容历史混存；排除自己）
     const existing = data.attendees.find(
       a => a.venueId === venue.id &&
-           String(a.row) === String(row) &&
-           String(a.seat) === String(seat)
+           rowKey(a.row) === rowKey(targetRow) &&
+           String(a.seat) === String(seat) &&
+           a.id !== attendee.id
     );
 
     if (existing) {
@@ -4137,7 +4225,7 @@ app.post('/api/venues/:id/assign-seat', requireAuth, (req, res) => {
       const oldVenueId = attendee.venueId;
 
       attendee.venueId = venue.id;
-      attendee.row = row;
+      attendee.row = targetRow;
       attendee.seat = seat;
 
       existing.venueId = oldVenueId;
@@ -4146,20 +4234,20 @@ app.post('/api/venues/:id/assign-seat', requireAuth, (req, res) => {
 
       auditLog('SWAP_SEATS', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
         venueId: venue.id,
-        attendee1: { id: attendee.id, name: attendee.name, fromRow: oldRow, fromSeat: oldSeat, toRow: row, toSeat: seat },
-        attendee2: { id: existing.id, name: existing.name, fromRow: row, fromSeat: seat, toRow: oldRow, toSeat: oldSeat }
+        attendee1: { id: attendee.id, name: attendee.name, fromRow: oldRow, fromSeat: oldSeat, toRow: targetRow, toSeat: seat },
+        attendee2: { id: existing.id, name: existing.name, fromRow: targetRow, fromSeat: seat, toRow: oldRow, toSeat: oldSeat }
       });
     } else {
       // 直接安排
       attendee.venueId = venue.id;
-      attendee.row = row;
+      attendee.row = targetRow;
       attendee.seat = seat;
 
       auditLog('ASSIGN_SEAT', req.headers['x-forwarded-for'] || req.connection.remoteAddress, {
         venueId: venue.id,
         attendeeId: attendee.id,
         name: attendee.name,
-        row: row,
+        row: targetRow,
         seat: seat
       });
     }
@@ -4401,8 +4489,12 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
         return;
       }
 
-      // 检查重复
-      if (data.attendees.some(a => a.name === trimmedName)) {
+      // 检查重复（指定会场时只在该会场内查重，不同会场同名是正常情况）
+      const dupHit = data.attendees.some(a =>
+        nameKey(a.name) === nameKey(trimmedName) &&
+        (!venueId || a.venueId === venueId)
+      );
+      if (dupHit) {
         duplicates.push(trimmedName);
         return;
       }
@@ -4424,6 +4516,11 @@ app.post('/api/attendees/import-names', requireAuth, (req, res) => {
       }
 
       const seatNumeric = parseInt(String(seatVal).replace(/[^\d]/g, ''), 10);
+
+      // 排标签对齐到会场真实写法（名单里的「第1排」与会场的「第一排」要指向同一排）
+      if (targetVenue && seatRow) {
+        seatRow = resolveVenueRowLabel(targetVenue, seatRow);
+      }
 
       const newAttendee = {
         id: 'att-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
